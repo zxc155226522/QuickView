@@ -25,7 +25,7 @@ find_program(VSWHERE_EXE vswhere
 set(VS_INSTALL_PATH "")
 if(VSWHERE_EXE)
     execute_process(
-        COMMAND "${VSWHERE_EXE}" -latest -prerelease -property installationPath
+        COMMAND "${VSWHERE_EXE}" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
         OUTPUT_VARIABLE VS_INSTALL_PATH
         OUTPUT_STRIP_TRAILING_WHITESPACE
     )

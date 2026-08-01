@@ -3,6 +3,12 @@ set(VCPKG_CRT_LINKAGE static)
 set(VCPKG_LIBRARY_LINKAGE static)
 set(VCPKG_KEEP_ENV_VARS PATH)
 
+# 显式设置 VCPKG_COMMAND，确保 vcpkg_find_acquire_program 在 download mode 下能找到 vcpkg.exe
+get_filename_component(_VCPKG_DIR "${CMAKE_CURRENT_LIST_DIR}/../third_party/vcpkg" ABSOLUTE)
+if(EXISTS "${_VCPKG_DIR}/vcpkg.exe")
+    set(ENV{VCPKG_COMMAND} "${_VCPKG_DIR}/vcpkg.exe")
+endif()
+
 # Adaptive Toolchain Discovery
 include("${CMAKE_CURRENT_LIST_DIR}/../cmake/AdaptiveToolchain.cmake")
 adaptive_inject_env()

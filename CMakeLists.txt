@@ -146,7 +146,7 @@ set_source_files_properties(third_party/yyjson/yyjson.c PROPERTIES SKIP_PRECOMPI
 # ============================================================================
 if(MSVC OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     # Common strict warnings, encoding, standard conformance, and function-level linking
-    target_compile_options(QuickView PRIVATE /W4 /WX /utf-8 /Gw /Gy /permissive-)
+    target_compile_options(QuickView PRIVATE /W4 /WX /utf-8 /Gw /Gy /permissive- /clang:-Wno-cast-function-type-mismatch)
     
     # [Optimization] Disable compiler identification string to save bytes
     target_compile_options(QuickView PRIVATE /clang:-fno-ident)
@@ -314,53 +314,58 @@ target_link_libraries(QuickView PRIVATE
 )
 
 # ============================================================================
-# Unit Tests
+# Unit Tests (Optional - requires gtest)
 # ============================================================================
-find_package(GTest CONFIG REQUIRED)
-enable_testing()
+find_package(GTest CONFIG QUIET)
+if(GTest_FOUND)
+    enable_testing()
 
-add_executable(QuickViewTests
-    tests/ColorMathTests.cpp
-    tests/FileNavigatorTests.cpp
-    tests/HotkeyTests.cpp
-    tests/StringUtilsTests.cpp
-    tests/SupportedExtensionsTests.cpp
-    tests/MiniTiffTests.cpp
-    QuickView/ImageLoaderSimd.cpp
-    QuickView/MiniTiff.cpp
-    QuickView/MiniTiffLzw.cpp
-    QuickView/MiniTiffCmyk.cpp
-    QuickView/ColorMath.cpp 
-    QuickView/FileNavigator.cpp 
-    QuickView/ArchiveVFS.cpp 
-    QuickView/exif.cpp
-    QuickView/QuickViewETW.cpp
-    QuickView/pch.cpp
-)
-target_precompile_headers(QuickViewTests PRIVATE $<$<COMPILE_LANGUAGE:CXX>:pch.h>)
-target_link_libraries(QuickViewTests PRIVATE 
-    GTest::gtest_main 
-    GTest::gtest 
-    d2d1.lib 
-    dwrite.lib 
-    windowscodecs.lib 
-    dxgi.lib 
-    d3d11.lib 
-    shlwapi.lib 
-    shell32.lib 
-    mscms.lib
-    unrar-mini
-    ZLIB::ZLIB
-)
-target_include_directories(QuickViewTests PRIVATE QuickView third_party/unrar-mini)
-target_compile_definitions(QuickViewTests PRIVATE UNICODE _UNICODE)
-add_test(NAME QuickViewTests COMMAND QuickViewTests)
+    add_executable(QuickViewTests
+        tests/ColorMathTests.cpp
+        tests/FileNavigatorTests.cpp
+        tests/HotkeyTests.cpp
+        tests/StringUtilsTests.cpp
+        tests/SupportedExtensionsTests.cpp
+        tests/MiniTiffTests.cpp
+        QuickView/ImageLoaderSimd.cpp
+        QuickView/MiniTiff.cpp
+        QuickView/MiniTiffLzw.cpp
+        QuickView/MiniTiffCmyk.cpp
+        QuickView/ColorMath.cpp 
+        QuickView/FileNavigator.cpp 
+        QuickView/ArchiveVFS.cpp 
+        QuickView/exif.cpp
+        QuickView/QuickViewETW.cpp
+        QuickView/pch.cpp
+    )
+    target_precompile_headers(QuickViewTests PRIVATE $<$<COMPILE_LANGUAGE:CXX>:pch.h>)
+    target_link_libraries(QuickViewTests PRIVATE 
+        GTest::gtest_main 
+        GTest::gtest 
+        d2d1.lib 
+        dwrite.lib 
+        windowscodecs.lib 
+        dxgi.lib 
+        d3d11.lib 
+        shlwapi.lib 
+        shell32.lib 
+        mscms.lib
+        unrar-mini
+        ZLIB::ZLIB
+    )
+    target_include_directories(QuickViewTests PRIVATE QuickView third_party/unrar-mini)
+    target_compile_definitions(QuickViewTests PRIVATE UNICODE _UNICODE)
+    add_test(NAME QuickViewTests COMMAND QuickViewTests)
+endif()
 
 # ============================================================================
 # IDE IntelliSense & Build Environment Helper (Inject Adaptive SDK Include Paths)
 # ============================================================================
 if(WIN32 AND ADAPTIVE_MSVC_INCLUDE_PATHS)
     target_include_directories(QuickView SYSTEM PRIVATE ${ADAPTIVE_MSVC_INCLUDE_PATHS})
+    if(TARGET unrar-mini)
+        target_include_directories(unrar-mini SYSTEM PRIVATE ${ADAPTIVE_MSVC_INCLUDE_PATHS})
+    endif()
     if(TARGET QuickViewTests)
         target_include_directories(QuickViewTests SYSTEM PRIVATE ${ADAPTIVE_MSVC_INCLUDE_PATHS})
     endif()
