@@ -5,12 +5,11 @@
 #include "RenderEngine.h"
 #include "CompositionEngine.h"
 #include "CompareController.h"
-#include "GalleryOverlay.h"
+#include "ImageViewportLayout.h"
 
 extern std::atomic<uint64_t> g_currentImageId;
 extern CompositionEngine* g_compEngine;
 extern PaneContext g_panes[2];
-extern GalleryOverlay g_gallery;
 
 static bool StepRectTowardTarget(RECT& current, const RECT& target, float alpha) {
     auto stepEdge = [alpha](LONG currentValue, LONG targetValue) -> LONG {
@@ -65,13 +64,13 @@ void SmoothZoomController::ResolvePan(HWND hwnd, float zoom, float& outPanX, flo
     GetClientRect(hwnd, &rc);
     const float winW = (float)rc.right;
     const float winH = (float)rc.bottom;
-    float galleryH = (g_gallery.IsPinned() && g_gallery.IsVisible()) ? g_gallery.GetVisualHeight(winH) : 0.0f;
+    const ImageViewportLayout layout = ComputeImageViewportLayout(winW, winH);
 
     POINT anchorClient = m_context.SmoothZoom.AnchorScreenPt;
     ScreenToClient(hwnd, &anchorClient);
 
-    const float dx = (float)anchorClient.x - winW * 0.5f;
-    const float dy = (float)anchorClient.y - (winH * 0.5f + galleryH * 0.5f);
+    const float dx = (float)anchorClient.x - (layout.Left + layout.Right) * 0.5f;
+    const float dy = (float)anchorClient.y - (layout.Top + layout.Bottom) * 0.5f;
     outPanX = dx - zoom * m_context.SmoothZoom.AnchorImageX;
     outPanY = dy - zoom * m_context.SmoothZoom.AnchorImageY;
 }
@@ -97,13 +96,12 @@ void SmoothZoomController::Configure(HWND hwnd,
 
     const float winW = (float)clientRc.right;
     const float winH = (float)clientRc.bottom;
-    float galleryH = (g_gallery.IsPinned() && g_gallery.IsVisible()) ? g_gallery.GetVisualHeight(winH) : 0.0f;
-    float effWinH = winH - galleryH;
-    if (effWinH < 1.0f) effWinH = 1.0f;
+    const ImageViewportLayout layout = ComputeImageViewportLayout(winW, winH);
+    const float effWinH = layout.Height;
 
     const float safeSourceZoom = (sourceZoom > 0.0001f) ? sourceZoom : 0.0001f;
-    const float dx = (float)anchorClient.x - winW * 0.5f;
-    const float dy = (float)anchorClient.y - (winH * 0.5f + galleryH * 0.5f);
+    const float dx = (float)anchorClient.x - (layout.Left + layout.Right) * 0.5f;
+    const float dy = (float)anchorClient.y - (layout.Top + layout.Bottom) * 0.5f;
 
     m_context.SmoothZoom.Active = true;
     m_context.SmoothZoom.ImageId = g_currentImageId.load(std::memory_order_acquire);
@@ -134,7 +132,8 @@ void SmoothZoomController::SyncToLogical(float winW, float winH, bool activate) 
 
     extern VisualState GetVisualState();
     VisualState vs = GetVisualState();
-    const float baseFit = ComputeBaseFitScaleForVisual(vs, winW, winH);
+    const ImageViewportLayout layout = ComputeImageViewportLayout(winW, winH);
+    const float baseFit = ComputeBaseFitScaleForVisual(vs, layout.Width, layout.Height);
     const float targetZoom = baseFit * GetPaneContext(PaneSlot::Primary).view.Zoom;
 
     m_context.SmoothZoom.ImageId = g_currentImageId.load(std::memory_order_acquire);
@@ -145,7 +144,7 @@ void SmoothZoomController::SyncToLogical(float winW, float winH, bool activate) 
     m_context.SmoothZoom.TargetPanX = GetPaneContext(PaneSlot::Primary).view.PanX;
     m_context.SmoothZoom.TargetPanY = GetPaneContext(PaneSlot::Primary).view.PanY;
     m_context.SmoothZoom.LastWinW = winW;
-    m_context.SmoothZoom.LastWinH = winH;
+    m_context.SmoothZoom.LastWinH = layout.Height;
     m_context.SmoothZoom.LastTick = GetTickCount64();
     m_context.SmoothZoom.Active = activate;
 }
@@ -164,9 +163,7 @@ bool SmoothZoomController::Tick(HWND hwnd) {
         return false;
     }
 
-    float galleryH = (g_gallery.IsPinned() && g_gallery.IsVisible()) ? g_gallery.GetVisualHeight(winH) : 0.0f;
-    float effWinH = winH - galleryH;
-    if (effWinH < 1.0f) effWinH = 1.0f;
+    float effWinH = ComputeImageViewportLayout(winW, winH).Height;
 
     const uint64_t currentImageId = g_currentImageId.load(std::memory_order_acquire);
     const bool sizeChangedUnexpectedly =
@@ -176,7 +173,7 @@ bool SmoothZoomController::Tick(HWND hwnd) {
     extern bool g_isInSizeMove;
     if (!GetPaneContext(PaneSlot::Primary).resource || IsCompareModeActive() || GetPaneContext(PaneSlot::Primary).view.IsDragging || g_isInSizeMove ||
         m_context.SmoothZoom.ImageId != currentImageId || sizeChangedUnexpectedly) {
-        SyncToLogical(winW, effWinH, false);
+        SyncToLogical(winW, winH, false);
         extern void SyncDCompState(HWND hwnd, float winW, float winH, bool animate = false);
         SyncDCompState(hwnd, winW, winH);
         g_compEngine->Commit();
@@ -214,9 +211,7 @@ bool SmoothZoomController::Tick(HWND hwnd) {
         GetClientRect(hwnd, &rc);
         winW = (float)rc.right;
         winH = (float)rc.bottom;
-        galleryH = (g_gallery.IsPinned() && g_gallery.IsVisible()) ? g_gallery.GetVisualHeight(winH) : 0.0f;
-        effWinH = winH - galleryH;
-        if (effWinH < 1.0f) effWinH = 1.0f;
+        effWinH = ComputeImageViewportLayout(winW, winH).Height;
     }
 
     ResolvePan(hwnd, m_context.SmoothZoom.CurrentZoom, m_context.SmoothZoom.CurrentPanX, m_context.SmoothZoom.CurrentPanY);
@@ -241,9 +236,7 @@ bool SmoothZoomController::Tick(HWND hwnd) {
             GetClientRect(hwnd, &rc);
             winW = (float)rc.right;
             winH = (float)rc.bottom;
-            galleryH = (g_gallery.IsPinned() && g_gallery.IsVisible()) ? g_gallery.GetVisualHeight(winH) : 0.0f;
-            effWinH = winH - galleryH;
-            if (effWinH < 1.0f) effWinH = 1.0f;
+            effWinH = ComputeImageViewportLayout(winW, winH).Height;
         }
 
         m_context.SmoothZoom.CurrentZoom = m_context.SmoothZoom.TargetZoom;

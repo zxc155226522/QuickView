@@ -13,6 +13,7 @@
 #include "GalleryOverlay.h"
 #include "HelpOverlay.h"
 #include "ImageLoaderSimd.h"
+#include "ImageViewportLayout.h"
 #include "SettingsOverlay.h"
 #include "PrintPreviewUI.h"
 #include <functional> // For std::hash
@@ -1908,8 +1909,9 @@ void UIRenderer::DrawBorderIndicators(ID2D1DeviceContext* dc) {
 
     float winW = (float)m_width;
     float winH = (float)m_height;
+    const ImageViewportLayout viewport = ComputeImageViewportLayout(winW, winH);
 
-    float baseFit = std::min(winW / imgSize.width, winH / imgSize.height);
+    float baseFit = std::min(viewport.Width / imgSize.width, viewport.Height / imgSize.height);
 
     // [SVG Lossless] Adjust bounds calculation baseFit just like main.cpp
     if (g_runtime.LockWindowSize) {
@@ -1927,18 +1929,20 @@ void UIRenderer::DrawBorderIndicators(ID2D1DeviceContext* dc) {
     float scaledW = imgSize.width * targetZoom;
     float scaledH = imgSize.height * targetZoom;
 
-    float imgLeft = (winW * 0.5f) - (scaledW * 0.5f) + g_viewState.PanX;
-    float imgRight = (winW * 0.5f) + (scaledW * 0.5f) + g_viewState.PanX;
-    float imgTop = (winH * 0.5f) - (scaledH * 0.5f) + g_viewState.PanY;
-    float imgBottom = (winH * 0.5f) + (scaledH * 0.5f) + g_viewState.PanY;
+    const float viewportCenterX = (viewport.Left + viewport.Right) * 0.5f;
+    const float viewportCenterY = (viewport.Top + viewport.Bottom) * 0.5f;
+    float imgLeft = viewportCenterX - (scaledW * 0.5f) + g_viewState.PanX;
+    float imgRight = viewportCenterX + (scaledW * 0.5f) + g_viewState.PanX;
+    float imgTop = viewportCenterY - (scaledH * 0.5f) + g_viewState.PanY;
+    float imgBottom = viewportCenterY + (scaledH * 0.5f) + g_viewState.PanY;
 
     // Buffer to avoid flickering at exact edge bounds
     const float edgeBuffer = 1.0f;
 
-    bool drawLeft = (imgLeft < -edgeBuffer);
-    bool drawRight = (imgRight > winW + edgeBuffer);
-    bool drawTop = (imgTop < -edgeBuffer);
-    bool drawBottom = (imgBottom > winH + edgeBuffer);
+    bool drawLeft = (imgLeft < viewport.Left - edgeBuffer);
+    bool drawRight = (imgRight > viewport.Right + edgeBuffer);
+    bool drawTop = (imgTop < viewport.Top - edgeBuffer);
+    bool drawBottom = (imgBottom > viewport.Bottom + edgeBuffer);
 
     if (!drawLeft && !drawRight && !drawTop && !drawBottom) return;
 

@@ -61,6 +61,7 @@ set(QUICKVIEW_SOURCES
     QuickView/FileNavigator.cpp
     QuickView/AppContext.cpp
     QuickView/CompareController.cpp
+    QuickView/ImageViewportLayout.cpp
     QuickView/DialogController.cpp
     QuickView/ZoomAnimation.cpp
     QuickView/ColorMath.cpp

@@ -423,7 +423,16 @@ HRESULT CompositionEngine::Initialize(HWND hwnd, ID3D11Device* d3dDevice, ID2D1D
     hr = m_device->CreateVisual(&m_rootVisual);
     if (FAILED(hr)) return hr;
     
+    hr = m_device->CreateVisual(&m_imageViewport);
+    if (FAILED(hr)) return hr;
+
     hr = m_device->CreateVisual(&m_imageContainer);
+    if (FAILED(hr)) return hr;
+
+    hr = m_device->CreateRectangleClip(&m_imageViewportClip);
+    if (FAILED(hr)) return hr;
+
+    hr = m_imageViewport->SetClip(m_imageViewportClip.Get());
     if (FAILED(hr)) return hr;
 
     hr = m_device->CreateVisual(&m_imageOverlayVisual);
@@ -493,11 +502,13 @@ HRESULT CompositionEngine::Initialize(HWND hwnd, ID3D11Device* d3dDevice, ID2D1D
     // Background first
     m_rootVisual->AddVisual(m_backgroundLayer.visual.Get(), FALSE, nullptr);
     
-    // Image Container above background
-    m_rootVisual->AddVisual(m_imageContainer.Get(), TRUE, m_backgroundLayer.visual.Get());
+    // Fixed image viewport above background. The transformed image container is
+    // clipped by its untransformed parent, so image pixels never enter title/UI areas.
+    m_rootVisual->AddVisual(m_imageViewport.Get(), TRUE, m_backgroundLayer.visual.Get());
+    m_imageViewport->AddVisual(m_imageContainer.Get(), FALSE, nullptr);
     
-    // UI layers explicitly ABOVE Image Container
-    m_rootVisual->AddVisual(m_galleryLayer.visual.Get(), TRUE, m_imageContainer.Get());
+    // UI layers explicitly ABOVE the fixed image viewport
+    m_rootVisual->AddVisual(m_galleryLayer.visual.Get(), TRUE, m_imageViewport.Get());
     m_rootVisual->AddVisual(m_staticLayer.visual.Get(), TRUE, m_galleryLayer.visual.Get());
     m_rootVisual->AddVisual(m_dynamicLayer.visual.Get(), TRUE, m_staticLayer.visual.Get());
 
@@ -551,6 +562,8 @@ HRESULT CompositionEngine::Initialize(HWND hwnd, ID3D11Device* d3dDevice, ID2D1D
     
     if (m_width > 0 && m_height > 0) {
         hr = CreateAllSurfaces(m_width, m_height);
+        if (FAILED(hr)) return hr;
+        hr = SetImageViewport(D2D1::RectF(0.0f, 0.0f, (float)m_width, (float)m_height));
         if (FAILED(hr)) return hr;
     }
     
@@ -1058,6 +1071,23 @@ HRESULT CompositionEngine::SetGalleryOffset(float offsetX, float offsetY) {
     if (FAILED(hr)) return hr;
     
     return m_galleryLayer.visual->SetOffsetY(offsetY);
+}
+
+HRESULT CompositionEngine::SetImageViewport(const D2D1_RECT_F& viewport) {
+    if (!m_imageViewportClip) return E_FAIL;
+
+    const float left = (std::max)(0.0f, viewport.left);
+    const float top = (std::max)(0.0f, viewport.top);
+    const float right = (std::max)(left + 1.0f, viewport.right);
+    const float bottom = (std::max)(top + 1.0f, viewport.bottom);
+
+    HRESULT hr = m_imageViewportClip->SetLeft(left);
+    if (FAILED(hr)) return hr;
+    hr = m_imageViewportClip->SetTop(top);
+    if (FAILED(hr)) return hr;
+    hr = m_imageViewportClip->SetRight(right);
+    if (FAILED(hr)) return hr;
+    return m_imageViewportClip->SetBottom(bottom);
 }
 
 HRESULT CompositionEngine::Resize(UINT width, UINT height) {

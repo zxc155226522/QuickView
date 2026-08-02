@@ -20,11 +20,12 @@ using Microsoft::WRL::ComPtr;
 // ============================================================================
 // Visual Tree (Z-Order from back to front):
 //   Root Visual
-//     ├── ImageContainer (Scale/Translate Transforms)
-//     │     ├── TileVisual (Bottom - Titan Tiled Layer)
-//     │     ├── ImageVisual B (Pong - Hidden/Pending)
-//     │     └── ImageVisual A (Ping - Visible/Active)
-//     │     └── ImageOverlayVisual (Gamut mask, inherits image transform)
+//     ├── ImageViewport (Fixed window-space clip)
+//     │     └── ImageContainer (Scale/Translate Transforms)
+//     │           ├── TileVisual (Bottom - Titan Tiled Layer)
+//     │           ├── ImageVisual B (Pong - Hidden/Pending)
+//     │           ├── ImageVisual A (Ping - Visible/Active)
+//     │           └── ImageOverlayVisual (Gamut mask, inherits image transform)
 //     ├── Gallery Visual  - Gallery Overlay
 //     ├── Static Visual   - Toolbar, Window Controls
 //     └── Dynamic Visual  - HUD, OSD, Tooltip
@@ -102,6 +103,9 @@ public:
     
     // Gallery scroll control (uses DComp SetOffset)
     HRESULT SetGalleryOffset(float offsetX, float offsetY);
+
+    // Restrict transformed image visuals to the fixed window-space content area.
+    HRESULT SetImageViewport(const D2D1_RECT_F& viewport);
     
     // Update interpolation mode based on config and state
     void SetImageInterpolationMode(DCOMPOSITION_BITMAP_INTERPOLATION_MODE mode);
@@ -204,7 +208,9 @@ private:
     
     // Visual Tree
     ComPtr<IDCompositionVisual2> m_rootVisual;
-    ComPtr<IDCompositionVisual2> m_imageContainer; // Parent for image layers, holds transforms
+    ComPtr<IDCompositionVisual2> m_imageViewport;  // Fixed window-space clipping parent
+    ComPtr<IDCompositionVisual2> m_imageContainer; // Child image layers, holds transforms
+    ComPtr<IDCompositionRectangleClip> m_imageViewportClip;
     ComPtr<IDCompositionVisual2> m_imageOverlayVisual;
     
     // Image Layers (Ping-Pong)

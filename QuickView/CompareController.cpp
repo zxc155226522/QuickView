@@ -43,6 +43,7 @@ extern bool RenderImageToDComp(HWND hwnd, ImageResource& res, bool isFirst);
 #include "AppContext.h"
 extern std::unique_ptr<ImageEngine> g_imageEngine;
 #include "CompositionEngine.h"
+#include "ImageViewportLayout.h"
 extern CompositionEngine* g_compEngine;
 extern int g_renderExifOrientation;
 
@@ -57,6 +58,32 @@ extern Toolbar g_toolbar;
 extern std::unique_ptr<CRenderEngine> g_renderEngine;
 extern std::unique_ptr<UIRenderer> g_uiRenderer;
 extern void AdjustWindowToImage(HWND hwnd);
+
+static ImageViewportLayout GetCompareImageLayout(HWND hwnd) {
+    RECT rc{};
+    GetClientRect(hwnd, &rc);
+    return ComputeImageViewportLayout(
+        (float)(rc.right - rc.left),
+        (float)(rc.bottom - rc.top));
+}
+
+static float GetCompareSplitX(const ImageViewportLayout& layout, float ratio) {
+    return layout.Left + ClampCompareRatio(ratio) * layout.Width;
+}
+
+static D2D1_RECT_F GetCompareInteractionViewport(
+    const AppContext& context,
+    HWND hwnd,
+    ComparePane pane) {
+    const ImageViewportLayout layout = GetCompareImageLayout(hwnd);
+    const float ratio = (context.Compare.mode == ViewMode::CompareSideBySide)
+        ? 0.5f
+        : ClampCompareRatio(context.Compare.splitRatio);
+    const float splitX = layout.Left + ratio * layout.Width;
+    return (pane == ComparePane::Left)
+        ? D2D1::RectF(layout.Left, layout.Top, splitX, layout.Bottom)
+        : D2D1::RectF(splitX, layout.Top, layout.Right, layout.Bottom);
+}
 
 CompareController::CompareController(AppContext& context) : m_context(context) {}
 
@@ -176,8 +203,9 @@ std::optional<LRESULT> CompareController::OnMouseMove(HWND hwnd, int x, int y) {
     if (m_context.Compare.draggingDivider) {
         RECT rc;
         GetClientRect(hwnd, &rc);
-        if (rc.right > 0) {
-            m_context.Compare.splitRatio = std::max(0.05f, std::min((float)x / rc.right, 0.95f));
+        const ImageViewportLayout layout = ComputeImageViewportLayout((float)rc.right, (float)rc.bottom);
+        if (layout.Width > 1.0f) {
+            m_context.Compare.splitRatio = std::max(0.05f, std::min(((float)x - layout.Left) / layout.Width, 0.95f));
             GetPaneContext(PaneSlot::Primary).view.CompareSplitRatio = m_context.Compare.splitRatio;
             MarkDirty();
             SyncDCompState(hwnd, (float)rc.right, (float)rc.bottom, false);
@@ -210,11 +238,9 @@ std::optional<LRESULT> CompareController::OnKeyDown([[maybe_unused]] HWND hwnd, 
 
 bool CompareController::IsNearCompareDivider(HWND hwnd, POINT ptClient, float threshold) const {
     if (!IsActive() || m_context.Compare.mode != ViewMode::CompareWipe) return false;
-    RECT rc{};
-    GetClientRect(hwnd, &rc);
-    const float w = (float)(rc.right - rc.left);
-    if (w <= 1.0f) return false;
-    const float splitX = ClampCompareRatio(m_context.Compare.splitRatio) * w;
+    const ImageViewportLayout layout = GetCompareImageLayout(hwnd);
+    if (layout.Width <= 1.0f || (float)ptClient.y < layout.Top || (float)ptClient.y > layout.Bottom) return false;
+    const float splitX = GetCompareSplitX(layout, m_context.Compare.splitRatio);
     return fabsf((float)ptClient.x - splitX) <= threshold;
 }
 
@@ -294,32 +320,26 @@ void CompareController::MarkDirty() {
 
 
 D2D1_RECT_F CompareController::GetViewport([[maybe_unused]] HWND hwnd, ComparePane pane) const {
-    RECT rc{};
-    GetClientRect(hwnd, &rc);
-    const float w = (float)(rc.right - rc.left);
-    const float h = (float)(rc.bottom - rc.top);
-    const float splitX = GetSplitRatio() * w;
+    const ImageViewportLayout layout = GetCompareImageLayout(hwnd);
+    const float splitX = layout.Left + GetSplitRatio() * layout.Width;
 
     if (m_context.Compare.mode == ViewMode::CompareSideBySide) {
         if (pane == ComparePane::Left) {
-            return D2D1::RectF(0.0f, 0.0f, splitX, h);
+            return D2D1::RectF(layout.Left, layout.Top, splitX, layout.Bottom);
         }
-        return D2D1::RectF(splitX, 0.0f, w, h);
+        return D2D1::RectF(splitX, layout.Top, layout.Right, layout.Bottom);
     }
 
-    // Wipe mode: both occupy full viewport.
-    return D2D1::RectF(0.0f, 0.0f, w, h);
+    // Wipe mode: both occupy the fixed image content viewport.
+    return layout.Rect();
 }
 
 
 ComparePane CompareController::HitTest([[maybe_unused]] HWND hwnd, POINT ptClient) const {
     if (!IsActive()) return ComparePane::Right;
 
-    RECT rc{};
-    GetClientRect(hwnd, &rc);
-    const float w = (float)(rc.right - rc.left);
-    const float splitX = GetSplitRatio() * w;
-    return ((float)ptClient.x < splitX) ? ComparePane::Left : ComparePane::Right;
+    const D2D1_RECT_F leftViewport = GetCompareInteractionViewport(m_context, hwnd, ComparePane::Left);
+    return ((float)ptClient.x < leftViewport.right) ? ComparePane::Left : ComparePane::Right;
 }
 
 
@@ -363,6 +383,7 @@ bool CompareController::RenderComposite(HWND hwnd) {
     const UINT winW = (UINT)(rc.right - rc.left);
     const UINT winH = (UINT)(rc.bottom - rc.top);
     if (winW == 0 || winH == 0) return false;
+    const ImageViewportLayout layout = ComputeImageViewportLayout((float)winW, (float)winH);
 
     DXGI_FORMAT compareSurfaceFormat = GetImageResourceSurfaceFormat(GetPaneContext(PaneSlot::Primary).resource);
     if (GetPaneContext(PaneSlot::Left).resource.bitmap) {
@@ -393,11 +414,11 @@ bool CompareController::RenderComposite(HWND hwnd) {
     const CompareView rightView = GetRightCompareView();
 
     // Logic for drawing the composite (moved into cmdList recording)
-    auto DrawDividerHandleInternal = [&](float splitX, float winH, float opacity) {
+    auto DrawDividerHandleInternal = [&](float splitX, float top, float bottom, float opacity) {
         const float s = g_uiScale;
         const float radius = 11.0f * s;
-        const float centerY = winH * 0.5f;
-        if (winH < radius * 2.0f + 4.0f) return;
+        const float centerY = (top + bottom) * 0.5f;
+        if (bottom - top < radius * 2.0f + 4.0f) return;
 
         ComPtr<ID2D1SolidColorBrush> bgBrush;
         ComPtr<ID2D1SolidColorBrush> borderBrush;
@@ -431,10 +452,10 @@ bool CompareController::RenderComposite(HWND hwnd) {
     };
 
     if (m_context.Compare.mode == ViewMode::CompareWipe) {
-        const D2D1_RECT_F full = D2D1::RectF(0.0f, 0.0f, (float)winW, (float)winH);
-        const float splitX = ClampCompareRatio(m_context.Compare.splitRatio) * (float)winW;
-        const D2D1_RECT_F leftClip = D2D1::RectF(0.0f, 0.0f, splitX, (float)winH);
-        const D2D1_RECT_F rightClip = D2D1::RectF(splitX, 0.0f, (float)winW, (float)winH);
+        const D2D1_RECT_F full = layout.Rect();
+        const float splitX = GetCompareSplitX(layout, m_context.Compare.splitRatio);
+        const D2D1_RECT_F leftClip = D2D1::RectF(layout.Left, layout.Top, splitX, layout.Bottom);
+        const D2D1_RECT_F rightClip = D2D1::RectF(splitX, layout.Top, layout.Right, layout.Bottom);
 
         ctx->PushAxisAlignedClip(leftClip, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
         int leftExif = GetEffectiveExifOrientation(GetPaneContext(PaneSlot::Left).view.ExifOrientation, GetPaneContext(PaneSlot::Left).editState);
@@ -449,13 +470,13 @@ bool CompareController::RenderComposite(HWND hwnd) {
         ComPtr<ID2D1SolidColorBrush> dividerBrush;
         ctx->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.85f), &dividerBrush);
         if (dividerBrush) {
-            ctx->DrawLine(D2D1::Point2F(splitX, 0.0f), D2D1::Point2F(splitX, (float)winH), dividerBrush.Get(), 2.0f);
+            ctx->DrawLine(D2D1::Point2F(splitX, layout.Top), D2D1::Point2F(splitX, layout.Bottom), dividerBrush.Get(), 2.0f);
         }
-        DrawDividerHandleInternal(splitX, (float)winH, m_context.Compare.dividerOpacity);
+        DrawDividerHandleInternal(splitX, layout.Top, layout.Bottom, m_context.Compare.dividerOpacity);
     } else {
-        const float splitX = 0.5f * (float)winW;
-        const D2D1_RECT_F leftVp = D2D1::RectF(0.0f, 0.0f, splitX, (float)winH);
-        const D2D1_RECT_F rightVp = D2D1::RectF(splitX, 0.0f, (float)winW, (float)winH);
+        const float splitX = layout.Left + 0.5f * layout.Width;
+        const D2D1_RECT_F leftVp = D2D1::RectF(layout.Left, layout.Top, splitX, layout.Bottom);
+        const D2D1_RECT_F rightVp = D2D1::RectF(splitX, layout.Top, layout.Right, layout.Bottom);
         int leftExif = GetEffectiveExifOrientation(GetPaneContext(PaneSlot::Left).view.ExifOrientation, GetPaneContext(PaneSlot::Left).editState);
         int rightExif = GetEffectiveExifOrientation(GetPaneContext(PaneSlot::Primary).view.ExifOrientation, GetPaneContext(PaneSlot::Primary).editState);
         DrawResourceIntoViewport(ctx, GetPaneContext(PaneSlot::Left).resource, leftExif, GetPaneContext(PaneSlot::Left).view, leftVp);
@@ -464,7 +485,7 @@ bool CompareController::RenderComposite(HWND hwnd) {
         ComPtr<ID2D1SolidColorBrush> dividerBrush;
         ctx->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.35f), &dividerBrush);
         if (dividerBrush) {
-            ctx->DrawLine(D2D1::Point2F(splitX, 0.0f), D2D1::Point2F(splitX, (float)winH), dividerBrush.Get(), 1.0f);
+            ctx->DrawLine(D2D1::Point2F(splitX, layout.Top), D2D1::Point2F(splitX, layout.Bottom), dividerBrush.Get(), 1.0f);
         }
     }
 
@@ -761,14 +782,8 @@ void CompareController::CenterDialogOnPaneIfNeeded(HWND hwnd, ComparePane pane) 
 
 bool CompareController::HitTestEdgeNav(HWND hwnd, POINT ptClient) const {
     if (!IsActive()) return false;
-    RECT rcv{};
-    GetClientRect(hwnd, &rcv);
-    const float w = (float)(rcv.right - rcv.left);
-    const float h = (float)(rcv.bottom - rcv.top);
-    const float splitX = GetSplitRatio() * w;
-
-    const D2D1_RECT_F leftRect = D2D1::RectF(0.0f, 0.0f, splitX, h);
-    const D2D1_RECT_F rightRect = D2D1::RectF(splitX, 0.0f, w, h);
+    const D2D1_RECT_F leftRect = GetCompareInteractionViewport(m_context, hwnd, ComparePane::Left);
+    const D2D1_RECT_F rightRect = GetCompareInteractionViewport(m_context, hwnd, ComparePane::Right);
     
     const ComparePane pane = HitTest(hwnd, ptClient);
     const D2D1_RECT_F paneRect = (pane == ComparePane::Left) ? leftRect : rightRect;
@@ -789,21 +804,20 @@ void CompareController::UpdateEdgeHoverStates(HWND hwnd, POINT ptClient) {
         return;
     }
 
-    RECT rc{};
-    GetClientRect(hwnd, &rc);
-    const float w = (float)(rc.right - rc.left);
-    const float h = (float)(rc.bottom - rc.top);
+    const ImageViewportLayout layout = GetCompareImageLayout(hwnd);
 
     const int oldLeft = GetPaneContext(PaneSlot::Primary).view.EdgeHoverLeft;
     const int oldRight = GetPaneContext(PaneSlot::Primary).view.EdgeHoverRight;
     GetPaneContext(PaneSlot::Primary).view.EdgeHoverState = 0;
     GetPaneContext(PaneSlot::Primary).view.CompareActive = true;
 
-    const float splitX = GetSplitRatio() * w;
-    GetPaneContext(PaneSlot::Primary).view.CompareSplitRatio = (w > 1.0f) ? (splitX / w) : 0.5f;
+    const float splitX = layout.Left + GetSplitRatio() * layout.Width;
+    GetPaneContext(PaneSlot::Primary).view.CompareSplitRatio = (layout.Width > 1.0f)
+        ? ((splitX - layout.Left) / layout.Width)
+        : 0.5f;
 
-    const D2D1_RECT_F leftRect = D2D1::RectF(0.0f, 0.0f, splitX, h);
-    const D2D1_RECT_F rightRect = D2D1::RectF(splitX, 0.0f, w, h);
+    const D2D1_RECT_F leftRect = D2D1::RectF(layout.Left, layout.Top, splitX, layout.Bottom);
+    const D2D1_RECT_F rightRect = D2D1::RectF(splitX, layout.Top, layout.Right, layout.Bottom);
 
     extern int ComputeEdgeHoverForPane(POINT pt, const D2D1_RECT_F& rect);
     GetPaneContext(PaneSlot::Primary).view.EdgeHoverLeft = ComputeEdgeHoverForPane(ptClient, leftRect);
@@ -816,14 +830,8 @@ void CompareController::UpdateEdgeHoverStates(HWND hwnd, POINT ptClient) {
 
 bool CompareController::HitTestEdgeZone(HWND hwnd, POINT ptClient) const {
     if (!IsActive()) return false;
-    RECT rcCheck{};
-    GetClientRect(hwnd, &rcCheck);
-    const float w = (float)(rcCheck.right - rcCheck.left);
-    const float h = (float)(rcCheck.bottom - rcCheck.top);
-    const float splitX = GetSplitRatio() * w;
-
-    const D2D1_RECT_F leftRect = D2D1::RectF(0.0f, 0.0f, splitX, h);
-    const D2D1_RECT_F rightRect = D2D1::RectF(splitX, 0.0f, w, h);
+    const D2D1_RECT_F leftRect = GetCompareInteractionViewport(m_context, hwnd, ComparePane::Left);
+    const D2D1_RECT_F rightRect = GetCompareInteractionViewport(m_context, hwnd, ComparePane::Right);
     
     const ComparePane pane = HitTest(hwnd, ptClient);
     const D2D1_RECT_F paneRect = (pane == ComparePane::Left) ? leftRect : rightRect;
@@ -839,14 +847,8 @@ bool CompareController::HitTestEdgeZone(HWND hwnd, POINT ptClient) const {
 
 int CompareController::HandleEdgeNavClick(HWND hwnd, POINT ptClient) {
     if (!IsActive()) return 0;
-    RECT rc{};
-    GetClientRect(hwnd, &rc);
-    const float w = (float)(rc.right - rc.left);
-    const float h = (float)(rc.bottom - rc.top);
-    const float splitX = GetSplitRatio() * w;
-
-    const D2D1_RECT_F leftRect = D2D1::RectF(0.0f, 0.0f, splitX, h);
-    const D2D1_RECT_F rightRect = D2D1::RectF(splitX, 0.0f, w, h);
+    const D2D1_RECT_F leftRect = GetCompareInteractionViewport(m_context, hwnd, ComparePane::Left);
+    const D2D1_RECT_F rightRect = GetCompareInteractionViewport(m_context, hwnd, ComparePane::Right);
     
     const ComparePane pane = HitTest(hwnd, ptClient);
     const D2D1_RECT_F paneRect = (pane == ComparePane::Left) ? leftRect : rightRect;
