@@ -865,7 +865,11 @@ void UIRenderer::RenderStaticLayer(ID2D1DeviceContext* dc, HWND hwnd) {
             if (g_runtime.InfoPanelExpanded) {
                 DrawInfoPanel(dc);
             } else {
-                DrawCompactInfo(dc);
+                // Compact image information is rendered in the title bar so it
+                // never covers the image viewport.
+                m_panelToggleRect = {};
+                m_panelCloseRect = {};
+                m_lastInfoPanelRect = {};
             }
         }
     }
@@ -1797,9 +1801,37 @@ void UIRenderer::DrawTitleBar(ID2D1DeviceContext* dc, HWND hwnd) {
     const float textRight = (std::max)(textLeft, (float)m_width - controlsW - 8.0f * s);
     if (m_titleBarFormat && textRight > textLeft) {
         std::wstring title = L"QuickView";
-        if (!m_imagePath.empty()) {
-            const size_t separator = m_imagePath.find_last_of(L"\\/");
-            title = (separator == std::wstring::npos) ? m_imagePath : m_imagePath.substr(separator + 1);
+        if (!g_imagePath.empty()) {
+            const bool showCompactInfo = g_runtime.ShowInfoPanel && !g_runtime.InfoPanelExpanded;
+            if (showCompactInfo) {
+                if (m_animState.IsAnimated) {
+                    wchar_t frameBuf[256];
+                    const wchar_t* disposal = L"Keep";
+                    if (m_animState.CurrentDisposal == QuickView::FrameDisposalMode::RestoreBackground) disposal = L"BG";
+                    else if (m_animState.CurrentDisposal == QuickView::FrameDisposalMode::RestorePrevious) disposal = L"Prev";
+
+                    const std::wstring fileName = g_imagePath.substr(g_imagePath.find_last_of(L"\\/") + 1);
+                    if (m_animState.TotalFrames > 0) {
+                        swprintf_s(frameBuf, L"%u / %u   |   %u ms   |   %s   |   %u\u00d7%u   |   %s",
+                            m_animState.CurrentFrameIndex + 1, m_animState.TotalFrames,
+                            m_animState.CurrentFrameDelayTime, disposal,
+                            g_currentMetadata.Width, g_currentMetadata.Height,
+                            fileName.c_str());
+                    } else {
+                        swprintf_s(frameBuf, L"%u / ?   |   %u ms   |   %s   |   %u\u00d7%u   |   %s",
+                            m_animState.CurrentFrameIndex + 1,
+                            m_animState.CurrentFrameDelayTime, disposal,
+                            g_currentMetadata.Width, g_currentMetadata.Height,
+                            fileName.c_str());
+                    }
+                    title = frameBuf;
+                } else {
+                    title = BuildCompactInfoText();
+                }
+            } else {
+                const size_t separator = g_imagePath.find_last_of(L"\\/");
+                title = (separator == std::wstring::npos) ? g_imagePath : g_imagePath.substr(separator + 1);
+            }
             if (title.empty()) title = L"QuickView";
         }
         title = MakeEndEllipsis(textRight - textLeft, title, m_titleBarFormat.Get());
@@ -2723,14 +2755,10 @@ D2D1_SIZE_F UIRenderer::GetRequiredInfoPanelSize() const {
         // startX = 16 * s, startY = 32 * s
         // Add 32 padding for right/bottom margin + 152 to avoid window controls
         return D2D1::SizeF(16.0f * s + width + 32.0f * s + 152.0f * s, 32.0f * s + height + 32.0f * s);
-    } else if (g_runtime.ShowInfoPanel && !g_runtime.InfoPanelExpanded) {
-        std::wstring info = BuildCompactInfoText();
-        float textW = m_panelFormat ? MeasureTextWidth(info) : 400.0f;
-        // Padding(16) + text + Gap(6) + ExpandBtn(24) + Gap(4) + CloseBtn(24) + RightPad(32) + WindowControls(152)
-        float totalW = textW + 106.0f * s + 152.0f * s;
-        return D2D1::SizeF(totalW, 45.0f * s);
     }
 
+    // Compact image information lives inside the existing title bar and does
+    // not require any additional window space.
     return D2D1::SizeF(0, 0);
 }
 
