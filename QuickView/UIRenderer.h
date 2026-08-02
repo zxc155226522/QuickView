@@ -171,9 +171,11 @@ public:
     void SetUIScale(float scale);
     void OnResize(UINT width, UINT height);
     
-    // ===== Window Controls Hit Testing =====
+    // ===== Custom Title Bar / Window Controls =====
     WindowControlHit HitTestWindowControls(float x, float y);
+    bool IsPointInTitleBarDragRegion(float x, float y) const;
     float GetWindowControlsWidth() const;
+    float GetTitleBarHeight() const { return m_isFullscreen ? 0.0f : 36.0f * m_uiScale; }
     
     // Backward compatibility
     bool Render(HWND hwnd, float deltaTime) { return RenderAll(hwnd, deltaTime); }
@@ -231,6 +233,7 @@ private:
     void DrawOSD(ID2D1DeviceContext* dc, HWND hwnd);
     // [Loupe] press-and-hold magnifier overlay (shows the region at actual pixels)
     void DrawLoupe(ID2D1DeviceContext* dc, HWND hwnd);
+    void DrawTitleBar(ID2D1DeviceContext* dc, HWND hwnd);
     void DrawWindowControls(ID2D1DeviceContext* dc, HWND hwnd);
     void DrawBorderIndicators(ID2D1DeviceContext* dc);
     void DrawNavigator(ID2D1DeviceContext* dc);
@@ -323,7 +326,7 @@ private:
     bool m_pinActive = false;
     bool m_isFullscreen = false;
     
-    // Window Controls cached hit rects (updated during DrawWindowControls)
+    // Window controls cached hit rects
     D2D1_RECT_F m_winCloseRect = {};
     D2D1_RECT_F m_winMaxRect = {};
     D2D1_RECT_F m_winMinRect = {};
@@ -365,6 +368,7 @@ private:
     ComPtr<ID2D1SolidColorBrush> m_blackBrush;
     ComPtr<ID2D1SolidColorBrush> m_accentBrush;
     ComPtr<IDWriteTextFormat> m_osdFormat;
+    ComPtr<IDWriteTextFormat> m_titleBarFormat;
     ComPtr<IDWriteTextFormat> m_debugFormat;
     ComPtr<IDWriteTextFormat> m_panelFormat;  // For Info Panel text
     float m_lastPanelScale = -1.0f;

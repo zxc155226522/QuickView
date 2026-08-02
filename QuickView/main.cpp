@@ -2046,50 +2046,39 @@ static void ExitPassthroughMode(HWND hwnd) {
     InvalidateRect(hwnd, nullptr, FALSE);
 }
 
-// Helper: Check if panning makes sense (image exceeds window OR window exceeds screen)
-bool CanPan(HWND hwnd) {
+struct ImageViewportLayout {
+    float Width = 1.0f;
+    float Height = 1.0f;
+    float CenterOffsetX = 0.0f;
+    float CenterOffsetY = 0.0f;
+};
+
+static ImageViewportLayout GetImageViewportLayout(float winW, float winH) {
+    const float padding = 12.0f * g_uiScale;
+    const float titleBarH = g_isFullScreen ? 0.0f : 36.0f * g_uiScale;
+    const float galleryH = (g_gallery.IsPinned() && g_gallery.IsVisible())
+        ? g_gallery.GetVisualHeight(winH)
+        : 0.0f;
+
+    const float left = padding;
+    const float top = titleBarH + galleryH + padding;
+    const float right = (std::max)(left + 1.0f, winW - padding);
+    const float bottom = (std::max)(top + 1.0f, winH - padding);
+
+    ImageViewportLayout layout;
+    layout.Width = right - left;
+    layout.Height = bottom - top;
+    layout.CenterOffsetX = (left + right) * 0.5f - winW * 0.5f;
+    layout.CenterOffsetY = (top + bottom) * 0.5f - winH * 0.5f;
+    return layout;
+}
+
+// Helper: Check if panning makes sense (image exceeds viewport OR window exceeds screen)
+bool CanPan([[maybe_unused]] HWND hwnd) {
     if (IsCompareModeActive()) {
-        // In compare mode, panning is always allowed if images are loaded,
-        // even if they fit the window, to allow precise alignment comparison.
         return (GetPaneContext(PaneSlot::Primary).resource || GetPaneContext(PaneSlot::Left).valid);
     }
-    if (!GetPaneContext(PaneSlot::Primary).resource) return false;
-    
-    RECT rc; GetClientRect(hwnd, &rc);
-    float windowW = (float)(rc.right - rc.left);
-    float windowH = (float)(rc.bottom - rc.top);
-    
-    D2D1_SIZE_F imgSize = GetPaneContext(PaneSlot::Primary).resource.GetSize();
-    float fitScale = std::min(windowW / imgSize.width, windowH / imgSize.height);
-    float scaledW = imgSize.width * fitScale * GetPaneContext(PaneSlot::Primary).view.Zoom;
-    float scaledH = imgSize.height * fitScale * GetPaneContext(PaneSlot::Primary).view.Zoom;
-    
-    // Condition 0: Always allow pan if zoomed in
-    if (GetPaneContext(PaneSlot::Primary).view.Zoom > 1.01f) return true;
-
-    // Condition 1: Image exceeds window bounds
-    if (scaledW > windowW + 1.0f || scaledH > windowH + 1.0f) {
-        return true;
-    }
-    
-    // Condition 2: Window exceeds screen bounds (locked window mode or zoomed beyond screen)
-    // Get screen work area (excludes taskbar)
-    HMONITOR hMon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-    MONITORINFO mi{}; mi.cbSize = sizeof(mi);
-    if (GetMonitorInfo(hMon, &mi)) {
-        RECT windowRect; GetWindowRect(hwnd, &windowRect);
-        int winW = windowRect.right - windowRect.left;
-        int winH = windowRect.bottom - windowRect.top;
-        int screenW = mi.rcWork.right - mi.rcWork.left;
-        int screenH = mi.rcWork.bottom - mi.rcWork.top;
-        
-        // If window is larger than screen work area in either dimension
-        if (winW > screenW || winH > screenH) {
-            return true;
-        }
-    }
-    
-    return false;
+    return (bool)GetPaneContext(PaneSlot::Primary).resource;
 }
 
 struct SvgSurfaceSpec {
@@ -2113,14 +2102,16 @@ static float ComputeSvgViewportScale(float winW, float winH, const VisualState& 
     if (vs.VisualSize.width <= 0.0f || vs.VisualSize.height <= 0.0f) {
         return 1.0f;
     }
-    const float baseFit = ComputeBaseFitScaleForVisual(vs, winW, winH);
+    const ImageViewportLayout viewport = GetImageViewportLayout(winW, winH);
+    const float baseFit = ComputeBaseFitScaleForVisual(vs, viewport.Width, viewport.Height);
     return baseFit * GetPaneContext(PaneSlot::Primary).view.Zoom;
 }
 
 static D2D1_MATRIX_3X2_F BuildSvgViewportTransform(float winW, float winH, const ImageResource& res, const VisualState& vs) {
+    const ImageViewportLayout viewport = GetImageViewportLayout(winW, winH);
     const float targetZoom = ComputeSvgViewportScale(winW, winH, vs);
-    const float centerX = winW * 0.5f + GetPaneContext(PaneSlot::Primary).view.PanX;
-    const float centerY = winH * 0.5f + GetPaneContext(PaneSlot::Primary).view.PanY;
+    const float centerX = winW * 0.5f + viewport.CenterOffsetX + GetPaneContext(PaneSlot::Primary).view.PanX;
+    const float centerY = winH * 0.5f + viewport.CenterOffsetY + GetPaneContext(PaneSlot::Primary).view.PanY;
     return D2D1::Matrix3x2F::Translation(-res.svgW * 0.5f, -res.svgH * 0.5f) *
            D2D1::Matrix3x2F::Scale(vs.FlipX, vs.FlipY) *
            D2D1::Matrix3x2F::Rotation(vs.TotalRotation) *
@@ -3447,14 +3438,12 @@ static float ComputeFitZoom(HWND hwnd) {
     D2D1_SIZE_F effSize = GetVisualImageSize();
     if (effSize.width <= 0 || effSize.height <= 0) return 1.0f;
     RECT rc; GetClientRect(hwnd, &rc);
-    float fW = (float)rc.right;
-    float fH = (float)rc.bottom;
-    float galleryH = (g_gallery.IsPinned() && g_gallery.IsVisible()) ? g_gallery.GetVisualHeight(fH) : 0.0f;
-    float effH = fH - galleryH;
-    if (fW <= 0 || effH < 1.0f) return 1.0f;
-    float rawFit = std::min(fW / effSize.width, effH / effSize.height);
+    const float winW = (float)rc.right;
+    const float winH = (float)rc.bottom;
+    const ImageViewportLayout viewport = GetImageViewportLayout(winW, winH);
+    const float rawFit = std::min(viewport.Width / effSize.width, viewport.Height / effSize.height);
     VisualState vs = GetVisualState();
-    float cappedFit = ComputeBaseFitScaleForVisual(vs, fW, effH);
+    const float cappedFit = ComputeBaseFitScaleForVisual(vs, viewport.Width, viewport.Height);
     return (cappedFit > 0.0001f) ? rawFit / cappedFit : 1.0f;
 }
 
@@ -4651,7 +4640,8 @@ void LoadConfig() {
     if (GetPrivateProfileIntW(L"View", L"ResizeWindowOnZoom", 1, iniPath.c_str()) == 0) {
         g_config.LockWindowSize = true;
     }
-    g_config.AutoHideWindowControls = GetPrivateProfileIntW(L"View", L"AutoHideWindowControls", 1, iniPath.c_str()) != 0;
+    // The custom title bar and its controls are always visible in windowed mode.
+    g_config.AutoHideWindowControls = false;
     g_config.LockBottomToolbar = GetPrivateProfileIntW(L"View", L"LockBottomToolbar", 0, iniPath.c_str()) != 0;
     g_config.ShowBorderIndicator = GetPrivateProfileIntW(L"View", L"ShowBorderIndicator", 1, iniPath.c_str());
     wchar_t bufBICR[32], bufBICG[32], bufBICB[32];
@@ -4729,8 +4719,9 @@ void LoadConfig() {
     g_config.PanStepNormal = std::clamp((float)_wtof(buf), 1.0f, 100.0f);
     GetPrivateProfileStringW(L"Controls", L"PanStepFast", L"100.0", buf, 64, iniPath.c_str());
     g_config.PanStepFast = std::clamp((float)_wtof(buf), 10.0f, 500.0f);
-    g_config.LeftDragAction = (MouseAction)GetPrivateProfileIntW(L"Controls", L"LeftDragAction", (int)MouseAction::WindowDrag, iniPath.c_str());
-    g_config.MiddleDragAction = (MouseAction)GetPrivateProfileIntW(L"Controls", L"MiddleDragAction", (int)MouseAction::PanImage, iniPath.c_str());
+    // Image-area left drag is fixed to pan; middle drag remains the window-drag fallback.
+    g_config.LeftDragAction = MouseAction::PanImage;
+    g_config.MiddleDragAction = MouseAction::WindowDrag;
     g_config.MiddleClickAction = (MouseAction)GetPrivateProfileIntW(L"Controls", L"MiddleClickAction", (int)MouseAction::ExitApp, iniPath.c_str());
     // Sync helper indices from loaded action values
     g_config.LeftDragIndex = (g_config.LeftDragAction == MouseAction::WindowDrag) ? 0 : 1;
@@ -5063,8 +5054,10 @@ static void ClampPanForViewport(const VisualState& vs, float winW, float winH, f
     const float scaledW = vs.VisualSize.width * targetZoom;
     const float scaledH = vs.VisualSize.height * targetZoom;
 
-    const float maxPanX = std::max(0.0f, (scaledW - winW) * 0.5f);
-    const float maxPanY = std::max(0.0f, (scaledH - winH) * 0.5f);
+    // Keep a useful drag range even when fit-to-window exactly matches one axis.
+    const float minPanTravel = 48.0f * g_uiScale;
+    const float maxPanX = (std::max)(minPanTravel, fabsf(scaledW - winW) * 0.5f);
+    const float maxPanY = (std::max)(minPanTravel, fabsf(scaledH - winH) * 0.5f);
 
     if (maxPanX <= 0.5f) {
         GetPaneContext(PaneSlot::Primary).view.PanX = 0.0f;
@@ -5579,11 +5572,10 @@ void SyncDCompState([[maybe_unused]] HWND hwnd, float winW, float winH, bool ani
     if (GetPaneContext(PaneSlot::Primary).resource) {
         VisualState vs = GetVisualState();
         if (vs.VisualSize.width > 0 && vs.VisualSize.height > 0) {
-            float galleryH = (g_gallery.IsPinned() && g_gallery.IsVisible()) ? g_gallery.GetVisualHeight(winH) : 0.0f;
-            float effWinH = winH - galleryH;
-            if (effWinH < 1.0f) effWinH = 1.0f;
+            const ImageViewportLayout viewport = GetImageViewportLayout(winW, winH);
+            const float effWinH = viewport.Height;
 
-            float baseFit = ComputeBaseFitScaleForVisual(vs, winW, effWinH);
+            float baseFit = ComputeBaseFitScaleForVisual(vs, viewport.Width, viewport.Height);
             if (g_slideshowState.IsActive && g_config.SlideshowImmersiveMode == 1) {
                 baseFit *= 0.85f; // Constrain to 85% of available space for Spotlight effect
             }
@@ -5604,7 +5596,7 @@ void SyncDCompState([[maybe_unused]] HWND hwnd, float winW, float winH, bool ani
                 targetZoom = baseFit * GetPaneContext(PaneSlot::Primary).view.Zoom;
             }
 
-            ClampPanForViewport(vs, winW, effWinH, targetZoom);
+            ClampPanForViewport(vs, viewport.Width, viewport.Height, targetZoom);
 
             float animationDurationMs = (animate && g_config.EnableSmoothScaling) ? 90.0f : 0.0f;
 
@@ -5634,8 +5626,9 @@ void SyncDCompState([[maybe_unused]] HWND hwnd, float winW, float winH, bool ani
                 AppContext::GetInstance().ZoomAnimCtrl->SyncToLogical(winW, effWinH, false);
             }
             
-            // Fix #6: Pin mode — shift main image down by half of gallery filmstrip height
-            displayPanY += galleryH / 2.0f;
+            // Center the image inside the padded viewport below the custom title bar.
+            displayPanX += viewport.CenterOffsetX;
+            displayPanY += viewport.CenterOffsetY;
 
             if (UseSvgViewportRendering(GetPaneContext(PaneSlot::Primary).resource)) {
                 VisualState surfaceVs{};
@@ -5653,7 +5646,15 @@ void SyncDCompState([[maybe_unused]] HWND hwnd, float winW, float winH, bool ani
                 surfaceVs.IsRotated90 = false;
                 surfaceVs.FlipX = 1.0f;
                 surfaceVs.FlipY = 1.0f;
-                g_compEngine->UpdateTransformMatrix(surfaceVs, winW, winH, 1.0f, 0.0f, galleryH / 2.0f, animationDurationMs);
+                // SVG content is already drawn at the padded viewport center.
+                g_compEngine->UpdateTransformMatrix(
+                    surfaceVs,
+                    winW,
+                    winH,
+                    1.0f,
+                    0.0f,
+                    0.0f,
+                    animationDurationMs);
                 
                 // Use adaptive interpolation even during SVG viewport resizing to keep it smooth
                 DCOMPOSITION_BITMAP_INTERPOLATION_MODE interpMode = GetOptimalDCompInterpolationMode(currentScale, g_lastSurfaceSize.width, g_lastSurfaceSize.height);
@@ -7387,6 +7388,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
         // [Phase 2] Cross-Monitor: Logic moved to WM_SYSCOMMAND (Fake Maximize) to avoid DWM clipping.
         return 0;
     }
+    case WM_NCLBUTTONDBLCLK:
+        // The custom title bar only moves the window; double-click is reserved for image fit.
+        if (wParam == HTCAPTION) return 0;
+        break;
+
     case WM_NCHITTEST: {
         // [Fix] Disable window edge resizing/interaction in Fullscreen
         if (g_isFullScreen) return HTCLIENT;
@@ -7414,9 +7420,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
         if (pt.x > rc.right - border) return HTRIGHT;
         
         ScreenToClient(hwnd, &pt);
-        
-        // All client area clicks are HTCLIENT
-        // Window movement is handled by left-click drag in WM_LBUTTONDOWN
+
+        if (g_uiRenderer &&
+            g_uiRenderer->HitTestWindowControls((float)pt.x, (float)pt.y) == WindowControlHit::None &&
+            g_uiRenderer->IsPointInTitleBarDragRegion((float)pt.x, (float)pt.y)) {
+            return HTCAPTION;
+        }
+
         return HTCLIENT;
     }
 
@@ -7937,30 +7947,16 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
               return 0; // Handled
           }
 
-          // [Topmost Priority] Window Controls Auto-Show & Hover Logic
-          // Executes before any overlays (Settings, Help, Gallery) to guarantee window controls auto-show and react even if Gallery is in full-grid mode.
+          // [Topmost Priority] Custom title bar controls are permanently visible in windowed mode.
           {
-              float s = g_uiScale;
-              float rightMargin = winW - (float)pt.x;
-              // Narrowed trigger area: Top 65px and rightmost 360px (top-right corner only)
-              bool inTopRightArea = (pt.y <= 65.0f * s) && (rightMargin <= 360.0f * s);
-
-              if (g_config.AutoHideWindowControls) {
-                  if (inTopRightArea != g_showControls) {
-                      g_showControls = inTopRightArea;
-                      if (g_uiRenderer) g_uiRenderer->SetControlsVisible(g_showControls);
-                      RequestRepaint(PaintLayer::Static);
-                  }
-              } else {
-                  if (!g_showControls) {
-                      g_showControls = true;
-                      if (g_uiRenderer) g_uiRenderer->SetControlsVisible(g_showControls);
-                      RequestRepaint(PaintLayer::Static);
-                  }
+              if (!g_showControls) {
+                  g_showControls = true;
+                  if (g_uiRenderer) g_uiRenderer->SetControlsVisible(true);
+                  RequestRepaint(PaintLayer::Static);
               }
 
               int oldHoverIdx = g_winCtrlHoverState;
-              if (g_showControls && g_uiRenderer) {
+              if (g_uiRenderer) {
                   g_winCtrlHoverState = HitTestWindowControlButton(pt);
                   if (g_winCtrlHoverState != -1) {
                       g_currentCursor = LoadCursor(nullptr, IDC_HAND);
@@ -8418,10 +8414,8 @@ SKIP_EDGE_NAV:;
     case WM_MOUSELEAVE:
         g_winCtrlHoverState = -1;
         if (g_uiRenderer) g_uiRenderer->SetWindowControlHover(-1);
-        if (g_config.AutoHideWindowControls) { 
-            g_showControls = false; 
-            if (g_uiRenderer) g_uiRenderer->SetControlsVisible(false);
-        }
+        g_showControls = true;
+        if (g_uiRenderer) g_uiRenderer->SetControlsVisible(true);
         
         // [Fix] Auto-hide Toolbar and Nav Arrows when mouse leaves window
         if (!g_toolbar.IsPinned()) {
@@ -8469,100 +8463,14 @@ SKIP_EDGE_NAV:;
             if (hit.type != UIHitResult::None) return 0;
         }
 
-        if (g_config.DoubleClickMode == 3) {
-            // Option: None
-            return 0;
-        }
-        if (g_config.DoubleClickMode == 1) {
-            // Option: Wheel Mode 1
-            if (g_config.WheelActionMode == 0) {
-                g_config.WheelActionMode = 1;
-                g_config.ThumbWheelMode = 1;
-                g_osd.Show(hwnd, AppStrings::OSD_WheelMode1_NextPrevZoom, false);
-            } else {
-                g_config.WheelActionMode = 0;
-                g_config.ThumbWheelMode = 0;
-                g_osd.Show(hwnd, AppStrings::OSD_WheelMode1_ZoomNextPrev, false);
-            }
-            SaveConfig();
-            if (g_settingsOverlay.IsVisible()) {
-                g_settingsOverlay.RebuildMenu();
-            }
-            return 0;
-        }
-        if (g_config.DoubleClickMode == 2) {
-            // Option: Wheel Mode 2
-            g_wheelPanModeActive = !g_wheelPanModeActive;
-            if (g_wheelPanModeActive) {
-                g_osd.Show(hwnd, AppStrings::OSD_WheelMode2_Pan, false);
-            } else {
-                g_osd.Show(hwnd, AppStrings::OSD_WheelMode2_Default, false);
-            }
-            return 0;
-        }
-
-        // DoubleClickMode == 0 (Smart Double Click / Existing Logic)
-        // Fullscreen and maximized logic unified below
-
         if (IsCompareModeActive()) {
-            ComparePane pane = AppContext::GetInstance().CompareCtrl->HitTest(hwnd, pt);
-            auto cyclePane = [&](ComparePane p) {
-                if (p == ComparePane::Left) {
-                    if (!GetPaneContext(PaneSlot::Left).valid) return;
-
-                } else {
-                    if (!GetPaneContext(PaneSlot::Primary).resource) return;
-                    CompareView right = GetRightCompareView();
-
-                    SetRightCompareView(right);
-                }
-            };
-
-            if (AppContext::GetInstance().Compare.syncZoom) {
-                cyclePane(pane);
-                // ComparePane other = (pane == ComparePane::Left) ? ComparePane::Right : ComparePane::Left;
-                if (pane == ComparePane::Left) {
-                    CompareView right = GetRightCompareView();
-                    right.Zoom = GetPaneContext(PaneSlot::Left).view.Zoom;
-                    right.PanX = 0; right.PanY = 0;
-                    SetRightCompareView(right);
-                } else {
-                    GetPaneContext(PaneSlot::Left).view.Zoom = GetRightCompareView().Zoom;
-                    GetPaneContext(PaneSlot::Left).view.PanX = 0; GetPaneContext(PaneSlot::Left).view.PanY = 0;
-                }
-            } else {
-                cyclePane(pane);
-            }
-
-            if (AppContext::GetInstance().Compare.syncPan) {
-                if (pane == ComparePane::Left) {
-                    GetPaneContext(PaneSlot::Primary).view.PanX = GetPaneContext(PaneSlot::Left).view.PanX;
-                    GetPaneContext(PaneSlot::Primary).view.PanY = GetPaneContext(PaneSlot::Left).view.PanY;
-                } else {
-                    GetPaneContext(PaneSlot::Left).view.PanX = GetPaneContext(PaneSlot::Primary).view.PanX;
-                    GetPaneContext(PaneSlot::Left).view.PanY = GetPaneContext(PaneSlot::Primary).view.PanY;
-                }
-            }
-            MarkCompareDirty();
-            RequestRepaint(PaintLayer::Image | PaintLayer::Dynamic);
-
-            wchar_t leftBuf[32], rightBuf[32];
-            swprintf_s(leftBuf, L"%s%d%%", AppStrings::OSD_ZoomPrefix, (int)std::round(GetPaneContext(PaneSlot::Left).view.Zoom * 100.0f));
-            swprintf_s(rightBuf, L"%s%d%%", AppStrings::OSD_ZoomPrefix, (int)std::round(GetRightCompareView().Zoom * 100.0f));
-            g_osd.ShowCompare(hwnd, leftBuf, rightBuf);
+            PerformCompareZoomFit(hwnd);
             return 0;
         }
 
         if (GetPaneContext(PaneSlot::Primary).resource) {
-            float currentRealScale = GetCurrentRealScale(hwnd);
-            bool is100Percent = (fabsf(currentRealScale - 1.0f) < 0.05f);
-
-            // [Requirement] 双击不修改窗口: 只在 100% 和 适应窗口 间切换缩放级别，不调整窗口尺寸
-            if (is100Percent) {
-                PerformZoomFit(hwnd, 1.0f, false);
-            } else {
-                PerformZoom100(hwnd, false);
-            }
+            // Double-click always restores a complete, centered fit without resizing the window.
+            PerformZoomFit(hwnd, 1.0f, false);
         }
         return 0;
     }
@@ -9170,42 +9078,20 @@ SKIP_EDGE_NAV:;
             return 0;
         }
         
-        bool isCtrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-        
-        // [Feature] Ctrl+Left Drag maps to Middle Drag Action
-        MouseAction effectiveAction = g_config.LeftDragAction;
-        
-        if (isCtrl) {
-            effectiveAction = g_config.MiddleDragAction;
+        // The client image area always pans the image. Window movement is exclusively
+        // handled by the custom title bar's HTCAPTION hit-test.
+        bool allowPan = CanPan(hwnd);
+        if (IsCompareModeActive()) {
+            allowPan = (AppContext::GetInstance().Compare.activePane == ComparePane::Left)
+                ? GetPaneContext(PaneSlot::Left).valid
+                : (bool)GetPaneContext(PaneSlot::Primary).resource;
         }
-        
-        if (effectiveAction == MouseAction::WindowDrag) {
-            // [Requirement] Exit fullscreen on drag
-            if (g_isFullScreen) {
-                GetPaneContext(PaneSlot::Primary).view.IsPendingFullscreenExitDrag = true;
-                GetPaneContext(PaneSlot::Primary).view.DragStartPos = pt;
-                SetCapture(hwnd);
-                return 0;
-            }
-            
-            // Use HTCAPTION for smooth system window dragging (Left Button only)
-            // Note: Middle button uses manual drag implementation because NCLBUTTONDOWN expects Left Button.
-            // Since we are responding to LBUTTONDOWN here, HTCAPTION works perfectly even if mapped from Middle Setting.
-            ReleaseCapture();
-            SendMessage(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
-            return 0;
-        } else if (effectiveAction == MouseAction::PanImage) {
-            bool allowPan = CanPan(hwnd);
-            if (IsCompareModeActive()) {
-                allowPan = (AppContext::GetInstance().Compare.activePane == ComparePane::Left) ? GetPaneContext(PaneSlot::Left).valid : (bool)GetPaneContext(PaneSlot::Primary).resource;
-            }
-            if (allowPan) {
-                SetCapture(hwnd);
-                GetPaneContext(PaneSlot::Primary).view.IsDragging = true;
-                GetPaneContext(PaneSlot::Primary).view.IsInteracting = true;  // Start interaction mode
-                GetPaneContext(PaneSlot::Primary).view.LastMousePos = pt;
-                SetCursor(LoadCursor(nullptr, IDC_SIZEALL));
-            }
+        if (allowPan) {
+            SetCapture(hwnd);
+            GetPaneContext(PaneSlot::Primary).view.IsDragging = true;
+            GetPaneContext(PaneSlot::Primary).view.IsInteracting = true;
+            GetPaneContext(PaneSlot::Primary).view.LastMousePos = pt;
+            SetCursor(LoadCursor(nullptr, IDC_SIZEALL));
         }
         return 0;
     }

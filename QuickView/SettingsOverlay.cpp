@@ -1545,8 +1545,6 @@ void SettingsOverlay::BuildMenu() {
     tabVisuals.items.push_back(itemAoT);
     
 
-    tabVisuals.items.push_back({ AppStrings::Settings_Label_AutoHideTitle, OptionType::Toggle, &g_config.AutoHideWindowControls });
-    
     SettingsItem itemShowOSD = { AppStrings::Settings_Label_ShowOSD, OptionType::Toggle, &g_config.ShowOSD };
     itemShowOSD.onChange = []([[maybe_unused]] SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) {
         SaveConfig();
@@ -1862,34 +1860,15 @@ void SettingsOverlay::BuildMenu() {
 
     tabControl.items.push_back({ AppStrings::Settings_Label_InvertButtons, OptionType::Toggle, &g_config.InvertXButton });
     
-    // Left Drag
-    SettingsItem itemLeftDrag = { AppStrings::Settings_Label_LeftDrag, OptionType::Segment, nullptr, nullptr, &g_config.LeftDragIndex, nullptr, 0, 0, {AppStrings::Settings_Option_Window, AppStrings::Settings_Option_Pan} };
-    itemLeftDrag.onChange = []([[maybe_unused]] SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) {
-        if (g_config.LeftDragIndex == 0) {
-            g_config.LeftDragAction = MouseAction::WindowDrag;
-            g_config.MiddleDragAction = MouseAction::PanImage;
-            g_config.MiddleDragIndex = 1;
-        } else {
-            g_config.LeftDragAction = MouseAction::PanImage;
-            g_config.MiddleDragAction = MouseAction::WindowDrag;
-            g_config.MiddleDragIndex = 0;
-        }
-    };
-    tabControl.items.push_back(itemLeftDrag);
-    
     // Middle Drag with Tooltip
     SettingsItem itemMiddleDrag = { AppStrings::Settings_Label_MiddleDrag, OptionType::Segment, nullptr, nullptr, &g_config.MiddleDragIndex, nullptr, 0, 0, {AppStrings::Settings_Option_Window, AppStrings::Settings_Option_Pan} };
     itemMiddleDrag.tooltipText = AppStrings::Settings_Tooltip_MiddleDrag;
     itemMiddleDrag.onChange = []([[maybe_unused]] SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) {
-        if (g_config.MiddleDragIndex == 0) {
-            g_config.MiddleDragAction = MouseAction::WindowDrag;
-            g_config.LeftDragAction = MouseAction::PanImage;
-            g_config.LeftDragIndex = 1;
-        } else {
-            g_config.MiddleDragAction = MouseAction::PanImage;
-            g_config.LeftDragAction = MouseAction::WindowDrag;
-            g_config.LeftDragIndex = 0;
-        }
+        g_config.MiddleDragAction = (g_config.MiddleDragIndex == 0)
+            ? MouseAction::WindowDrag
+            : MouseAction::PanImage;
+        g_config.LeftDragAction = MouseAction::PanImage;
+        g_config.LeftDragIndex = 1;
     };
     tabControl.items.push_back(itemMiddleDrag);
     

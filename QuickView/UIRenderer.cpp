@@ -178,6 +178,7 @@ void UIRenderer::SetUIScale(float scale) {
 
     m_uiScale = scale;
     m_osdFormat.Reset();
+    m_titleBarFormat.Reset();
     m_debugFormat.Reset();
     m_panelFormat.Reset();
     m_welcomeTitleFormat.Reset();
@@ -614,6 +615,19 @@ void UIRenderer::EnsureTextFormats() {
         }
     }
     
+    if (!m_titleBarFormat) {
+        m_dwriteFactory->CreateTextFormat(
+            L"Segoe UI", nullptr,
+            DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+            12.0f * s, AppStrings::CurrentLocale, &m_titleBarFormat
+        );
+        if (m_titleBarFormat) {
+            m_titleBarFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+            m_titleBarFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+            m_titleBarFormat->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        }
+    }
+
     if (!m_debugFormat) {
         m_dwriteFactory->CreateTextFormat(
             L"Consolas", nullptr,
@@ -815,8 +829,8 @@ void UIRenderer::RenderStaticLayer(ID2D1DeviceContext* dc, HWND hwnd) {
         g_helpOverlay.Render(dc, (float)m_width, (float)m_height);
       }
       
-      // [Topmost Guarantee] Window Controls drawn last on welcome screen
-      DrawWindowControls(dc, hwnd);
+      // [Topmost Guarantee] Custom title bar drawn last on welcome screen
+      DrawTitleBar(dc, hwnd);
       return;
     }
 
@@ -880,8 +894,8 @@ void UIRenderer::RenderStaticLayer(ID2D1DeviceContext* dc, HWND hwnd) {
         g_helpOverlay.Render(dc, (float)m_width, (float)m_height);
     }
     
-    // [Topmost Guarantee] Window Controls strictly drawn at the very end of Static Layer
-    DrawWindowControls(dc, hwnd);
+    // [Topmost Guarantee] Custom title bar strictly drawn at the very end of Static Layer
+    DrawTitleBar(dc, hwnd);
 }
 
 // ============================================================================
@@ -1740,8 +1754,66 @@ void UIRenderer::DrawDecodingStatus(ID2D1DeviceContext* dc, HWND hwnd) {
 }
 
 
+void UIRenderer::DrawTitleBar(ID2D1DeviceContext* dc, HWND hwnd) {
+    if (m_isFullscreen || m_width == 0) {
+        m_winCloseRect = {};
+        m_winMaxRect = {};
+        m_winMinRect = {};
+        m_winPinRect = {};
+        return;
+    }
+
+    const float s = m_uiScale;
+    const float titleBarH = GetTitleBarHeight();
+    const bool isLight = IsLightThemeActive();
+
+    ComPtr<ID2D1SolidColorBrush> backgroundBrush;
+    ComPtr<ID2D1SolidColorBrush> separatorBrush;
+    ComPtr<ID2D1SolidColorBrush> textBrush;
+    dc->CreateSolidColorBrush(
+        isLight ? D2D1::ColorF(0.96f, 0.96f, 0.98f, 0.94f)
+                : D2D1::ColorF(0.07f, 0.07f, 0.09f, 0.94f),
+        &backgroundBrush);
+    dc->CreateSolidColorBrush(
+        isLight ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.12f)
+                : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.12f),
+        &separatorBrush);
+    dc->CreateSolidColorBrush(
+        isLight ? D2D1::ColorF(0.10f, 0.10f, 0.12f, 1.0f)
+                : D2D1::ColorF(0.94f, 0.94f, 0.96f, 1.0f),
+        &textBrush);
+
+    const D2D1_RECT_F titleRect = D2D1::RectF(0.0f, 0.0f, (float)m_width, titleBarH);
+    dc->FillRectangle(titleRect, backgroundBrush.Get());
+    dc->FillRectangle(
+        D2D1::RectF(0.0f, titleBarH - 1.0f, (float)m_width, titleBarH),
+        separatorBrush.Get());
+
+    DrawWindowControls(dc, hwnd);
+
+    const float controlsW = GetWindowControlsWidth();
+    const float textLeft = 12.0f * s;
+    const float textRight = (std::max)(textLeft, (float)m_width - controlsW - 8.0f * s);
+    if (m_titleBarFormat && textRight > textLeft) {
+        std::wstring title = L"QuickView";
+        if (!m_imagePath.empty()) {
+            const size_t separator = m_imagePath.find_last_of(L"\\/");
+            title = (separator == std::wstring::npos) ? m_imagePath : m_imagePath.substr(separator + 1);
+            if (title.empty()) title = L"QuickView";
+        }
+        title = MakeEndEllipsis(textRight - textLeft, title, m_titleBarFormat.Get());
+        dc->DrawText(
+            title.c_str(),
+            (UINT32)title.size(),
+            m_titleBarFormat.Get(),
+            D2D1::RectF(textLeft, 0.0f, textRight, titleBarH),
+            textBrush.Get(),
+            D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    }
+}
+
 void UIRenderer::DrawWindowControls(ID2D1DeviceContext* dc, HWND hwnd) {
-    if (!m_showControls && m_winCtrlHover == -1) return;
+    if (m_isFullscreen) return;
     const float s = m_uiScale;
     float btnW = 28.0f * s;
     float btnH = 28.0f * s;
@@ -2033,8 +2105,8 @@ void UIRenderer::DrawBorderIndicators(ID2D1DeviceContext* dc) {
 // Window Controls Hit Testing (Unified with DrawWindowControls)
 // ============================================================================
 WindowControlHit UIRenderer::HitTestWindowControls(float x, float y) {
-    if (!m_showControls) return WindowControlHit::None;
-    
+    if (m_isFullscreen) return WindowControlHit::None;
+
     // Helper: Point in rect
     auto PtInRect = [](float px, float py, const D2D1_RECT_F& r) {
         return px >= r.left && px <= r.right && py >= r.top && py <= r.bottom;
@@ -2048,8 +2120,14 @@ WindowControlHit UIRenderer::HitTestWindowControls(float x, float y) {
     return WindowControlHit::None;
 }
 
+bool UIRenderer::IsPointInTitleBarDragRegion(float x, float y) const {
+    if (m_isFullscreen) return false;
+    const float dragRight = (std::max)(0.0f, (float)m_width - GetWindowControlsWidth());
+    return x >= 0.0f && x <= dragRight && y >= 0.0f && y <= GetTitleBarHeight();
+}
+
 float UIRenderer::GetWindowControlsWidth() const {
-    if (!m_showControls && m_winCtrlHover == -1) return 0.0f;
+    if (m_isFullscreen) return 0.0f;
     const float s = m_uiScale;
     float btnW = 28.0f * s;
     if (m_width < btnW * 4) return 0.0f;

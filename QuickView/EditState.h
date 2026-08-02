@@ -562,7 +562,7 @@ struct AppConfig {
     int OpenFullScreenMode = 0;         // 0=Off, 1=Large Only, 2=All
     bool LockWindowSize = true; // [Requirement] 默认锁定窗口大小，不跟随图片缩放
     bool ShowOSD = true;
-    bool AutoHideWindowControls = true;
+    bool AutoHideWindowControls = false;
     bool LockBottomToolbar = false;
     bool EnableCrossMonitor = false; // [Phase 2] Cross-Monitor Spanning
     int ExifPanelMode = 0;              // 0=Off, 1=Lite, 2=Full (startup default)
@@ -619,12 +619,12 @@ struct AppConfig {
     int LoupeShape = 0;                   // Magnifier shape: 0 = Square (with rounded corners), 1 = Circle
     float LoupeSizeRatio = 0.25f;         // Loupe box edge as a fraction of the viewport's short side (resolution-adaptive)
     float LoupeZoom = 1.0f;               // Magnification vs actual image pixels (1.0 = 100%)
-    MouseAction LeftDragAction = MouseAction::WindowDrag;
-    MouseAction MiddleDragAction = MouseAction::PanImage;
+    MouseAction LeftDragAction = MouseAction::PanImage;
+    MouseAction MiddleDragAction = MouseAction::WindowDrag;
     MouseAction MiddleClickAction = MouseAction::ExitApp;
     // Helper indices for Segment controls (synced with actual enum values)
-    int LeftDragIndex = 0;   // 0=Window, 1=Pan
-    int MiddleDragIndex = 1; // 0=Window, 1=Pan
+    int LeftDragIndex = 1;   // 0=Window, 1=Pan
+    int MiddleDragIndex = 0; // 0=Window, 1=Pan
     int MiddleClickIndex = 1; // 0=None, 1=Exit (default Exit)
     bool EdgeNavClick = false;
     bool DisableEdgeNavInCompare = true;
