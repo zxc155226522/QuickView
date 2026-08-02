@@ -1,0 +1,31 @@
+#!/usr/bin/make -f
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+include /usr/share/dpkg/architecture.mk
+
+%:
+	dh $@ --parallel --with autoreconf
+
+override_dh_auto_configure:
+	dh_auto_configure -- --disable-werror \
+		--disable-silent-rules --with-boost-libdir=/usr/lib/$(DEB_HOST_MULTIARCH) \
+		--enable-pretty-printers
+
+override_dh_auto_install:
+	dh_auto_install
+	mkdir -p debian/.debhelper/librevenge-0.0-0/dbgsym-root/usr/share/gdb/auto-load//usr/lib/$(DEB_HOST_MULTIARCH)
+	for i in ./data/gdb/auto-load/*.py; do \
+		cp $$i debian/.debhelper/librevenge-0.0-0/dbgsym-root/usr/share/gdb/auto-load//usr/lib/$(DEB_HOST_MULTIARCH); \
+	done
+	# based on the pythondir set in the files above...
+	mkdir -p debian/.debhelper/librevenge-0.0-0/dbgsym-root/usr/share/librevenge/python
+	for i in ./data/gdb/librevenge/*; do \
+		cp -r $$i debian/.debhelper/librevenge-0.0-0/dbgsym-root/usr/share/librevenge/python; \
+	done
+
+override_dh_gencontrol:
+	dh_gencontrol
+	perl -pi -e 's/^(Depends:.*)/\1\nRecommends: gdb, python3-six/' \
+                debian/.debhelper/librevenge-0.0-0/dbgsym-root/DEBIAN/control

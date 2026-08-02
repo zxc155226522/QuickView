@@ -36,6 +36,10 @@ extern struct AppConfig g_config;
 #include <turbojpeg.h>  // [v5.0] Required for JPEGLoader fallback logic
 #include <webp/demux.h> // [Phase 18] Required for Native WebP ICC extraction
 
+// libcdr: CorelDRAW (.cdr) and Corel Exchange (.cmx) vector format support
+#include <libcdr/libcdr.h>
+#include <librevenge-stream/librevenge-stream.h>
+
 
 using namespace QuickView;
 #include "FileNavigator.h"
@@ -10055,6 +10059,18 @@ HRESULT CImageLoader::GetImageInfoFast(LPCWSTR filePath, ImageInfo *pInfo) {
       isSvgExt = true;
   }
 
+  // CDR/CMX: vector formats parsed by libcdr (dimensions resolved at load time)
+  {
+    auto cdrExt = QuickView::ExtensionOf(filePath);
+    if (QuickView::ExtEqualsIgnoreCase(cdrExt, L".cdr") ||
+        QuickView::ExtEqualsIgnoreCase(cdrExt, L".cmx")) {
+      pInfo->format = QuickView::ExtEqualsIgnoreCase(cdrExt, L".cdr") ? L"CDR" : L"CMX";
+      pInfo->width = 512;
+      pInfo->height = 512;
+      return S_OK;
+    }
+  }
+
   // Check content (XML/SVG) or extension
   if (isSvgExt ||
       (size >= 5 && data[0] == '<' && (data[1] == '?' || data[1] == 's'))) {
@@ -10381,6 +10397,139 @@ HRESULT CImageLoader::LoadTinyExrImage(LPCWSTR filePath, IWICBitmap **ppBitmap,
 // NanoSVG Decoder (SVG Support)
 // ----------------------------------------------------------------------------
 // LoadSVG removed (NanoSVG cleanup)
+
+// ----------------------------------------------------------------------------
+// libcdr Decoder (CDR/CMX → SVG → D2D Native SVG Pipeline)
+// ----------------------------------------------------------------------------
+HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
+                               QuickView::RawImageFrame *outFrame,
+                               std::wstring *pLoaderName,
+                               CImageLoader::ImageMetadata *pMetadata) {
+  // Convert wide path to UTF-8 for librevenge::RVNGFileStream
+  int utf8Len = WideCharToMultiByte(CP_UTF8, 0, filePath, -1, nullptr, 0, nullptr, nullptr);
+  if (utf8Len <= 0)
+    return E_FAIL;
+  std::vector<char> utf8Path(utf8Len);
+  WideCharToMultiByte(CP_UTF8, 0, filePath, -1, utf8Path.data(), utf8Len, nullptr, nullptr);
+
+  librevenge::RVNGFileStream input(utf8Path.data());
+
+  // Check format support
+  bool isCdr = libcdr::CDRDocument::isSupported(&input);
+  bool isCmx = false;
+  if (!isCdr) {
+    isCmx = libcdr::CMXDocument::isSupported(&input);
+    if (!isCmx) {
+      if (pMetadata)
+        pMetadata->Format = L"CDR (Unsupported/Encrypted)";
+      return E_FAIL;
+    }
+  }
+
+  // Generate SVG via librevenge's built-in RVNGSVGDrawingGenerator
+  librevenge::RVNGStringVector svgPages;
+  librevenge::RVNGSVGDrawingGenerator painter(svgPages, "svg");
+
+  bool parsed = false;
+  if (isCdr)
+    parsed = libcdr::CDRDocument::parse(&input, &painter);
+  else
+    parsed = libcdr::CMXDocument::parse(&input, &painter);
+
+  if (!parsed || svgPages.empty()) {
+    if (pMetadata)
+      pMetadata->Format = L"CDR (Parse Failed)";
+    return E_FAIL;
+  }
+
+  // Use first page (most CDR documents are single-page)
+  // Multi-page: future enhancement could stitch pages vertically.
+  std::string svgContent(svgPages[0].cstr());
+
+  // --- Parse SVG dimensions from generated content ---
+  float svgW = 0.0f, svgH = 0.0f;
+
+  // Helper: extract attribute value from <svg ...> root tag
+  auto extractRootAttr = [](const std::string &svg, const char *attr) -> std::string {
+    std::string needle = std::string(attr) + "=\"";
+    size_t pos = svg.find(needle);
+    if (pos == std::string::npos)
+      return {};
+    pos += needle.size();
+    size_t end = svg.find('"', pos);
+    if (end == std::string::npos)
+      return {};
+    return svg.substr(pos, end - pos);
+  };
+
+  // Helper: parse a length value (strip units like "mm", "px", "pt")
+  auto parseLength = [](const std::string &val) -> float {
+    if (val.empty())
+      return 0.0f;
+    // Use C-style parsing (exceptions disabled in Release-LTO build)
+    const char *start = val.c_str();
+    char *end = nullptr;
+    float result = strtof(start, &end);
+    if (end == start)
+      return 0.0f;
+    return result;
+  };
+
+  std::string wStr = extractRootAttr(svgContent, "width");
+  std::string hStr = extractRootAttr(svgContent, "height");
+  svgW = parseLength(wStr);
+  svgH = parseLength(hStr);
+
+  // Fallback to viewBox if width/height missing
+  if (svgW <= 0 || svgH <= 0) {
+    std::string vbStr = extractRootAttr(svgContent, "viewBox");
+    if (!vbStr.empty()) {
+      // viewBox="x y w h" - extract w and h
+      size_t sp1 = vbStr.find(' ');
+      if (sp1 != std::string::npos) {
+        size_t sp2 = vbStr.find(' ', sp1 + 1);
+        if (sp2 != std::string::npos) {
+          size_t sp3 = vbStr.find(' ', sp2 + 1);
+          if (sp3 != std::string::npos) {
+            svgW = parseLength(vbStr.substr(sp2 + 1, sp3 - sp2 - 1));
+            svgH = parseLength(vbStr.substr(sp3 + 1));
+          }
+        }
+      }
+    }
+  }
+
+  // Default fallback
+  if (svgW <= 0)
+    svgW = 512;
+  if (svgH <= 0)
+    svgH = 512;
+
+  // --- Populate RawImageFrame (same as SVG path) ---
+  outFrame->format = PixelFormat::SVG_XML;
+  outFrame->width = (int)std::lround(svgW);
+  outFrame->height = (int)std::lround(svgH);
+  outFrame->stride = 0;
+  outFrame->pixels = nullptr;
+
+  outFrame->svg = std::make_unique<RawImageFrame::SvgData>();
+  outFrame->svg->xmlData.assign(svgContent.begin(), svgContent.end());
+  outFrame->svg->viewBoxW = svgW;
+  outFrame->svg->viewBoxH = svgH;
+
+  if (pLoaderName)
+    *pLoaderName = isCdr ? L"libcdr (CDR)" : L"libcdr (CMX)";
+  if (pMetadata) {
+    pMetadata->LoaderName = isCdr ? L"libcdr (CDR)" : L"libcdr (CMX)";
+    pMetadata->Format = isCdr ? L"CDR" : L"CMX";
+    pMetadata->FormatDetails = L"Vector (CorelDRAW)";
+    pMetadata->Width = (UINT)svgW;
+    pMetadata->Height = (UINT)svgH;
+  }
+  outFrame->formatDetails = isCdr ? L"CDR" : L"CMX";
+
+  return S_OK;
+}
 
 // ----------------------------------------------------------------------------
 // Wuffs NetPBM (PAM, PBM, PGM, PPM)
@@ -13465,6 +13614,20 @@ HRESULT CImageLoader::LoadToFrame(
     return S_OK;
   }
   // Fall through to SVG or WIC Fallback
+
+  // ========================================================================
+  // CDR/CMX Path (libcdr → SVG via librevenge → D2D Native SVG)
+  // ========================================================================
+  // CDR is a vector format: parse via libcdr, generate SVG XML, then
+  // reuse the same RawImageFrame(SVG_XML) pipeline as native SVG files.
+  // ========================================================================
+  {
+    auto ext = QuickView::ExtensionOf(filePath);
+    if (QuickView::ExtEqualsIgnoreCase(ext, L".cdr") ||
+        QuickView::ExtEqualsIgnoreCase(ext, L".cmx")) {
+      return LoadCDR(filePath, outFrame, pLoaderName, pMetadata);
+    }
+  }
 
   // ========================================================================
   // SVG Path (NanoSVG) - Re-Rasterization Support

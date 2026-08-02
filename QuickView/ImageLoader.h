@@ -508,6 +508,11 @@ private:
   // NanoSVG (SVG)
   HRESULT LoadSVG(LPCWSTR filePath, IWICBitmap **ppBitmap);
 
+  // libcdr (CDR/CMX → SVG via librevenge)
+  HRESULT LoadCDR(LPCWSTR filePath, QuickView::RawImageFrame *outFrame,
+                  std::wstring *pLoaderName = nullptr,
+                  CImageLoader::ImageMetadata *pMetadata = nullptr);
+
   // NetPBM via Wuffs (PAM, PBM, PGM, PPM)
   HRESULT LoadNetpbmWuffs(LPCWSTR filePath, IWICBitmap **ppBitmap);
 

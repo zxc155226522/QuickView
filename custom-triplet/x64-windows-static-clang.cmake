@@ -44,8 +44,8 @@ set(COMPILER_LTO_FLAGS "-flto /clang:-fuse-ld=lld /clang:-fno-ident")
 set(VCPKG_C_FLAGS_RELEASE "/O2 /Oi /Ob2 ${COMPILER_LTO_FLAGS} /DNDEBUG -DHWY_BASELINE_TARGETS=0x800 -DHWY_DISABLED_TARGETS=0x7080")
 set(VCPKG_CXX_FLAGS_RELEASE "/O2 /Oi /Ob2 ${COMPILER_LTO_FLAGS} /DNDEBUG -DHWY_BASELINE_TARGETS=0x800 -DHWY_DISABLED_TARGETS=0x7080")
 
-# LibRaw requires exceptions and RTTI. Disable for others to save size.
-if(NOT PORT STREQUAL "libraw")
+# LibRaw and boost compiled libs require exceptions and RTTI. Disable for others to save size.
+if(NOT PORT STREQUAL "libraw" AND NOT PORT MATCHES "^boost-")
     string(APPEND VCPKG_C_FLAGS_RELEASE " /GR- /EHs-c-")
     string(APPEND VCPKG_CXX_FLAGS_RELEASE " /GR- /EHs-c-")
 endif()

@@ -213,6 +213,12 @@ target_compile_definitions(QuickView PRIVATE UNICODE _UNICODE)
 # Note: Manifest is handled via QuickView.rc
 
 # ============================================================================
+# Third-Party Subprojects (Source-Integrated Static Libraries)
+# ============================================================================
+add_subdirectory(third_party/librevenge)
+add_subdirectory(third_party/libcdr)
+
+# ============================================================================
 # Dependencies (vcpkg)
 # ============================================================================
 # libavif
@@ -304,6 +310,8 @@ target_link_libraries(QuickView PRIVATE
     yuv
     ZLIB::ZLIB
     unrar-mini
+    librevenge
+    libcdr
     # Windows system libraries
     imm32.lib
     dwrite.lib

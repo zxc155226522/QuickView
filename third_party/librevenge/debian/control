@@ -1,0 +1,38 @@
+Source: librevenge
+Priority: optional
+Maintainer: openKylin Developers <packaging@lists.openkylin.top>
+XSBC-Original-Maintainer: Debian LibreOffice Maintainers <debian-openoffice@lists.debian.org>
+Uploaders: Rene Engelhard <rene@debian.org>
+Build-Depends: autotools-dev,
+               dh-autoreconf,
+               debhelper (>= 9.20160115),
+               libboost-dev,
+               libboost-filesystem-dev,
+               libcppunit-dev,
+               pkg-config,
+               zlib1g-dev
+Standards-Version: 3.9.4
+Section: libs
+Homepage: http://sourceforge.net/p/libwpd/wiki/librevenge/
+
+Package: librevenge-dev
+Section: libdevel
+Architecture: any
+Multi-Arch: same
+Depends: librevenge-0.0-0 (= ${binary:Version}),
+         ${misc:Depends}
+Description: Base Library for writing document interface filters -- development
+ librevenge is a base library for writing document import filters. It has
+ interfaces for text documents, vector graphics, spreadsheets and presentations.
+ .
+ This package contains the development files (headers, ...)
+
+Package: librevenge-0.0-0
+Architecture: any
+Multi-Arch: same
+Pre-Depends: ${misc:Pre-Depends}
+Depends: ${misc:Depends}, ${shlibs:Depends}
+Description: Base Library for writing document interface filters
+ librevenge is a base library for writing document import filters. It has
+ interfaces for text documents, vector graphics, spreadsheets and presentations.
+
