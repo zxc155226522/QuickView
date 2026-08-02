@@ -5263,156 +5263,8 @@ void AdjustWindowForOverlay(HWND hwnd, bool isClosed) {
 }
 
 void AdjustWindowToImage(HWND hwnd) {
-    s_restoredWindowRect = {}; // Clear restored rect so new image sets new initial size
-    if (!GetPaneContext(PaneSlot::Primary).resource) return;
-
-    // [Fix] If window size was restored from config, skip the initial auto-resize to fit the image.
-    // This ensures the window stays at the user's saved dimensions on startup.
-    // Subsequent navigation (Next/Prev) will still trigger auto-resize unless KeepWindowSizeOnNav is ON.
-    static bool s_initialLoadProcessed = false;
-    if (g_config.RememberLastWindowSizeAndPosition && !s_initialLoadProcessed && g_windowSizeRestoredFromConfig) {
-        s_initialLoadProcessed = true;
-        return;
-    }
-    s_initialLoadProcessed = true;
-
-    if (g_runtime.LockWindowSize && g_config.KeepWindowSizeOnNav) return;  // Don't auto-resize when locked and requested to keep size
-    
-    // Note: Removed early return for g_settingsOverlay.IsVisible() because GetMinWindowWidth() 
-    // now correctly handles overlay minimums. This allows the window to resize to fit larger 
-    // images even when Settings is open, while still respecting minimum UI bounds.
-    if (g_isFullScreen || IsZoomed(hwnd)) return; // [Fix] Don't resize if in Fullscreen or Maximized mode
-
-    // [Fix] Use Centralized First-Principles Dimension Logic
-    D2D1_SIZE_F effSize = GetEffectiveImageSize();
-    float imgWidth = effSize.width;
-    float imgHeight = effSize.height;
-
-    // [Phase 1 Fix] Prefer metadata dimensions to prevent small-to-large jump.
-    // Guard against EXIF pre-rotation path where metadata orientation can lag one step behind
-    // the already-rendered visual surface orientation.
-    if (GetPaneContext(PaneSlot::Primary).metadata.Width > 0 && GetPaneContext(PaneSlot::Primary).metadata.Height > 0) {
-        float metaW = (float)GetPaneContext(PaneSlot::Primary).metadata.Width;
-        float metaH = (float)GetPaneContext(PaneSlot::Primary).metadata.Height;
-
-        // First apply current logical rotation state (legacy behavior).
-        VisualState vsMeta = GetVisualState();
-        if (vsMeta.IsRotated90) {
-            std::swap(metaW, metaH);
-        }
-
-        // Then reconcile with current visual aspect ratio from surface metrics.
-        // If swapped metadata matches visual AR better, use swapped orientation.
-        if (imgWidth > 0.0f && imgHeight > 0.0f && metaW > 0.0f && metaH > 0.0f) {
-            float visualAR = imgWidth / imgHeight;
-            float metaAR = metaW / metaH;
-            float swappedMetaAR = metaH / metaW;
-            float directErr = std::fabs(metaAR - visualAR);
-            float swappedErr = std::fabs(swappedMetaAR - visualAR);
-            if (swappedErr + 0.001f < directErr) {
-                std::swap(metaW, metaH);
-            }
-        }
-
-        imgWidth = metaW;
-        imgHeight = metaH;
-    }
-    
-    if (imgWidth <= 0 || imgHeight <= 0) return;
-    
-    // [Fix] Do not auto-resize the window to absurdly small dimensions (e.g., 1x1 fake base or 4x4 skeleton)
-    // if we haven't even finished loading the real image or if we're looking at a Titan Fake Base.
-    if (imgWidth <= 16 && imgHeight <= 16) return;
-    
-    // VisualState vs = GetVisualState(); // Refresh VS (Rotation state)
-    
-    // [First Principles] Map 1 Image Pixel into 1 Window Logical Unit directly.
-    // DComp will handle the scaling to physical pixels.
-    int windowW = static_cast<int>(imgWidth);
-    int windowH = static_cast<int>(imgHeight);
-    
-    const RECT bounds = GetWindowExpansionBounds(hwnd);
-    float maxSizePercent = g_config.WindowMaxSizePercent / 100.0f;
-    const int maxWinW = (int)((bounds.right - bounds.left) * maxSizePercent);
-    const int maxWinH = (int)((bounds.bottom - bounds.top) * maxSizePercent);
-    
-    // Scale down if Window is too big for screen
-    if (windowW > maxWinW || windowH > maxWinH) {
-        float ratio = std::min((float)maxWinW / windowW, (float)maxWinH / windowH);
-        windowW = (int)(windowW * ratio);
-        windowH = (int)(windowH * ratio);
-    }
-    
-    // Minimum size for UI controls (Preserve Aspect Ratio)
-    // [Phase 3] User Requested: Min 100x100. Small images stay at 100% inside this.
-    // If Settings is visible, we might want larger, but AdjustWindowToImage returns early if Settings visible.
-    int minW = (int)GetMinWindowWidth();
-    int minH = (int)GetMinWindowHeight();
-    
-    // [Phase 3] Special handling for small images
-    if (imgWidth < minW && imgHeight < minH) {
-        // If image is intrinsically smaller than min window,
-        // just set window to min size. Do NOT upscale window dimensions (which attempts to preserve AR).
-        // The image will be centered at 1.0 scale by SyncDCompState.
-        if (windowW < minW) windowW = minW;
-        if (windowH < minH) windowH = minH;
-    } 
-    else if (windowW < minW || windowH < minH) {
-         float scaleW = (float)minW / windowW;
-         float scaleH = (float)minH / windowH;
-         float scaleUp = std::max(scaleW, scaleH); // Scale up to satisfy both mins
-         
-         windowW = (int)(windowW * scaleUp);
-         windowH = (int)(windowH * scaleUp);
-    }
-
-    if (g_runtime.ShowInfoPanel && g_uiRenderer) {
-        D2D1_SIZE_F reqSize = g_uiRenderer->GetRequiredInfoPanelSize();
-        if (reqSize.width > 0.0f) windowW = (std::max)(windowW, (int)std::ceil(reqSize.width));
-        if (reqSize.height > 0.0f) windowH = (std::max)(windowH, (int)std::ceil(reqSize.height));
-    }
-    
-    // [Revert] Empirical Border Calculation removed as per request
-    // Window Size = Content Size (let OS handle borders)
-    
-    // Center logic
-    RECT rcWindow; GetWindowRect(hwnd, &rcWindow);
-    RECT targetRect = ExpandWindowRectToTargetWithinBounds(rcWindow, windowW, windowH, bounds);
-    int newLeft = targetRect.left;
-    int newTop = targetRect.top;
-    windowW = targetRect.right - targetRect.left;
-    windowH = targetRect.bottom - targetRect.top;
-
-
-    // [v9.7] Fix: Use SetWindowPlacement to set dimensions.
-    // This handles Maximize/Snap states gracefully.
-    WINDOWPLACEMENT wp{}; wp.length = sizeof(wp);
-    if (GetWindowPlacement(hwnd, &wp)) {
-        wp.flags = 0;
-        wp.showCmd = SW_SHOWNORMAL;
-        
-        // [Fix] Convert Screen Coordinates (newLeft/newTop) to Workspace Coordinates
-        // rcNormalPosition expects coordinates relative to the primary monitor's work area.
-        int offsetLeft = 0;
-        int offsetTop = 0;
-        if ((GetWindowLongPtr(hwnd, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) == 0) {
-            MONITORINFO pmi{}; pmi.cbSize = sizeof(pmi);
-            if (GetMonitorInfoW(MonitorFromWindow(nullptr, MONITOR_DEFAULTTOPRIMARY), &pmi)) {
-                offsetLeft = pmi.rcWork.left - pmi.rcMonitor.left;
-                offsetTop = pmi.rcWork.top - pmi.rcMonitor.top;
-            }
-        }
-        
-        wp.rcNormalPosition.left = newLeft - offsetLeft;
-        wp.rcNormalPosition.top = newTop - offsetTop;
-        wp.rcNormalPosition.right = wp.rcNormalPosition.left + windowW;
-        wp.rcNormalPosition.bottom = wp.rcNormalPosition.top + windowH;
-        
-        SetWindowPlacement(hwnd, &wp);
-    } else {
-        ShowWindow(hwnd, SW_RESTORE);
-        SetWindowPos(hwnd, nullptr, newLeft, newTop, windowW, windowH, SWP_NOZORDER | SWP_NOACTIVATE);
-    }
+    // [Requirement] 窗口大小固定: 导航切换图片时不自动调整窗口尺寸，窗口保持固定大小
+    return;
 }
 
 // [v10.1] Refresh Current Image Display (Direct GPU Re-upload from cache)
@@ -8732,31 +8584,11 @@ SKIP_EDGE_NAV:;
             bool isMaximizedOrFullscreen = IsZoomed(hwnd) || g_isFullScreen;
             bool isFitWindow = (winWidth >= maxW - 2 || winHeight >= maxH - 2) || isMaximizedOrFullscreen;
 
-            if (isMaximizedOrFullscreen) {
-                // In fullscreen/maximized, ONLY toggle between 100% and Fit. No restoring window size.
-                if (is100Percent) {
-                    PerformZoomFit(hwnd);
-                } else {
-                    PerformZoom100(hwnd);
-                }
+            // [Requirement] 双击不修改窗口: 只在 100% 和 适应窗口 间切换缩放级别，不调整窗口尺寸
+            if (is100Percent) {
+                PerformZoomFit(hwnd, 1.0f, false);
             } else {
-                // Windowed mode 3-state toggle: Initial Size (Restore) -> Fit -> 100% -> Initial Size...
-                if (is100Percent) {
-                    // Current is 100%. Next should be Restore (or Fit if no restore point).
-                    if (s_restoredWindowRect.right > s_restoredWindowRect.left) {
-                        PerformRestoreWindow(hwnd);
-                    } else {
-                        GetWindowRect(hwnd, &s_restoredWindowRect);
-                        PerformZoomFit(hwnd, 1.0f);
-                    }
-                } else if (isFitWindow) {
-                    // Current is Fit. Next should be 100%.
-                    PerformZoom100(hwnd);
-                } else {
-                    // Current is Initial Size. Next should be Fit.
-                    if (s_restoredWindowRect.right == 0) GetWindowRect(hwnd, &s_restoredWindowRect);
-                    PerformZoomFit(hwnd, 1.0f);
-                }
+                PerformZoom100(hwnd, false);
             }
         }
         return 0;
@@ -13927,9 +13759,8 @@ void OnPaint(HWND hwnd) {
 void PerformSmartZoom(HWND hwnd, float newTotalScale, const POINT* centerPt, bool forceWindowLock, bool animateDisplay) {
 
     // Basic Eligibility Check
-    // [Fix] Decouple "Ctrl Key" from "Force Lock". Accept explicit parameter.
-    // Mouse Wheel passes 'isCtrl' (True). Keyboard Zoom passes 'False'.
-    bool canResizeConfig = !g_runtime.LockWindowSize && !IsZoomed(hwnd) && !g_isFullScreen && !forceWindowLock;
+    // [Requirement] 窗口大小固定: 滚轮缩放/键盘缩放永远只改变图片缩放比例，不调整窗口尺寸。
+    bool canResizeConfig = false;
     
     // Get Image Dimensions
     VisualState vs = GetVisualState();
@@ -14832,16 +14663,8 @@ bool HandleHotkeyAction(HWND hwnd, HotkeyAction action) {
         if (IsCompareModeActive()) {
             PerformCompareZoom100(hwnd);
         } else if (GetPaneContext(PaneSlot::Primary).resource) {
-            float currentRealScale = GetCurrentRealScale(hwnd);
-            bool is100Percent = (fabsf(currentRealScale - 1.0f) < 0.05f);
-            bool isMaximizedOrFullscreen = IsZoomed(hwnd) || g_isFullScreen;
-
-            if (is100Percent && !isMaximizedOrFullscreen && s_restoredWindowRect.right > s_restoredWindowRect.left) {
-                PerformRestoreWindow(hwnd);
-            } else {
-                if (!isMaximizedOrFullscreen && s_restoredWindowRect.right == 0) GetWindowRect(hwnd, &s_restoredWindowRect);
-                PerformZoom100(hwnd);
-            }
+            // [Requirement] 窗口大小固定: 缩放只改变图片比例，不调整窗口
+            PerformZoom100(hwnd, false);
         }
         return true;
 
@@ -14849,23 +14672,8 @@ bool HandleHotkeyAction(HWND hwnd, HotkeyAction action) {
         if (IsCompareModeActive()) {
             PerformCompareZoomFit(hwnd);
         } else if (GetPaneContext(PaneSlot::Primary).resource) {
-            HMONITOR hMon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-            MONITORINFO mi{}; mi.cbSize = sizeof(mi); GetMonitorInfoW(hMon, &mi);
-            int maxW = mi.rcWork.right - mi.rcWork.left;
-            int maxH = mi.rcWork.bottom - mi.rcWork.top;
-            RECT rcWin; GetWindowRect(hwnd, &rcWin);
-            int winWidth = rcWin.right - rcWin.left;
-            int winHeight = rcWin.bottom - rcWin.top;
-
-            bool isMaximizedOrFullscreen = IsZoomed(hwnd) || g_isFullScreen;
-            bool isFitWindow = (winWidth >= maxW - 2 || winHeight >= maxH - 2) || isMaximizedOrFullscreen;
-
-            if (isFitWindow && !isMaximizedOrFullscreen && s_restoredWindowRect.right > s_restoredWindowRect.left) {
-                PerformRestoreWindow(hwnd);
-            } else {
-                if (!isMaximizedOrFullscreen && s_restoredWindowRect.right == 0) GetWindowRect(hwnd, &s_restoredWindowRect);
-                PerformZoomFit(hwnd);
-            }
+            // [Requirement] 窗口大小固定: 缩放只改变图片比例，不调整窗口
+            PerformZoomFit(hwnd, 1.0f, false);
         }
         return true;
 

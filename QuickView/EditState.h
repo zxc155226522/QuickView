@@ -560,7 +560,7 @@ struct AppConfig {
     bool CanvasShowGrid = false; // Overlay grid
     bool AlwaysOnTop = false;
     int OpenFullScreenMode = 0;         // 0=Off, 1=Large Only, 2=All
-    bool LockWindowSize = false;
+    bool LockWindowSize = true; // [Requirement] 默认锁定窗口大小，不跟随图片缩放
     bool ShowOSD = true;
     bool AutoHideWindowControls = true;
     bool LockBottomToolbar = false;
@@ -577,8 +577,8 @@ struct AppConfig {
     float WindowMaxSizePercent = 80.0f; // Maximum window size percentage relative to monitor (default 80%)
 
     // --- Window Lock Behaviors ---
-    bool KeepWindowSizeOnNav = false;
-    bool RememberLastWindowSizeAndPosition = false;
+    bool KeepWindowSizeOnNav = true; // [Requirement] 导航时保持窗口尺寸不变
+    bool RememberLastWindowSizeAndPosition = true; // [Requirement] 记忆最后窗口尺寸和位置
     bool UpscaleSmallImagesWhenLocked = false;
 
     int ShowBorderIndicator = 1; // 0=Off, 1=On (Accent Color), 2=Custom Color
@@ -934,7 +934,7 @@ extern SlideshowState g_slideshowState;
 
 // Runtime State (Reset on Restart)
 struct RuntimeConfig {
-    bool LockWindowSize = false;
+    bool LockWindowSize = true; // [Requirement] 默认锁定窗口大小
     bool ShowInfoPanel = false;
     bool InfoPanelExpanded = false;  // false=Lite, true=Full
     bool ShowHdrDetailsExpanded = false;
