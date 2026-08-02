@@ -1874,7 +1874,7 @@ void UIRenderer::DrawWindowControls(ID2D1DeviceContext* dc, HWND hwnd) {
     dc->CreateSolidColorBrush(isLight ? D2D1::ColorF(D2D1::ColorF::Black) : D2D1::ColorF(D2D1::ColorF::White), &foregroundBrush);
     dc->CreateSolidColorBrush(D2D1::ColorF(0.2f, 0.6f, 1.0f), &accentBrush);
     
-    auto DrawIcon = [&](Icons::IconGlyph icon, D2D1_RECT_F rect, ID2D1Brush* brush, float iconScale) {
+    auto DrawIcon = [&](Icons::IconGlyph icon, D2D1_RECT_F rect, ID2D1Brush* brush, float iconScale, float rotationAngle = 0.0f) {
         if (!icon) return;
         const float w = rect.right - rect.left;
         const float h = rect.bottom - rect.top;
@@ -1884,12 +1884,11 @@ void UIRenderer::DrawWindowControls(ID2D1DeviceContext* dc, HWND hwnd) {
         D2D1_RECT_F iconRect = D2D1::RectF(cx - side * 0.5f, cy - side * 0.5f, cx + side * 0.5f, cy + side * 0.5f);
         
         // Zero-cost abstraction: direct rendering without 4-way shadow
-        QuickView::UI::GeekIconRenderer::DrawVectorIcon(dc, *icon, iconRect, brush);
+        QuickView::UI::GeekIconRenderer::DrawVectorIcon(dc, *icon, iconRect, brush, rotationAngle);
     };
     
-    Icons::IconGlyph pinIcon = m_pinActive ? Icons::Unpin : Icons::Pin;
     ID2D1Brush* pinBrush = m_pinActive ? accentBrush.Get() : foregroundBrush.Get();
-    DrawIcon(pinIcon, pinRect, pinBrush, 0.44f);
+    DrawIcon(Icons::Pin, pinRect, pinBrush, 0.44f, m_pinActive ? -45.0f : 0.0f);
     
     DrawIcon(Icons::Minimize, minRect, foregroundBrush.Get(), 0.43f);
     DrawIcon((IsZoomed(hwnd) || m_isFullscreen) ? Icons::Restore : Icons::Maximize, maxRect, foregroundBrush.Get(), 0.43f);
