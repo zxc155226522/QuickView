@@ -56,6 +56,9 @@ extern FileNavigator& g_navigator;
 static bool ReadFileToVector(LPCWSTR filePath, std::vector<uint8_t> &buffer);
 static std::string_view GetSvgRootTag(std::string_view xml);
 static std::string GetSvgRootAttrVal(const std::string &xml, const char *attr);
+static bool TryParseSvgLengthToDip(const std::string &raw, float *out);
+static bool TryParseSvgViewBoxSize(const std::string &vbStr, float *outW,
+                                   float *outH);
 
 // [CMS/PMR] Forward declaration
 static bool ReadFileToPMR(LPCWSTR filePath, std::pmr::vector<uint8_t> &buffer,
@@ -10461,57 +10464,19 @@ HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
   // Multi-page: future enhancement could stitch pages vertically.
   std::string svgContent(svgPages[0].cstr());
 
-  // --- Parse SVG dimensions from generated content ---
+  // Parse the generated SVG using the same CSS length rules as native SVG.
+  // librevenge writes physical root dimensions such as width="8.5in" while
+  // its viewBox and drawing coordinates use points. Treating 8.5in as 8.5px
+  // creates a tiny D2D viewport and clips most of the document.
   float svgW = 0.0f, svgH = 0.0f;
+  const std::string wStr = GetSvgRootAttrVal(svgContent, "width");
+  const std::string hStr = GetSvgRootAttrVal(svgContent, "height");
+  const bool hasWidth = TryParseSvgLengthToDip(wStr, &svgW);
+  const bool hasHeight = TryParseSvgLengthToDip(hStr, &svgH);
 
-  // Helper: extract attribute value from <svg ...> root tag
-  auto extractRootAttr = [](const std::string &svg, const char *attr) -> std::string {
-    std::string needle = std::string(attr) + "=\"";
-    size_t pos = svg.find(needle);
-    if (pos == std::string::npos)
-      return {};
-    pos += needle.size();
-    size_t end = svg.find('"', pos);
-    if (end == std::string::npos)
-      return {};
-    return svg.substr(pos, end - pos);
-  };
-
-  // Helper: parse a length value (strip units like "mm", "px", "pt")
-  auto parseLength = [](const std::string &val) -> float {
-    if (val.empty())
-      return 0.0f;
-    // Use C-style parsing (exceptions disabled in Release-LTO build)
-    const char *start = val.c_str();
-    char *end = nullptr;
-    float result = strtof(start, &end);
-    if (end == start)
-      return 0.0f;
-    return result;
-  };
-
-  std::string wStr = extractRootAttr(svgContent, "width");
-  std::string hStr = extractRootAttr(svgContent, "height");
-  svgW = parseLength(wStr);
-  svgH = parseLength(hStr);
-
-  // Fallback to viewBox if width/height missing
-  if (svgW <= 0 || svgH <= 0) {
-    std::string vbStr = extractRootAttr(svgContent, "viewBox");
-    if (!vbStr.empty()) {
-      // viewBox="x y w h" - extract w and h
-      size_t sp1 = vbStr.find(' ');
-      if (sp1 != std::string::npos) {
-        size_t sp2 = vbStr.find(' ', sp1 + 1);
-        if (sp2 != std::string::npos) {
-          size_t sp3 = vbStr.find(' ', sp2 + 1);
-          if (sp3 != std::string::npos) {
-            svgW = parseLength(vbStr.substr(sp2 + 1, sp3 - sp2 - 1));
-            svgH = parseLength(vbStr.substr(sp3 + 1));
-          }
-        }
-      }
-    }
+  if (!hasWidth || !hasHeight || svgW <= 0.0f || svgH <= 0.0f) {
+    const std::string viewBox = GetSvgRootAttrVal(svgContent, "viewBox");
+    TryParseSvgViewBoxSize(viewBox, &svgW, &svgH);
   }
 
   // Default fallback

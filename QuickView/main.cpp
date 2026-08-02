@@ -4633,7 +4633,7 @@ void LoadConfig() {
     g_config.AlwaysOnTop = GetPrivateProfileIntW(L"View", L"AlwaysOnTop", 0, iniPath.c_str()) != 0;
     g_config.OpenFullScreenMode = GetPrivateProfileIntW(L"View", L"OpenFullScreenMode", 0, iniPath.c_str());
     g_config.FullScreenZoomMode = GetPrivateProfileIntW(L"View", L"FullScreenZoomMode", 0, iniPath.c_str());
-    g_config.LockWindowSize = GetPrivateProfileIntW(L"View", L"LockWindowSize", 0, iniPath.c_str()) != 0;
+    g_config.LockWindowSize = GetPrivateProfileIntW(L"View", L"LockWindowSize", 1, iniPath.c_str()) != 0;
     g_config.ShowOSD = GetPrivateProfileIntW(L"View", L"ShowOSD", 1, iniPath.c_str()) != 0;
 
     // Migration: if they had ResizeWindowOnZoom = 0, that's equivalent to LockWindowSize = true in old configs
@@ -4676,8 +4676,8 @@ void LoadConfig() {
     g_config.WindowMaxSizePercent = (float)_wtof(bufMax);
 
     // Window Lock Behaviors
-    g_config.KeepWindowSizeOnNav = GetPrivateProfileIntW(L"View", L"KeepWindowSizeOnNav", 0, iniPath.c_str()) != 0;
-    g_config.RememberLastWindowSizeAndPosition = GetPrivateProfileIntW(L"View", L"RememberLastWindowSizeAndPosition", 0, iniPath.c_str()) != 0;
+    g_config.KeepWindowSizeOnNav = GetPrivateProfileIntW(L"View", L"KeepWindowSizeOnNav", 1, iniPath.c_str()) != 0;
+    g_config.RememberLastWindowSizeAndPosition = GetPrivateProfileIntW(L"View", L"RememberLastWindowSizeAndPosition", 1, iniPath.c_str()) != 0;
     g_config.UpscaleSmallImagesWhenLocked = GetPrivateProfileIntW(L"View", L"UpscaleSmallImagesWhenLocked", 0, iniPath.c_str()) != 0;
     g_config.SlideshowIntervalMs = GetPrivateProfileIntW(L"View", L"SlideshowIntervalMs", 3000, iniPath.c_str());
     g_config.SlideshowImmersiveMode = GetPrivateProfileIntW(L"View", L"SlideshowImmersiveMode", 1, iniPath.c_str());
