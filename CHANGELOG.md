@@ -1,5 +1,26 @@
 # Changelog
 
+## [6.23.0] - CDR/CMX Vector Format Support (libcdr Integration)
+**Release Date**: 2026-08-02
+
+### ✨ Features & UX
+- **CorelDRAW CDR & CMX Support**:
+  - Integrated libcdr (LibreOffice) + librevenge as source-embedded static libraries.
+  - CDR/CMX files are parsed and converted to SVG XML, then rendered via the existing Direct2D native SVG engine with lossless zoom.
+  - Supports both `.cdr` (CorelDRAW Document) and `.cmx` (Corel Exchange) formats.
+  - Format detection in PeekHeader and routing in ImageLoader::LoadToFrame.
+- **Boost Dependency**: Added boost-algorithm, boost-optional, boost-property-tree, boost-spirit (header-only) via vcpkg for libcdr internal use.
+
+### 🏗️ Architecture
+- **Source-Integrated Third-Party Libraries** (same pattern as unrar-mini):
+  - `third_party/librevenge/` — Core + Stream libraries with custom CMakeLists.txt.
+  - `third_party/libcdr/` — CDR/CMX parser with custom CMakeLists.txt and ICU stub headers.
+- **Windows Compatibility Fixes**:
+  - librevenge downgraded to C++17 (shared_ptr::unique() removed in C++20+).
+  - Generated `win_compat.h` force-included for POSIX stat macros (S_ISREG/S_ISDIR).
+  - ICU stub headers created (charset detection disabled, non-critical for standard-encoded files).
+  - Custom triplet updated to enable exceptions for all `boost-*` ports.
+
 ## [6.22.3] - RAW+JPEG Folding, Minimap & Performance Optimization
 **Release Date**: 2026-07-17
 
