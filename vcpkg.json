@@ -25,7 +25,11 @@
     "boost-algorithm",
     "boost-optional",
     "boost-property-tree",
-    "boost-spirit"
+    "boost-spirit",
+    {
+      "name": "libmupdf",
+      "default-features": false
+    }
   ],
   "builtin-baseline": "2475cc332a47b3a63bb3de58293bdab7726613ca"
 }

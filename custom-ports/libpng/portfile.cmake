@@ -76,12 +76,12 @@ vcpkg_cmake_configure(
     SOURCE_PATH "${SOURCE_PATH}"
     OPTIONS
         "-DZLIB_INCLUDE_DIR=${CURRENT_INSTALLED_DIR}/include"
-        "-DZLIB_LIBRARY_RELEASE=${CURRENT_INSTALLED_DIR}/lib/zlibstatic-ng.lib"
-        "-DZLIB_LIBRARY_DEBUG=${CURRENT_INSTALLED_DIR}/debug/lib/zlibstatic-ngd.lib"
+        "-DZLIB_LIBRARY_RELEASE=${CURRENT_INSTALLED_DIR}/lib/zlibstatic.lib"
+        "-DZLIB_LIBRARY_DEBUG=${CURRENT_INSTALLED_DIR}/debug/lib/zlibstaticd.lib"
         # CMake FindZLIB typically uses ZLIB_LIBRARY for the main one, but separate release/debug might require CMAKE_ flags or specific handling.
         # But for FindZLIB.cmake provided by CMake, usually ZLIB_LIBRARY is sufficient if generic?
         # Let's try setting standard CMake cache entries.
-        "-DZLIB_LIBRARY=${CURRENT_INSTALLED_DIR}/lib/zlibstatic-ng.lib" 
+        "-DZLIB_LIBRARY=${CURRENT_INSTALLED_DIR}/lib/zlibstatic.lib" 
         ${LIBPNG_HARDWARE_OPTIMIZATIONS_OPTION}
         ${LD_VERSION_SCRIPT_OPTION}
         -DPNG_STATIC=${PNG_STATIC}

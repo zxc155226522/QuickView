@@ -85,3 +85,9 @@ if(PORT STREQUAL "zlib-ng" OR PORT STREQUAL "highway")
 endif()
 
 set(ZLIB_COMPAT ON)
+
+# [FreeType Fix] vcpkg 默认设置 CMAKE_RC_FLAGS="/c65001 /DWIN32"，
+# 但 /c65001 会被 clang-cl 误判为文件路径。覆盖为仅 /DWIN32。
+set(VCPKG_CMAKE_CONFIGURE_OPTIONS "${VCPKG_CMAKE_CONFIGURE_OPTIONS}"
+    "-DCMAKE_RC_FLAGS=/DWIN32"
+)

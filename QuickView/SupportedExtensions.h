@@ -32,8 +32,8 @@ inline constexpr std::array<std::wstring_view, 11> STANDARD_EXTENSIONS = {
 };
 
 // Web / Modern formats
-inline constexpr std::array<std::wstring_view, 11> WEB_MODERN_EXTENSIONS = {
-    L".webp", L".avif", L".avifs", L".heic", L".heif", L".svg", L".svgz", L".jxl", L".apng", L".cdr", L".cmx"
+inline constexpr std::array<std::wstring_view, 13> WEB_MODERN_EXTENSIONS = {
+    L".webp", L".avif", L".avifs", L".heic", L".heif", L".svg", L".svgz", L".jxl", L".apng", L".cdr", L".cmx", L".pdf", L".ai"
 };
 
 // Professional / HDR / Legacy formats
@@ -164,7 +164,7 @@ constexpr bool IsRenderedPairExtension(std::wstring_view ext) {
 }
 
 // Compile-time regression tests (zero runtime cost)
-static_assert(SUPPORTED_EXTENSIONS.size() == 69);
+static_assert(SUPPORTED_EXTENSIONS.size() == 71);
 static_assert(RAW_EXTENSIONS.size() == 43);
 static_assert(IsRawExtension(L".crw"));   // was missing from main.cpp's IsRawFile
 static_assert(IsRawExtension(L".CR3"));   // case-insensitive

@@ -40,6 +40,11 @@ extern struct AppConfig g_config;
 #include <libcdr/libcdr.h>
 #include <librevenge-stream/librevenge-stream.h>
 
+// MuPDF: PDF and PDF-compatible AI rendering
+#include <mupdf/fitz.h>
+#include "MuPdfDocument.h"
+#include "DocumentRenderController.h"
+
 
 using namespace QuickView;
 #include "FileNavigator.h"
@@ -689,6 +694,7 @@ static std::wstring DetectFormatFromContent(const uint8_t *magic, size_t size) {
   static const uint8_t sig_ico[] = {0x00, 0x00, 0x01, 0x00};
   static const uint8_t sig_tif1[] = {0x49, 0x49, 0x2A, 0x00};
   static const uint8_t sig_tif2[] = {0x4D, 0x4D, 0x00, 0x2A};
+  static const uint8_t sig_pdf[] = {'%', 'P', 'D', 'F', '-'};
 
   static const MagicSignature signatures[] = {
       {L"JPEG", 0, sig_jpeg, sizeof(sig_jpeg)},
@@ -706,7 +712,8 @@ static std::wstring DetectFormatFromContent(const uint8_t *magic, size_t size) {
       {L"PCX", 0, sig_pcx, sizeof(sig_pcx)},
       {L"ICO", 0, sig_ico, sizeof(sig_ico)},
       {L"TIFF", 0, sig_tif1, sizeof(sig_tif1)},
-      {L"TIFF", 0, sig_tif2, sizeof(sig_tif2)}};
+      {L"TIFF", 0, sig_tif2, sizeof(sig_tif2)},
+      {L"PDF", 0, sig_pdf, sizeof(sig_pdf)}};
 
   for (const auto &sig : signatures) {
     if (size >= sig.offset + sig.sig_len) {
@@ -13606,6 +13613,69 @@ HRESULT CImageLoader::LoadToFrame(
     if (QuickView::ExtEqualsIgnoreCase(ext, L".cdr") ||
         QuickView::ExtEqualsIgnoreCase(ext, L".cmx")) {
       return LoadCDR(filePath, outFrame, pLoaderName, pMetadata, checkCancel);
+    }
+
+    // ========================================================================
+    // PDF/AI Path (MuPDF → BGRA pixels → RawImageFrame)
+    // ========================================================================
+    // PDF and PDF-compatible AI files are rendered by MuPDF to BGRA pixels.
+    // Multi-page documents: first page is rendered here; page navigation
+    // is handled by DocumentRenderController in main.cpp.
+    // ========================================================================
+    if (QuickView::ExtEqualsIgnoreCase(ext, L".pdf") ||
+        QuickView::ExtEqualsIgnoreCase(ext, L".ai") ||
+        format == L"PDF") {
+      // Create a temporary fz_context for synchronous first-page render
+      fz_context* ctx = fz_new_context(nullptr, nullptr, FZ_STORE_DEFAULT);
+      if (!ctx) return E_OUTOFMEMORY;
+      fz_try(ctx) {
+        fz_register_document_handlers(ctx);
+      }
+      fz_catch(ctx) {
+        fz_drop_context(ctx);
+        return E_FAIL;
+      }
+
+      MuPdfDocument doc(ctx);
+      std::wstring errorMessage;
+      HRESULT hr = doc.Open(filePath, errorMessage);
+      if (FAILED(hr)) {
+        fz_drop_context(ctx);
+        if (pMetadata)
+          pMetadata->Format = L"PDF (Parse Failed)";
+        return hr;
+      }
+
+      // Render first page at 150 DPI (zoom ≈ 2.08x of 72 DPI)
+      DocumentRenderResult renderResult;
+      RECT rc;
+      GetClientRect(GetForegroundWindow(), &rc);
+      int viewportW = (rc.right > 64) ? (rc.right - rc.left) : 1920;
+      int viewportH = (rc.bottom > 64) ? (rc.bottom - rc.top) : 1080;
+      hr = doc.RenderPage(0, viewportW, viewportH, 1.0f, renderResult);
+      if (FAILED(hr) || !renderResult.frame) {
+        fz_drop_context(ctx);
+        if (pMetadata)
+          pMetadata->Format = L"PDF (Render Failed)";
+        return hr;
+      }
+
+      // Transfer frame to output
+      *outFrame = std::move(*renderResult.frame);
+      outFrame->formatDetails = L"MuPDF 1.27.2";
+
+      if (pLoaderName)
+        *pLoaderName = L"MuPDF (PDF)";
+      if (pMetadata) {
+        pMetadata->LoaderName = L"MuPDF (PDF)";
+        pMetadata->Format = QuickView::ExtEqualsIgnoreCase(ext, L".ai") ? L"AI" : L"PDF";
+        pMetadata->FormatDetails = L"Document (MuPDF)";
+        pMetadata->Width = (UINT)outFrame->width;
+        pMetadata->Height = (UINT)outFrame->height;
+      }
+
+      fz_drop_context(ctx);
+      return S_OK;
     }
   }
 

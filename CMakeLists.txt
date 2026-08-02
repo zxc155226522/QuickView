@@ -107,6 +107,8 @@ set(QUICKVIEW_SOURCES
     QuickView/AvifAnimator.cpp
     QuickView/JxlAnimator.cpp
     QuickView/QuickViewETW.cpp
+    QuickView/MuPdfDocument.cpp
+    QuickView/DocumentRenderController.cpp
     
     # Third party manually included
     third_party/yyjson/yyjson.c
@@ -281,6 +283,9 @@ find_package(libyuv CONFIG REQUIRED)
 # ZLIB
 find_package(ZLIB REQUIRED)
 
+# libmupdf (MuPDF - PDF/AI rendering)
+find_package(unofficial-libmupdf CONFIG REQUIRED)
+
 # Create targets for Brotli and Dav1d
 add_library(brotli::common STATIC IMPORTED)
 set_property(TARGET brotli::common PROPERTY IMPORTED_LOCATION_RELEASE "${BROTLI_COMMON_LIB_RELEASE}")
@@ -313,6 +318,7 @@ target_link_libraries(QuickView PRIVATE
     unrar-mini
     librevenge
     libcdr
+    unofficial::libmupdf::libmupdf
     # Windows system libraries
     imm32.lib
     dwrite.lib
