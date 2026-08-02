@@ -511,7 +511,8 @@ private:
   // libcdr (CDR/CMX → SVG via librevenge)
   HRESULT LoadCDR(LPCWSTR filePath, QuickView::RawImageFrame *outFrame,
                   std::wstring *pLoaderName = nullptr,
-                  CImageLoader::ImageMetadata *pMetadata = nullptr);
+                  CImageLoader::ImageMetadata *pMetadata = nullptr,
+                  CancelPredicate checkCancel = {});
 
   // NetPBM via Wuffs (PAM, PBM, PGM, PPM)
   HRESULT LoadNetpbmWuffs(LPCWSTR filePath, IWICBitmap **ppBitmap);

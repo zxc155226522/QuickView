@@ -10404,15 +10404,26 @@ HRESULT CImageLoader::LoadTinyExrImage(LPCWSTR filePath, IWICBitmap **ppBitmap,
 HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
                                QuickView::RawImageFrame *outFrame,
                                std::wstring *pLoaderName,
-                               CImageLoader::ImageMetadata *pMetadata) {
-  // Convert wide path to UTF-8 for librevenge::RVNGFileStream
-  int utf8Len = WideCharToMultiByte(CP_UTF8, 0, filePath, -1, nullptr, 0, nullptr, nullptr);
-  if (utf8Len <= 0)
+                               CImageLoader::ImageMetadata *pMetadata,
+                               CancelPredicate checkCancel) {
+  // [Fix] RVNGFileStream uses fopen() which does NOT support UTF-8 paths on
+  // Windows (fopen uses ANSI/GBK). When the CDR file path contains Chinese
+  // characters, fopen fails silently → isSupported/parse all return false.
+  // Solution: read file via CreateFileW (wide-char native) into memory, then
+  // use RVNGStringStream (memory-backed) to feed libcdr.
+  std::vector<uint8_t> fileData;
+  if (!ReadFileToVector(filePath, fileData) || fileData.empty()) {
+    if (pMetadata)
+      pMetadata->Format = L"CDR (File Read Error)";
     return E_FAIL;
-  std::vector<char> utf8Path(utf8Len);
-  WideCharToMultiByte(CP_UTF8, 0, filePath, -1, utf8Path.data(), utf8Len, nullptr, nullptr);
+  }
 
-  librevenge::RVNGFileStream input(utf8Path.data());
+  librevenge::RVNGStringStream input(fileData.data(),
+                                     (unsigned)fileData.size());
+
+  // Check cancel before heavy parsing
+  if (checkCancel)
+    return E_ABORT;
 
   // Check format support
   bool isCdr = libcdr::CDRDocument::isSupported(&input);
@@ -10425,6 +10436,10 @@ HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
       return E_FAIL;
     }
   }
+
+  // Check cancel before parse (can be slow for large CDR files)
+  if (checkCancel)
+    return E_ABORT;
 
   // Generate SVG via librevenge's built-in RVNGSVGDrawingGenerator
   librevenge::RVNGStringVector svgPages;
@@ -13625,7 +13640,7 @@ HRESULT CImageLoader::LoadToFrame(
     auto ext = QuickView::ExtensionOf(filePath);
     if (QuickView::ExtEqualsIgnoreCase(ext, L".cdr") ||
         QuickView::ExtEqualsIgnoreCase(ext, L".cmx")) {
-      return LoadCDR(filePath, outFrame, pLoaderName, pMetadata);
+      return LoadCDR(filePath, outFrame, pLoaderName, pMetadata, checkCancel);
     }
   }
 
