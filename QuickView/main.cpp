@@ -3367,21 +3367,6 @@ static float GetCurrentRealScale(HWND hwnd) {
     return totalScale * (imgW / originalW); // Real pixel scale
 }
 
-static void PerformRestoreWindow(HWND hwnd) {
-    if (s_restoredWindowRect.right > s_restoredWindowRect.left && !IsZoomed(hwnd) && !g_isFullScreen) {
-        int rW = s_restoredWindowRect.right - s_restoredWindowRect.left;
-        int rH = s_restoredWindowRect.bottom - s_restoredWindowRect.top;
-        SetWindowPos(hwnd, nullptr, s_restoredWindowRect.left, s_restoredWindowRect.top, rW, rH, SWP_NOZORDER | SWP_NOACTIVATE);
-        GetPaneContext(PaneSlot::Primary).view.Zoom = 1.0f;
-        GetPaneContext(PaneSlot::Primary).view.PanX = 0;
-        GetPaneContext(PaneSlot::Primary).view.PanY = 0;
-        g_osd.Show(hwnd, AppStrings::OSD_Restored, false, false, D2D1::ColorF(D2D1::ColorF::White));
-        RequestRepaint(PaintLayer::All);
-
-        s_restoredWindowRect = {};
-    }
-}
-
 // Inlined Logic to avoid dependency on local lambdas
 static void PerformCompareZoom100(HWND hwnd) {
     if (!IsCompareModeActive()) return;
@@ -5262,7 +5247,7 @@ void AdjustWindowForOverlay(HWND hwnd, bool isClosed) {
     g_programmaticResize = false;
 }
 
-void AdjustWindowToImage(HWND hwnd) {
+void AdjustWindowToImage([[maybe_unused]] HWND hwnd) {
     // [Requirement] 窗口大小固定: 导航切换图片时不自动调整窗口尺寸，窗口保持固定大小
     return;
 }
@@ -8571,18 +8556,6 @@ SKIP_EDGE_NAV:;
         if (GetPaneContext(PaneSlot::Primary).resource) {
             float currentRealScale = GetCurrentRealScale(hwnd);
             bool is100Percent = (fabsf(currentRealScale - 1.0f) < 0.05f);
-
-            HMONITOR hMon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-            MONITORINFO mi{}; mi.cbSize = sizeof(mi); GetMonitorInfoW(hMon, &mi);
-            int maxW = mi.rcWork.right - mi.rcWork.left;
-            int maxH = mi.rcWork.bottom - mi.rcWork.top;
-            
-            RECT rcWin; GetWindowRect(hwnd, &rcWin);
-            int winWidth = rcWin.right - rcWin.left;
-            int winHeight = rcWin.bottom - rcWin.top;
-
-            bool isMaximizedOrFullscreen = IsZoomed(hwnd) || g_isFullScreen;
-            bool isFitWindow = (winWidth >= maxW - 2 || winHeight >= maxH - 2) || isMaximizedOrFullscreen;
 
             // [Requirement] 双击不修改窗口: 只在 100% 和 适应窗口 间切换缩放级别，不调整窗口尺寸
             if (is100Percent) {
@@ -13756,7 +13729,7 @@ void OnPaint(HWND hwnd) {
 
 
 
-void PerformSmartZoom(HWND hwnd, float newTotalScale, const POINT* centerPt, bool forceWindowLock, bool animateDisplay) {
+void PerformSmartZoom(HWND hwnd, float newTotalScale, const POINT* centerPt, [[maybe_unused]] bool forceWindowLock, bool animateDisplay) {
 
     // Basic Eligibility Check
     // [Requirement] 窗口大小固定: 滚轮缩放/键盘缩放永远只改变图片缩放比例，不调整窗口尺寸。
