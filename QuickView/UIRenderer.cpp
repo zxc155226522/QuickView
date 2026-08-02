@@ -1815,152 +1815,58 @@ void UIRenderer::DrawTitleBar(ID2D1DeviceContext* dc, HWND hwnd) {
 void UIRenderer::DrawWindowControls(ID2D1DeviceContext* dc, HWND hwnd) {
     if (m_isFullscreen) return;
     const float s = m_uiScale;
-    float btnW = 28.0f * s;
-    float btnH = 28.0f * s;
+    const float btnW = 42.0f * s;
+    const float titleBarH = GetTitleBarHeight();
 
-    // Do not draw if there is not even enough space for the buttons
-    if (m_width < btnW * 4) return;
-    
-    // [Fix] Only apply offset when MAXIMIZED (has hidden border)
-    // Fullscreen has NO border, so no offset needed
+    if (m_width < btnW * 4) {
+        m_winCloseRect = {};
+        m_winMaxRect = {};
+        m_winMinRect = {};
+        m_winPinRect = {};
+        return;
+    }
+
+    // Keep the controls inside the visible work area when a borderless window is maximized.
     float xOffset = 0.0f;
     float yOffset = 0.0f;
     GetMaximizedWindowPaddings(hwnd, m_isFullscreen, xOffset, yOffset);
-    
-    // Designer Dynamic Island Margins & Padding
-    float marginX = 4.0f * s; // Extremely close to the edge
-    float marginY = 4.0f * s;
-    float padX = 2.0f * s;
-    float padY = 2.0f * s;
-    
-    // Position buttons honoring the window border (xOffset/yOffset)
-    float rightEdge = (float)m_width - xOffset - marginX - padX;
-    float topEdge = yOffset + marginY + padY;
 
-    D2D1_RECT_F closeRect = D2D1::RectF(rightEdge - btnW, topEdge, rightEdge, btnH + topEdge);
-    D2D1_RECT_F maxRect = D2D1::RectF(rightEdge - btnW * 2, topEdge, rightEdge - btnW, btnH + topEdge);
-    D2D1_RECT_F minRect = D2D1::RectF(rightEdge - btnW * 3, topEdge, rightEdge - btnW * 2, btnH + topEdge);
-    D2D1_RECT_F pinRect = D2D1::RectF(rightEdge - btnW * 4, topEdge, rightEdge - btnW * 3, btnH + topEdge);
+    const float rightEdge = (float)m_width - xOffset;
+    const float topEdge = yOffset;
+    const float bottomEdge = (std::max)(topEdge + 1.0f, titleBarH);
+
+    // The four controls are contiguous title-bar cells, not a floating overlay.
+    const D2D1_RECT_F closeRect = D2D1::RectF(rightEdge - btnW, topEdge, rightEdge, bottomEdge);
+    const D2D1_RECT_F maxRect = D2D1::RectF(rightEdge - btnW * 2, topEdge, rightEdge - btnW, bottomEdge);
+    const D2D1_RECT_F minRect = D2D1::RectF(rightEdge - btnW * 3, topEdge, rightEdge - btnW * 2, bottomEdge);
+    const D2D1_RECT_F pinRect = D2D1::RectF(rightEdge - btnW * 4, topEdge, rightEdge - btnW * 3, bottomEdge);
     
-    // True Pill Shape (Perfect semicircles on ends)
-    D2D1_RECT_F capsuleRect = D2D1::RectF(
-        pinRect.left - padX,
-        pinRect.top - padY, 
-        closeRect.right + padX, 
-        closeRect.bottom + padY
-    );
-    float cornerRadius = (capsuleRect.bottom - capsuleRect.top) * 0.5f;
-
-    ComPtr<ID2D1Layer> layer;
-    bool useLayer = false;
-    if (SUCCEEDED(dc->CreateLayer(&layer))) {
-        D2D1_LAYER_PARAMETERS params = D2D1::LayerParameters();
-        params.contentBounds = capsuleRect;
-        // Expand layer bounds to accommodate shadow diffusion exactly like Toolbar
-        float shadowMargin = 60.0f * s;
-        params.contentBounds.left -= shadowMargin;
-        params.contentBounds.top -= shadowMargin;
-        params.contentBounds.right += shadowMargin;
-        params.contentBounds.bottom += shadowMargin;
-        params.opacity = 1.0f;
-        dc->PushLayer(params, layer.Get());
-        useLayer = true;
-    }
-
-    bool isLight = IsLightThemeActive();
-    if (m_bgCommandList) {
-        auto& geekGlass = GetGlassEngine("WindowControls");
-        geekGlass.InitializeResources(dc);
-        QuickView::UI::GeekGlass::GeekGlassConfig config;
-        config.theme = isLight ? QuickView::UI::GeekGlass::ThemeMode::Light : QuickView::UI::GeekGlass::ThemeMode::Dark;
-        config.panelBounds = capsuleRect;
-        config.cornerRadius = cornerRadius;
-        config.enableGeekGlass = g_config.EnableGeekGlass;
-        config.tintProfile = g_config.GlassTintProfile;
-        config.customTintColor = D2D1::ColorF(g_config.GlassCustomTintR, g_config.GlassCustomTintG, g_config.GlassCustomTintB, g_config.GlassTintAlpha);
-        config.tintAlpha = g_config.GlassTintAlpha;
-        config.specularOpacity = g_config.GlassSpecularOpacity;
-        config.blurStandardDeviation = g_config.GlassBlurSigma * s;
-        config.opacity = g_config.GlassPanelsOpacity / 100.0f;
-        if (g_config.EnableGeekGlass) {
-            config.opacity = g_config.GlassPanelsOpacity / 100.0f;
-        }
-        config.strokeWeight = g_config.GetVectorStrokeWeight();
-        config.shadowOpacity = g_config.GlassShadowOpacity;
-        config.pBackgroundCommandList = m_bgCommandList.Get();
-        config.backgroundTransform = m_compEngine ? m_compEngine->GetScreenTransform() : D2D1::Matrix3x2F::Identity();
-        
-        geekGlass.DrawGeekGlassPanel(dc, config);
-
-        // [Material Boost] Consistency with Toolbar
-        if (g_config.EnableGeekGlass) {
-            float masterOpacity = g_config.GlassPanelsOpacity / 100.0f;
-            D2D1_COLOR_F fillerColor = isLight ? D2D1::ColorF(0.95f, 0.95f, 0.97f, 1.0f) : D2D1::ColorF(0.08f, 0.08f, 0.10f, 1.0f);
-            ComPtr<ID2D1SolidColorBrush> boosterBrush;
-            dc->CreateSolidColorBrush(D2D1::ColorF(fillerColor.r, fillerColor.g, fillerColor.b, masterOpacity), &boosterBrush);
-            dc->FillRoundedRectangle(D2D1::RoundedRect(capsuleRect, config.cornerRadius, config.cornerRadius), boosterBrush.Get());
-            
-            // Restore High-end Reflexes (Exact match with Toolbar: draw toppings again over filler)
-            geekGlass.DrawGeekGlassToppings(dc, config);
-        }
-    } else {
-        ComPtr<ID2D1SolidColorBrush> bgBrush;
-        float masterOpacity = g_config.GlassPanelsOpacity / 100.0f;
-        D2D1_COLOR_F fallbackBg = isLight ? D2D1::ColorF(0.95f, 0.95f, 0.97f, masterOpacity) : D2D1::ColorF(0.08f, 0.08f, 0.10f, masterOpacity);
-        dc->CreateSolidColorBrush(fallbackBg, &bgBrush);
-        dc->FillRoundedRectangle(D2D1::RoundedRect(capsuleRect, cornerRadius, cornerRadius), bgBrush.Get());
-    }
-    
-    // [NEW] Cache hit rects for HitTestWindowControls
     m_winCloseRect = closeRect;
     m_winMaxRect = maxRect;
     m_winMinRect = minRect;
     m_winPinRect = pinRect;
-    
-    // Hover backgrounds (Glow / Halo Effect)
-    auto DrawHover = [&](const D2D1_RECT_F& r, D2D1_COLOR_F color) {
-        float cx = (r.left + r.right) * 0.5f;
-        float cy = (r.top + r.bottom) * 0.5f;
-        // The capsule height is 32px (28 + 2*padY).
-        // A radius of 0.5f * 28 = 14px (diameter 28px) ensures the glow stays perfectly inside the capsule.
-        float radius = std::min(r.right - r.left, r.bottom - r.top) * 0.5f;
-        
-        ComPtr<ID2D1GradientStopCollection> stops;
-        D2D1_GRADIENT_STOP stopData[2];
-        stopData[0].position = 0.0f;
-        stopData[0].color = color;
-        stopData[1].position = 1.0f;
-        stopData[1].color = D2D1::ColorF(color.r, color.g, color.b, 0.0f); // fade to transparent
-        
-        dc->CreateGradientStopCollection(stopData, 2, D2D1_GAMMA_2_2, D2D1_EXTEND_MODE_CLAMP, &stops);
-        
-        if (stops) {
-            ComPtr<ID2D1RadialGradientBrush> radialBrush;
-            D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES radialProps = D2D1::RadialGradientBrushProperties(
-                D2D1::Point2F(cx, cy),
-                D2D1::Point2F(0, 0),
-                radius,
-                radius
-            );
-            dc->CreateRadialGradientBrush(radialProps, stops.Get(), &radialBrush);
-            if (radialBrush) {
-                dc->FillEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), radius, radius), radialBrush.Get());
-            }
-        }
-    };
 
-    if (m_winCtrlHover == 0) {
-        // macOS Red
-        DrawHover(closeRect, D2D1::ColorF(1.0f, 0.37f, 0.34f, 0.85f));
-    } else if (m_winCtrlHover == 1) {
-        // macOS Green
-        DrawHover(maxRect, D2D1::ColorF(0.15f, 0.79f, 0.25f, 0.85f));
-    } else if (m_winCtrlHover == 2) {
-        // Vibrant Blue for Min
-        DrawHover(minRect, D2D1::ColorF(0.0f, 0.48f, 1.0f, 0.85f));
-    } else if (m_winCtrlHover == 3) {
-        // macOS Yellow for Pin
-        DrawHover(pinRect, D2D1::ColorF(1.0f, 0.74f, 0.18f, 0.85f));
+    const bool isLight = IsLightThemeActive();
+    const D2D1_RECT_F* hoverRect = nullptr;
+    D2D1_COLOR_F hoverColor = isLight
+        ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.08f)
+        : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.10f);
+
+    switch (m_winCtrlHover) {
+        case 0:
+            hoverRect = &closeRect;
+            hoverColor = D2D1::ColorF(0.91f, 0.11f, 0.14f, 1.0f);
+            break;
+        case 1: hoverRect = &maxRect; break;
+        case 2: hoverRect = &minRect; break;
+        case 3: hoverRect = &pinRect; break;
+        default: break;
+    }
+
+    if (hoverRect) {
+        ComPtr<ID2D1SolidColorBrush> hoverBrush;
+        dc->CreateSolidColorBrush(hoverColor, &hoverBrush);
+        dc->FillRectangle(*hoverRect, hoverBrush.Get());
     }
 
     ComPtr<ID2D1SolidColorBrush> foregroundBrush, accentBrush;
@@ -1987,12 +1893,11 @@ void UIRenderer::DrawWindowControls(ID2D1DeviceContext* dc, HWND hwnd) {
     DrawIcon(Icons::Minimize, minRect, foregroundBrush.Get(), 0.43f);
     DrawIcon((IsZoomed(hwnd) || m_isFullscreen) ? Icons::Restore : Icons::Maximize, maxRect, foregroundBrush.Get(), 0.43f);
     
-    // For close button, if hovered, make icon white for contrast against red circle
+    // Keep the close glyph readable over the red title-bar hover cell.
     ComPtr<ID2D1SolidColorBrush> whiteBrush;
     dc->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), &whiteBrush);
     ID2D1Brush* closeBrush = (m_winCtrlHover == 0) ? whiteBrush.Get() : foregroundBrush.Get();
     DrawIcon(Icons::ExitToolbar, closeRect, closeBrush, 0.43f);
-    if (useLayer) dc->PopLayer();
 }
 
 void UIRenderer::DrawBorderIndicators(ID2D1DeviceContext* dc) {
@@ -2128,25 +2033,15 @@ bool UIRenderer::IsPointInTitleBarDragRegion(float x, float y) const {
 
 float UIRenderer::GetWindowControlsWidth() const {
     if (m_isFullscreen) return 0.0f;
-    const float s = m_uiScale;
-    float btnW = 28.0f * s;
-    if (m_width < btnW * 4) return 0.0f;
+
+    const float buttonsWidth = 42.0f * m_uiScale * 4.0f;
+    if (m_width < buttonsWidth) return 0.0f;
 
     float xOffset = 0.0f;
     float yOffset = 0.0f;
     extern HWND g_mainHwnd;
-    if (g_mainHwnd) {
-        GetMaximizedWindowPaddings(g_mainHwnd, m_isFullscreen, xOffset, yOffset);
-    }
-
-    float marginX = 4.0f * s;
-    float padX = 2.0f * s;
-    float rightEdge = (float)m_width - xOffset - marginX - padX;
-    float pinLeft = rightEdge - btnW * 4;
-    float capsuleLeft = pinLeft - padX;
-    
-    float controlsWidth = (float)m_width - capsuleLeft;
-    return (controlsWidth > 0.0f) ? controlsWidth : 0.0f;
+    GetMaximizedWindowPaddings(g_mainHwnd, m_isFullscreen, xOffset, yOffset);
+    return buttonsWidth + xOffset;
 }
 
 // ============================================================================
