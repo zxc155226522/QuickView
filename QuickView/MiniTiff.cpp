@@ -573,10 +573,14 @@ HRESULT LoadRegion(const uint8_t* data, size_t size,
                             int outX = x - cropX;
                             uint8_t val = srcRow[localX * pixelStride + highByteOffset];
                             if (photometric == 0) val = 255 - val;
+                            uint8_t a = (samples > 1) ? srcRow[localX * pixelStride + bytesPerSample + highByteOffset] : 255;
+                            if (samples > 1 && desc.extraSamples != 1) {
+                                val = static_cast<uint8_t>((val * a + 127) / 255);
+                            }
                             dstRow[outX * 4 + 0] = val;
                             dstRow[outX * 4 + 1] = val;
                             dstRow[outX * 4 + 2] = val;
-                            dstRow[outX * 4 + 3] = (samples > 1) ? srcRow[localX * pixelStride + bytesPerSample + highByteOffset] : 255;
+                            dstRow[outX * 4 + 3] = a;
                         }
                     } else if (photometric == 2) {
                         int runWidth = intersectEndX - intersectX;
@@ -761,10 +765,14 @@ HRESULT LoadRegion(const uint8_t* data, size_t size,
                             int outX = x - cropX;
                             uint8_t val = srcRow[x * pixelStride + highByteOffset];
                             if (photometric == 0) val = 255 - val;
+                            uint8_t a = (samples > 1) ? srcRow[x * pixelStride + bytesPerSample + highByteOffset] : 255;
+                            if (samples > 1 && desc.extraSamples != 1) {
+                                val = static_cast<uint8_t>((val * a + 127) / 255);
+                            }
                             dstRow[outX * 4 + 0] = val;
                             dstRow[outX * 4 + 1] = val;
                             dstRow[outX * 4 + 2] = val;
-                            dstRow[outX * 4 + 3] = (samples > 1) ? srcRow[x * pixelStride + bytesPerSample + highByteOffset] : 255;
+                            dstRow[outX * 4 + 3] = a;
                         }
                     } else if (photometric == 2) {
                         // [Titan Perf] SIMD Accelerated 16-to-8 bit downsampling + BGRA Swizzle for Stripped Layout

@@ -3,6 +3,8 @@
 
 #include <mupdf/fitz.h>
 
+#include "ImageLoaderSimd.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -199,20 +201,14 @@ HRESULT MuPdfDocument::RenderPage(uint32_t pageIndex,
         return result.status;
     }
 
+    // MuPDF outputs straight BGRA with alpha. D2D expects premultiplied alpha
+    // (D2D1_ALPHA_MODE_PREMULTIPLIED). Copy as-is, then premultiply via SIMD.
     for (int y = 0; y < height; ++y) {
-        uint8_t* destination = pixels + static_cast<size_t>(y) * stride;
-        std::memcpy(destination,
+        std::memcpy(pixels + static_cast<size_t>(y) * stride,
                     samples + static_cast<size_t>(y) * sourceStride,
                     static_cast<size_t>(width) * 4);
-        for (int x = 0; x < width; ++x) {
-            uint8_t* pixel = destination + static_cast<size_t>(x) * 4;
-            const uint8_t inverseAlpha = static_cast<uint8_t>(255 - pixel[3]);
-            pixel[0] = static_cast<uint8_t>(std::min(255, static_cast<int>(pixel[0]) + inverseAlpha));
-            pixel[1] = static_cast<uint8_t>(std::min(255, static_cast<int>(pixel[1]) + inverseAlpha));
-            pixel[2] = static_cast<uint8_t>(std::min(255, static_cast<int>(pixel[2]) + inverseAlpha));
-            pixel[3] = 255;
-        }
     }
+    ImageLoaderSimd::PremultiplyAlpha(pixels, width, height, stride);
     fz_drop_pixmap(m_context, pixmap);
 
     auto frame = std::make_shared<RawImageFrame>();
