@@ -410,10 +410,11 @@ void Toolbar::UpdateLayout(float winW, float winH) {
   float startX = (winW - totalW) / 2.0f;
   float startY = winH - bottomMargin - buttonSize - padY * 2;
 
+  // Full-width docked bar (not floating capsule)
   m_bgRect =
-      D2D1::RoundedRect(D2D1::RectF(startX, startY, startX + totalW,
-                                    startY + buttonSize + padY * 2),
-                        20.0f * m_uiScale, 20.0f * m_uiScale // Capsule radius
+      D2D1::RoundedRect(D2D1::RectF(0, startY, winW,
+                                    startY + buttonSize + padY * 2 + bottomMargin),
+                        0.0f, 0.0f // Sharp corners for docked bar
       );
 
   // Layout Buttons
@@ -688,6 +689,22 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
     } else {
         m_brushBg->SetOpacity(g_config.GlassPanelsOpacity / 100.0f);
         pRT->FillRoundedRectangle(m_bgRect, m_brushBg.Get());
+    }
+
+    // Separator line at top of docked toolbar
+    {
+        ComPtr<ID2D1SolidColorBrush> lineBrush;
+        D2D1_COLOR_F lineColor = isLight
+            ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.12f)
+            : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.12f);
+        pRT->CreateSolidColorBrush(lineColor, &lineBrush);
+        if (lineBrush) {
+            float lineY = m_bgRect.rect.top;
+            pRT->DrawLine(
+                D2D1::Point2F(0, lineY),
+                D2D1::Point2F(m_bgRect.rect.right, lineY),
+                lineBrush.Get(), 1.0f, nullptr);
+        }
     }
     
     // [v10.5] Animation Progress Bar - dynamic placement and thickness

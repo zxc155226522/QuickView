@@ -4621,18 +4621,23 @@ void LoadConfig() {
     if (g_config.SwatchColorIndex < 0 || g_config.SwatchColorIndex >= AppConfig::MAX_SWATCH_COLORS) g_config.SwatchColorIndex = 0;
     for (int i = 3; i < 9; ++i) {
         wchar_t keyR[32], keyG[32], keyB[32], keyA[32];
-        wchar_t buf[32];
+        wchar_t buf[32], defBuf[32];
         swprintf_s(keyR, L"Swatch%dR", i);
         swprintf_s(keyG, L"Swatch%dG", i);
         swprintf_s(keyB, L"Swatch%dB", i);
         swprintf_s(keyA, L"Swatch%dA", i);
-        GetPrivateProfileStringW(L"View", keyR, L"0", buf, 32, iniPath.c_str());
+        // Use struct defaults so first-run doesn't overwrite with black
+        swprintf_s(defBuf, L"%.6f", g_config.SwatchColors[i][0]);
+        GetPrivateProfileStringW(L"View", keyR, defBuf, buf, 32, iniPath.c_str());
         g_config.SwatchColors[i][0] = (float)_wtof(buf);
-        GetPrivateProfileStringW(L"View", keyG, L"0", buf, 32, iniPath.c_str());
+        swprintf_s(defBuf, L"%.6f", g_config.SwatchColors[i][1]);
+        GetPrivateProfileStringW(L"View", keyG, defBuf, buf, 32, iniPath.c_str());
         g_config.SwatchColors[i][1] = (float)_wtof(buf);
-        GetPrivateProfileStringW(L"View", keyB, L"0", buf, 32, iniPath.c_str());
+        swprintf_s(defBuf, L"%.6f", g_config.SwatchColors[i][2]);
+        GetPrivateProfileStringW(L"View", keyB, defBuf, buf, 32, iniPath.c_str());
         g_config.SwatchColors[i][2] = (float)_wtof(buf);
-        GetPrivateProfileStringW(L"View", keyA, L"1", buf, 32, iniPath.c_str());
+        swprintf_s(defBuf, L"%.6f", g_config.SwatchColors[i][3]);
+        GetPrivateProfileStringW(L"View", keyA, defBuf, buf, 32, iniPath.c_str());
         g_config.SwatchColors[i][3] = (float)_wtof(buf);
     }
     g_config.AlwaysOnTop = GetPrivateProfileIntW(L"View", L"AlwaysOnTop", 0, iniPath.c_str()) != 0;
@@ -4647,7 +4652,7 @@ void LoadConfig() {
     }
     // The custom title bar and its controls are always visible in windowed mode.
     g_config.AutoHideWindowControls = false;
-    g_config.LockBottomToolbar = GetPrivateProfileIntW(L"View", L"LockBottomToolbar", 0, iniPath.c_str()) != 0;
+    g_config.LockBottomToolbar = GetPrivateProfileIntW(L"View", L"LockBottomToolbar", 1, iniPath.c_str()) != 0;
     g_config.ShowBorderIndicator = GetPrivateProfileIntW(L"View", L"ShowBorderIndicator", 1, iniPath.c_str());
     wchar_t bufBICR[32], bufBICG[32], bufBICB[32];
     GetPrivateProfileStringW(L"View", L"BorderIndicatorCustomR", L"0.2", bufBICR, 32, iniPath.c_str());

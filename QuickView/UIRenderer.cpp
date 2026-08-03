@@ -4290,7 +4290,6 @@ void UIRenderer::DrawNavIndicators(ID2D1DeviceContext* dc) {
     if (g_viewState.CompareActive && g_config.DisableEdgeNavInCompare) return;
     bool isFullGridGallery = g_gallery.IsVisible() && g_gallery.GetMode() == GalleryMode::FullGrid;
     if (g_settingsOverlay.IsVisible() || g_helpOverlay.IsVisible() || isFullGridGallery || g_imagePath.empty()) return;
-
     const float s = m_uiScale;
     float circleRadius = 16.0f * s;
     float arrowSize = 8.0f * s;
@@ -4425,11 +4424,14 @@ void UIRenderer::DrawNavIndicators(ID2D1DeviceContext* dc) {
         return;
     }
 
-    if (!g_viewState.EdgeHoverState) return;
-
-    float arrowCenterY = m_height * 0.5f;
-    float arrowCenterX = (g_viewState.EdgeHoverState == -1) ? margin : (m_width - margin);
-    drawArrow(arrowCenterX, arrowCenterY, g_viewState.EdgeHoverState == -1);
+    // Always draw both left and right navigation arrows
+    {
+        float arrowCenterY = m_height * 0.5f;
+        // Left arrow (previous)
+        drawArrow(margin, arrowCenterY, true);
+        // Right arrow (next)
+        drawArrow(m_width - margin, arrowCenterY, false);
+    }
 }
 
 void UIRenderer::DrawComparePaneIndicator(ID2D1DeviceContext* dc, HWND hwnd) {

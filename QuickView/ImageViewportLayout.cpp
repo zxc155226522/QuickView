@@ -17,17 +17,21 @@ ImageViewportLayout ComputeImageViewportLayout(float windowWidth, float windowHe
         : 0.0f;
 
     // Always reserve bottom space for toolbar (non-fullscreen only)
-    // This prevents the image from expanding behind the toolbar when it auto-hides
     float toolbarReservedHeight = 0.0f;
     if (!g_isFullScreen && !g_toolbar.IsWindowTooNarrow()) {
         toolbarReservedHeight = g_toolbar.GetReservedHeight();
     }
 
+    // Symmetric padding: top margin = bottom margin = toolbarReservedHeight
+    // Left/right margin = padding
+    float verticalMargin = g_isFullScreen ? 0.0f : toolbarReservedHeight;
+    float horizontalMargin = g_isFullScreen ? 0.0f : padding;
+
     ImageViewportLayout layout;
-    layout.Left = (std::min)(padding, safeWidth - 1.0f);
-    layout.Top = (std::min)(titleBarHeight + galleryHeight + padding, safeHeight - 1.0f);
-    layout.Right = (std::max)(layout.Left + 1.0f, safeWidth - padding);
-    layout.Bottom = (std::max)(layout.Top + 1.0f, safeHeight - padding - toolbarReservedHeight);
+    layout.Left = (std::min)(horizontalMargin, safeWidth - 1.0f);
+    layout.Top = (std::min)(titleBarHeight + galleryHeight + verticalMargin, safeHeight - 1.0f);
+    layout.Right = (std::max)(layout.Left + 1.0f, safeWidth - horizontalMargin);
+    layout.Bottom = (std::max)(layout.Top + 1.0f, safeHeight - verticalMargin);
     layout.Right = (std::min)(layout.Right, safeWidth);
     layout.Bottom = (std::min)(layout.Bottom, safeHeight);
     layout.Width = (std::max)(1.0f, layout.Right - layout.Left);
