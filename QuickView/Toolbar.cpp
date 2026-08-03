@@ -1174,17 +1174,18 @@ bool Toolbar::OnClick(float x, float y, ToolbarButtonID &outId) {
     return true;
   }
 
-  if (HitTest(x, y)) {
-    // [Swatch] Check swatch clicks first
-    for (int i = 0; i < 9; ++i) {
-      if (m_swatchRects[i].right > m_swatchRects[i].left &&
-          x >= m_swatchRects[i].left && x <= m_swatchRects[i].right &&
-          y >= m_swatchRects[i].top && y <= m_swatchRects[i].bottom) {
-        m_swatchClickIndex = i;
-        outId = ToolbarButtonID::SwatchSelect;
-        return true;
-      }
+  // [Swatch] Check swatch clicks FIRST (before HitTest, so it works on welcome screen too)
+  for (int i = 0; i < 9; ++i) {
+    if (m_swatchRects[i].right > m_swatchRects[i].left &&
+        x >= m_swatchRects[i].left && x <= m_swatchRects[i].right &&
+        y >= m_swatchRects[i].top && y <= m_swatchRects[i].bottom) {
+      m_swatchClickIndex = i;
+      outId = ToolbarButtonID::SwatchSelect;
+      return true;
     }
+  }
+
+  if (HitTest(x, y)) {
     if ((m_compareMode || m_overlayMode) && m_compareStepRect.right > m_compareStepRect.left) {
       if (x >= m_compareStepUpRect.left && x < m_compareStepUpRect.right && y >= m_compareStepUpRect.top && y < m_compareStepUpRect.bottom) {
         m_compareZoomStepPercent = (std::min)(5.0f, m_compareZoomStepPercent + 0.1f);
@@ -1227,15 +1228,22 @@ bool Toolbar::HitTest(float x, float y) {
   extern SettingsOverlay g_settingsOverlay;
   extern HelpOverlay g_helpOverlay;
   extern std::wstring& g_imagePath;
-  
+
+  // [Swatch] Check swatch hits FIRST - allowed even on welcome screen
+  for (int i = 0; i < 9; ++i) {
+    if (m_swatchRects[i].right > m_swatchRects[i].left &&
+        x >= m_swatchRects[i].left && x <= m_swatchRects[i].right &&
+        y >= m_swatchRects[i].top && y <= m_swatchRects[i].bottom) return true;
+  }
+
   bool isFullGridGallery = g_gallery.IsVisible() && g_gallery.GetMode() == GalleryMode::FullGrid;
   bool isWelcomeScreen = g_imagePath.empty() && !g_gallery.IsVisible();
-  
+
   if (g_settingsOverlay.IsVisible() || g_helpOverlay.IsVisible() || isFullGridGallery || isWelcomeScreen) return false;
-  
+
   // 1. Standard background capsule
   if (x >= m_bgRect.rect.left && x <= m_bgRect.rect.right && y >= m_bgRect.rect.top && y <= m_bgRect.rect.bottom) return true;
-  
+
   // 2. Animation progress bar (this area is floating outside the capsule)
   if (m_animMode) {
       if (x >= m_animProgressRect.left && x <= m_animProgressRect.right && 
@@ -1243,14 +1251,7 @@ bool Toolbar::HitTest(float x, float y) {
           return true;
       }
   }
-  
-  // 3. Swatch area
-  for (int i = 0; i < 9; ++i) {
-    if (m_swatchRects[i].right > m_swatchRects[i].left &&
-        x >= m_swatchRects[i].left && x <= m_swatchRects[i].right &&
-        y >= m_swatchRects[i].top && y <= m_swatchRects[i].bottom) return true;
-  }
-  
+
   return false;
 }
 
