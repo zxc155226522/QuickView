@@ -1420,10 +1420,39 @@ void libcdr::CDRParser::readFild(librevenge::RVNGInputStream *input, unsigned le
 {
   if (!_redirectX6Chunk(&input, length))
     throw GenericException();
+  // [Debug] Dump first 64 bytes of fild chunk to understand the binary format
+  long dumpStart = input->tell();
+  {
+    FILE *dbg = nullptr;
+    fopen_s(&dbg, "C:\\temp\\cdr_fild_debug.log", "a");
+    if (dbg)
+    {
+      fprintf(dbg, "readFild: version=%u length=%u pos=%ld bytes:",
+              m_version, length, dumpStart);
+      unsigned long numRead = 0;
+      const unsigned char *data = input->read(64, numRead);
+      for (unsigned long i = 0; i < numRead; ++i)
+        fprintf(dbg, " %02X", data[i]);
+      fprintf(dbg, "\n");
+      fclose(dbg);
+    }
+    input->seek(dumpStart, librevenge::RVNG_SEEK_SET);
+  }
   unsigned fillId = readU32(input);
   if (m_version >= 1300)
     input->seek(8, librevenge::RVNG_SEEK_CUR);
   unsigned short fillType = readU16(input);
+  // [Debug] Log readFild parameters
+  {
+    FILE *dbg = nullptr;
+    fopen_s(&dbg, "C:\\temp\\cdr_fild_debug.log", "a");
+    if (dbg)
+    {
+      fprintf(dbg, "  parsed: fillId=%u fillType=%u\n",
+              fillId, (unsigned)fillType);
+      fclose(dbg);
+    }
+  }
   libcdr::CDRColor color1;
   libcdr::CDRColor color2;
   libcdr::CDRImageFill imageFill;
