@@ -93,7 +93,7 @@ public:
     HRESULT ClearImageOverlay();
     
     // Background management
-    HRESULT UpdateBackground(float width, float height, const D2D1_COLOR_F& bgColor, bool showGrid);
+    HRESULT UpdateBackground(float width, float height, const D2D1_COLOR_F& bgColor, bool showGrid, const D2D1_RECT_F* viewportRect = nullptr);
     void SetCheckerboardMode(bool enabled, D2D1_COLOR_F color1 = {}, D2D1_COLOR_F color2 = {}, float squareSize = 16.0f);
     
     // Legacy compatibility
@@ -267,6 +267,7 @@ private:
     UINT m_lastBgH = 0;
     float m_lastGalleryH = -1.0f;
     bool m_lastSpotlight = false;
+    D2D1_RECT_F m_lastViewportRect = { -1, -1, -1, -1 };
 
     // PS-style checkerboard state
     bool m_psCheckerboard = false;

@@ -5585,9 +5585,13 @@ void SyncDCompState([[maybe_unused]] HWND hwnd, float winW, float winH, bool ani
     } else {
         g_compEngine->SetCheckerboardMode(false);
     }
-    g_compEngine->UpdateBackground(winW, winH, bgColor, showGrid);
-
+    // Compute viewport layout before UpdateBackground (for white frame around image area)
     const ImageViewportLayout viewport = ComputeImageViewportLayout(winW, winH);
+    // Pass viewport rect for white frame effect (skip in overlay mode for desktop transparency)
+    D2D1_RECT_F vpRect = viewport.Rect();
+    const D2D1_RECT_F* vpPtr = IsOverlayModeActive() ? nullptr : &vpRect;
+    g_compEngine->UpdateBackground(winW, winH, bgColor, showGrid, vpPtr);
+
     g_compEngine->SetImageViewport(viewport.Rect());
 
     if (IsCompareModeActive()) {

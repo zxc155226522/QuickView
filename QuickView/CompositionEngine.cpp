@@ -1320,7 +1320,7 @@ void CompositionEngine::SetCheckerboardMode(bool enabled, D2D1_COLOR_F color1, D
     m_psCheckSquareSize = squareSize;
 }
 
-HRESULT CompositionEngine::UpdateBackground(float width, float height, const D2D1_COLOR_F& bgColor, bool showGrid) {
+HRESULT CompositionEngine::UpdateBackground(float width, float height, const D2D1_COLOR_F& bgColor, bool showGrid, const D2D1_RECT_F* viewportRect) {
     if (!m_device) return E_FAIL;
     
     // Ensure visibility
@@ -1355,12 +1355,24 @@ HRESULT CompositionEngine::UpdateBackground(float width, float height, const D2D
           m_psCheckColor2.b != m_lastPsCheckColor2.b ||
           m_psCheckColor2.a != m_lastPsCheckColor2.a));
 
+    // Check if viewport rect changed
+    bool vpChanged = false;
+    D2D1_RECT_F vp = {};
+    bool hasViewport = (viewportRect != nullptr && !isSpotlight);
+    if (hasViewport) {
+        vp = *viewportRect;
+        if (vp.left != m_lastViewportRect.left || vp.top != m_lastViewportRect.top ||
+            vp.right != m_lastViewportRect.right || vp.bottom != m_lastViewportRect.bottom) {
+            vpChanged = true;
+        }
+    }
+
     bool needsRedraw =
         (bgColor.r != m_lastBgColor.r || bgColor.g != m_lastBgColor.g ||
          bgColor.b != m_lastBgColor.b || bgColor.a != m_lastBgColor.a) ||
         (showGrid != m_lastBgGrid) || (w != m_lastBgW || h != m_lastBgH) ||
         (galleryH != m_lastGalleryH) || (isSpotlight != m_lastSpotlight) ||
-        cbChanged ||
+        cbChanged || vpChanged ||
         (!m_backgroundLayer.surface);
 
     if (!needsRedraw) return S_OK;
@@ -1397,8 +1409,18 @@ HRESULT CompositionEngine::UpdateBackground(float width, float height, const D2D
     m_backgroundLayer.context->BeginDraw();
     m_backgroundLayer.context->SetTransform(D2D1::Matrix3x2F::Translation((float)offset.x, (float)offset.y)); 
 
-    // Handle Transparency
-    m_backgroundLayer.context->Clear(bgColor);
+    // Handle Transparency / White Frame
+    if (hasViewport) {
+        // Fill entire window with white, then fill viewport area with bgColor
+        m_backgroundLayer.context->Clear(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f));
+        ComPtr<ID2D1SolidColorBrush> bgBrush;
+        m_backgroundLayer.context->CreateSolidColorBrush(bgColor, &bgBrush);
+        if (bgBrush) {
+            m_backgroundLayer.context->FillRectangle(vp, bgBrush.Get());
+        }
+    } else {
+        m_backgroundLayer.context->Clear(bgColor);
+    }
 
     // PS-style checkerboard rendering (full-opacity alternating squares)
     if (m_psCheckerboard && !isSpotlight) {
@@ -1406,20 +1428,23 @@ HRESULT CompositionEngine::UpdateBackground(float width, float height, const D2D
         m_backgroundLayer.context->CreateSolidColorBrush(m_psCheckColor1, &cbBrush1);
         m_backgroundLayer.context->CreateSolidColorBrush(m_psCheckColor2, &cbBrush2);
 
-        // Fill entire background with color1
+        // Determine drawing area: viewport rect if available, else full window
+        float drawLeft = 0.0f, drawTop = 0.0f, drawRight = (float)w, drawBottom = (float)h;
+        if (hasViewport) {
+            drawLeft = vp.left; drawTop = vp.top; drawRight = vp.right; drawBottom = vp.bottom;
+        }
+
+        // Fill area with color1
         m_backgroundLayer.context->FillRectangle(
-            D2D1::RectF(0, 0, (float)w, (float)h), cbBrush1.Get());
+            D2D1::RectF(drawLeft, drawTop, drawRight, drawBottom), cbBrush1.Get());
 
         // Draw alternating squares with color2
-        float startY = 0.0f;
-        if (g_gallery.IsVisible()) {
-            startY = g_gallery.GetVisualHeight((float)h);
-        }
         const float sq = m_psCheckSquareSize;
-        float alignedStartY = std::floor(startY / sq) * sq;
+        float alignedStartY = std::floor(drawTop / sq) * sq;
+        float alignedStartX = std::floor(drawLeft / sq) * sq;
 
-        for (float y = alignedStartY; y < (float)h; y += sq) {
-            for (float x = 0; x < (float)w; x += sq) {
+        for (float y = alignedStartY; y < drawBottom; y += sq) {
+            for (float x = alignedStartX; x < drawRight; x += sq) {
                 if (((int)(x / sq) + (int)(y / sq)) % 2 != 0) {
                     m_backgroundLayer.context->FillRectangle(
                         D2D1::RectF(x, y, x + sq, y + sq), cbBrush2.Get());
@@ -1485,33 +1510,34 @@ HRESULT CompositionEngine::UpdateBackground(float width, float height, const D2D
       }
     }
 
-    // 3. Draw Grid
+    // 3. Draw Grid (only within viewport area if available)
     if (showGrid && !isSpotlight) {
-      float bgLuma =
-          (bgColor.r * 0.299f + bgColor.g * 0.587f + bgColor.b * 0.114f);
-      D2D1_COLOR_F overlayColor = (bgLuma < 0.5f)
-                                      ? D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.05f)
-                                      : D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.08f);
+        float bgLuma =
+            (bgColor.r * 0.299f + bgColor.g * 0.587f + bgColor.b * 0.114f);
+        D2D1_COLOR_F overlayColor = (bgLuma < 0.5f)
+                                        ? D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.05f)
+                                        : D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.08f);
 
-      ComPtr<ID2D1SolidColorBrush> brush;
-      m_backgroundLayer.context->CreateSolidColorBrush(overlayColor, &brush);
+        ComPtr<ID2D1SolidColorBrush> brush;
+        m_backgroundLayer.context->CreateSolidColorBrush(overlayColor, &brush);
 
-      float startY = 0.0f;
-      if (g_gallery.IsVisible()) {
-        startY = g_gallery.GetVisualHeight((float)h);
-      }
-
-      const float gridSize = 16.0f;
-      float alignedStartY = std::floor(startY / gridSize) * gridSize;
-
-      for (float y = alignedStartY; y < (float)h; y += gridSize) {
-        for (float x = 0; x < (float)w; x += gridSize) {
-          if (((int)(x / gridSize) + (int)(y / gridSize)) % 2 != 0) {
-            m_backgroundLayer.context->FillRectangle(
-                D2D1::RectF(x, y, x + gridSize, y + gridSize), brush.Get());
-          }
+        float drawLeft = 0.0f, drawTop = 0.0f, drawRight = (float)w, drawBottom = (float)h;
+        if (hasViewport) {
+            drawLeft = vp.left; drawTop = vp.top; drawRight = vp.right; drawBottom = vp.bottom;
         }
-      }
+
+        const float gridSize = 16.0f;
+        float alignedStartY = std::floor(drawTop / gridSize) * gridSize;
+        float alignedStartX = std::floor(drawLeft / gridSize) * gridSize;
+
+        for (float y = alignedStartY; y < drawBottom; y += gridSize) {
+            for (float x = alignedStartX; x < drawRight; x += gridSize) {
+                if (((int)(x / gridSize) + (int)(y / gridSize)) % 2 != 0) {
+                    m_backgroundLayer.context->FillRectangle(
+                        D2D1::RectF(x, y, x + gridSize, y + gridSize), brush.Get());
+                }
+            }
+        }
     }
 
     m_backgroundLayer.context->EndDraw();
@@ -1528,6 +1554,7 @@ HRESULT CompositionEngine::UpdateBackground(float width, float height, const D2D
     m_lastPsCheckerboard = m_psCheckerboard;
     m_lastPsCheckColor1 = m_psCheckColor1;
     m_lastPsCheckColor2 = m_psCheckColor2;
+    m_lastViewportRect = hasViewport ? vp : D2D1_RECT_F{ -1, -1, -1, -1 };
 
     return S_OK;
 }
