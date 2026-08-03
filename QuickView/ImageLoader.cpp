@@ -10845,26 +10845,22 @@ static void CropSvgWhitespace(std::string &svgContent, float &outW, float &outH)
   if (!bbox.valid || bbox.maxX <= bbox.minX || bbox.maxY <= bbox.minY)
     return;
 
-  // 4. Check if content fills most of the page (>95% in both dimensions)
+  // 4. Check if content fills most of the page AND is approximately
+  // page-aligned. If so, no crop needed.
   float contentW = bbox.maxX - bbox.minX;
   float contentH = bbox.maxY - bbox.minY;
   if (contentW >= pageW * 0.95f && contentH >= pageH * 0.95f &&
-      bbox.minX <= pageX + pageW * 0.025f && bbox.minY <= pageY + pageH * 0.025f)
+      bbox.minX >= pageX - pageW * 0.05f && bbox.minX <= pageX + pageW * 0.05f &&
+      bbox.minY >= pageY - pageH * 0.05f && bbox.minY <= pageY + pageH * 0.05f)
     return; // Content already fills page, no crop needed
 
-  // 5. Add 1% padding around content (relative to content size, min 2pt)
-  float padX = (std::max)(contentW * 0.01f, 2.0f);
-  float padY = (std::max)(contentH * 0.01f, 2.0f);
+  // 5. Add 2% padding around content (relative to content size, min 4pt)
+  float padX = (std::max)(contentW * 0.02f, 4.0f);
+  float padY = (std::max)(contentH * 0.02f, 4.0f);
   float cropX = bbox.minX - padX;
   float cropY = bbox.minY - padY;
   float cropW = contentW + 2.0f * padX;
   float cropH = contentH + 2.0f * padY;
-
-  // Clamp to page bounds
-  if (cropX < pageX) { cropW -= (pageX - cropX); cropX = pageX; }
-  if (cropY < pageY) { cropH -= (pageY - cropY); cropY = pageY; }
-  if (cropX + cropW > pageX + pageW) cropW = pageX + pageW - cropX;
-  if (cropY + cropH > pageY + pageH) cropH = pageY + pageH - cropY;
   if (cropW <= 0 || cropH <= 0) return;
 
   // 6. Rewrite viewBox, width, height in the root <svg> tag
@@ -11128,16 +11124,6 @@ HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
   // [Style Inliner] librevenge writes fill/stroke as CSS style="..." which
   // D2D's SVG renderer ignores. Convert CSS properties to direct attributes.
   InlineSvgStyleAttrs(svgContent);
-
-  // [Debug] Dump final SVG to temp file for inspection
-  {
-    FILE *dbg = nullptr;
-    fopen_s(&dbg, "C:\\temp\\cdr_debug.svg", "wb");
-    if (dbg) {
-      fwrite(svgContent.data(), 1, svgContent.size(), dbg);
-      fclose(dbg);
-    }
-  }
 
   // Parse the generated SVG using the same CSS length rules as native SVG.
   // librevenge writes physical root dimensions such as width="8.5in" while
