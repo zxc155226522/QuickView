@@ -672,13 +672,11 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
 
         // [Material Boost] Consistency
         if (g_config.EnableGeekGlass) {
-            float masterOpacity = g_config.GlassPanelsOpacity / 100.0f;
-            
             // Theme-aware Material Filler
             bool isLight = IsLightThemeActive();
             D2D1_COLOR_F fillerColor = isLight ? D2D1::ColorF(0.95f, 0.95f, 0.97f, 1.0f) : D2D1::ColorF(0.08f, 0.08f, 0.10f, 1.0f);
             m_brushBg->SetColor(fillerColor);
-            m_brushBg->SetOpacity(masterOpacity); 
+            m_brushBg->SetOpacity(1.0f);
 
             // [Fix] Match corner radius exactly to prevent straight-edge leaking
             pRT->FillRoundedRectangle(D2D1::RoundedRect(m_bgRect.rect, config.cornerRadius, config.cornerRadius), m_brushBg.Get());
@@ -687,7 +685,7 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
             m_geekGlass.DrawGeekGlassToppings(dc.Get(), config);
         }
     } else {
-        m_brushBg->SetOpacity(g_config.GlassPanelsOpacity / 100.0f);
+        m_brushBg->SetOpacity(1.0f);
         pRT->FillRoundedRectangle(m_bgRect, m_brushBg.Get());
     }
 
