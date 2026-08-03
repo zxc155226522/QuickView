@@ -11096,8 +11096,10 @@ HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
     return E_ABORT;
 
   // Generate SVG via librevenge's built-in RVNGSVGDrawingGenerator
+  // [Fix] Use empty namespace prefix so elements are <path> not <svg:path>.
+  // D2D's SVG renderer does not properly handle namespaced elements/attributes.
   librevenge::RVNGStringVector svgPages;
-  librevenge::RVNGSVGDrawingGenerator painter(svgPages, "svg");
+  librevenge::RVNGSVGDrawingGenerator painter(svgPages, "");
 
   bool parsed = false;
   if (isCdr)
@@ -11126,6 +11128,16 @@ HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
   // [Style Inliner] librevenge writes fill/stroke as CSS style="..." which
   // D2D's SVG renderer ignores. Convert CSS properties to direct attributes.
   InlineSvgStyleAttrs(svgContent);
+
+  // [Debug] Dump final SVG to temp file for inspection
+  {
+    FILE *dbg = nullptr;
+    fopen_s(&dbg, "C:\\temp\\cdr_debug.svg", "wb");
+    if (dbg) {
+      fwrite(svgContent.data(), 1, svgContent.size(), dbg);
+      fclose(dbg);
+    }
+  }
 
   // Parse the generated SVG using the same CSS length rules as native SVG.
   // librevenge writes physical root dimensions such as width="8.5in" while
