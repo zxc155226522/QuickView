@@ -5,6 +5,8 @@
 // 因为 D2D 的 SVG 渲染器对 transform 支持有限。
 // viewBox 从实际绘制坐标计算，不依赖文件头元数据。
 // stroke-width 按坐标系比例设置，避免大坐标系下线宽不可见。
+// 非 ASCII 文本用 SanitizeXmlText 净化，防止 D2D XML 解析器遇到
+// GBK 编码的中文等非 UTF-8 字节导致整个文档解析失败。
 // ============================================================================
 #include "pch.h"
 #include "VectorLoader.h"
@@ -71,6 +73,30 @@ static void DebugDumpSvg(const std::string& svg, const char* suffix) {
     }
 }
 
+// XML 文本净化: 转义特殊字符 + 替换非 ASCII 字节为 '?'
+// D2D 的 SVG 解析器要求 UTF-8，GBK 编码的中文等非 ASCII 字节会导致解析失败
+static std::string SanitizeXmlText(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 8);
+    for (unsigned char c : s) {
+        switch (c) {
+            case '&': out += "&amp;"; break;
+            case '<': out += "&lt;"; break;
+            case '>': out += "&gt;"; break;
+            case '"': out += "&quot;"; break;
+            default:
+                if (c < 0x20 && c != '\t' && c != '\n' && c != '\r') {
+                    out += '?'; // 控制字符
+                } else if (c > 0x7E) {
+                    out += '?'; // 非 ASCII (GBK 中文等)
+                } else {
+                    out += (char)c;
+                }
+        }
+    }
+    return out;
+}
+
 // ============================================================================
 // PLT (HPGL) 解析器
 // ============================================================================
@@ -121,6 +147,8 @@ std::string LoadPLTtoSVG(const uint8_t* data, size_t size) {
     BBox bbox;
 
     // 收集所有 path 元素（用原始坐标），最后统一翻转 Y
+    // 两遍策略: 第一遍计算 bbox，第二遍生成 path（stroke-width 已知）
+    // 但为简单起见，用占位 stroke-width，最终替换
     std::ostringstream paths;
     int activePen = -1;
 
@@ -128,8 +156,8 @@ std::string LoadPLTtoSVG(const uint8_t* data, size_t size) {
         if (activePen >= 0) {
             const char* color = (activePen >= 0 && activePen <= kPLTMaxPen)
                                     ? kPLTPenColors[activePen] : "black";
-            // stroke-width 和 fill 由 <g> 统一设置，此处不重复
-            paths << "\" stroke=\"" << color << "\" fill=\"none\"/>\n";
+            paths << "\" stroke=\"" << color
+                  << "\" stroke-width=\"__SW__\" fill=\"none\"/>\n";
             activePen = -1;
         }
     };
@@ -295,17 +323,27 @@ std::string LoadPLTtoSVG(const uint8_t* data, size_t size) {
     if (vbW <= 0) vbW = 100;
     if (vbH <= 0) vbH = 100;
 
+    // 替换占位 stroke-width
     std::string strokeW = CalcStrokeWidth(bbox.maxDim());
+    std::string pathsStr = paths.str();
+    {
+        const std::string placeholder = "\" stroke-width=\"__SW__\"";
+        const std::string replacement = "\" stroke-width=\"" + strokeW + "\"";
+        size_t p = 0;
+        while ((p = pathsStr.find(placeholder, p)) != std::string::npos) {
+            pathsStr.replace(p, placeholder.size(), replacement);
+            p += replacement.size();
+        }
+    }
 
     std::ostringstream svg;
-    svg << "<svg xmlns=\"http://www.w3.org/2000/svg\""
+    svg << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        << "<svg xmlns=\"http://www.w3.org/2000/svg\""
         << " viewBox=\"" << FmtFloat(vbX) << " " << FmtFloat(vbY) << " "
         << FmtFloat(vbW) << " " << FmtFloat(vbH) << "\""
         << " width=\"" << FmtFloat(vbW) << "\" height=\"" << FmtFloat(vbH)
         << "\">\n"
-        << "<g fill=\"none\" stroke-width=\"" << strokeW << "\">\n"
-        << paths.str()
-        << "</g>\n"
+        << pathsStr
         << "</svg>";
 
     std::string result = svg.str();
@@ -471,6 +509,8 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
     std::ostringstream svgBody;
     int entityColor = 7;
     std::string currentEntityType;
+    // 占位 stroke-width，最终替换
+    const char* SW_PLACEHOLDER = "__SW__";
 
     auto resetEntity = [&]() { entityColor = 7; };
 
@@ -496,7 +536,9 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
                 bbox.add(x2, y2);
                 svgBody << "<line x1=\"" << FmtFloat(x1) << "\" y1=\"" << FmtFloat(FY(y1))
                         << "\" x2=\"" << FmtFloat(x2) << "\" y2=\"" << FmtFloat(FY(y2))
-                        << "\" stroke=\"" << DXFColorToHex(entityColor) << "\"/>\n";
+                        << "\" stroke=\"" << DXFColorToHex(entityColor)
+                        << "\" stroke-width=\"" << SW_PLACEHOLDER
+                        << "\" fill=\"none\"/>\n";
             }
             if (code == 0) { resetEntity(); currentEntityType = value; }
             continue;
@@ -517,6 +559,7 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
                 svgBody << "<circle cx=\"" << FmtFloat(cx) << "\" cy=\""
                         << FmtFloat(FY(cy)) << "\" r=\"" << FmtFloat(r)
                         << "\" stroke=\"" << DXFColorToHex(entityColor)
+                        << "\" stroke-width=\"" << SW_PLACEHOLDER
                         << "\" fill=\"none\"/>\n";
             }
             if (code == 0) { resetEntity(); currentEntityType = value; }
@@ -554,6 +597,7 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
                         << " A " << FmtFloat(r) << " " << FmtFloat(r) << " 0 "
                         << largeArc << " 0 " << FmtFloat(x2) << " " << FmtFloat(FY(y2))
                         << "\" stroke=\"" << DXFColorToHex(entityColor)
+                        << "\" stroke-width=\"" << SW_PLACEHOLDER
                         << "\" fill=\"none\"/>\n";
             }
             if (code == 0) { resetEntity(); currentEntityType = value; }
@@ -577,6 +621,7 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
                     svgBody << " L " << FmtFloat(px[i]) << " " << FmtFloat(FY(py[i]));
                 if (closed) svgBody << " Z";
                 svgBody << "\" stroke=\"" << DXFColorToHex(entityColor)
+                        << "\" stroke-width=\"" << SW_PLACEHOLDER
                         << "\" fill=\"none\"/>\n";
             }
             if (code == 0) { resetEntity(); currentEntityType = value; }
@@ -608,6 +653,7 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
                     svgBody << " L " << FmtFloat(px[i]) << " " << FmtFloat(FY(py[i]));
                 if (closed) svgBody << " Z";
                 svgBody << "\" stroke=\"" << DXFColorToHex(entityColor)
+                        << "\" stroke-width=\"" << SW_PLACEHOLDER
                         << "\" fill=\"none\"/>\n";
             }
             if (code == 0) { resetEntity(); currentEntityType = value; }
@@ -649,6 +695,7 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
                     else        svgBody << " L " << FmtFloat(px) << " " << FmtFloat(FY(py));
                 }
                 svgBody << "\" stroke=\"" << DXFColorToHex(entityColor)
+                        << "\" stroke-width=\"" << SW_PLACEHOLDER
                         << "\" fill=\"none\"/>\n";
             }
             if (code == 0) { resetEntity(); currentEntityType = value; }
@@ -673,6 +720,7 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
                         << FmtFloat(FY(cy)) << "\" rx=\"" << FmtFloat(majorLen)
                         << "\" ry=\"" << FmtFloat(majorLen * 0.5)
                         << "\" stroke=\"" << DXFColorToHex(entityColor)
+                        << "\" stroke-width=\"" << SW_PLACEHOLDER
                         << "\" fill=\"none\"/>\n";
             }
             if (code == 0) { resetEntity(); currentEntityType = value; }
@@ -691,16 +739,8 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
             } while (reader.NextPair(code, value) && code != 0);
             if (hasPos && !txt.empty()) {
                 bbox.add(tx, ty);
-                std::string esc;
-                for (char c : txt) {
-                    switch (c) {
-                        case '&': esc += "&amp;"; break;
-                        case '<': esc += "&lt;"; break;
-                        case '>': esc += "&gt;"; break;
-                        case '"': esc += "&quot;"; break;
-                        default: esc += c;
-                    }
-                }
+                // SanitizeXmlText 转义 XML 特殊字符 + 替换非 ASCII 字节
+                std::string esc = SanitizeXmlText(txt);
                 svgBody << "<text x=\"" << FmtFloat(tx) << "\" y=\""
                         << FmtFloat(FY(ty)) << "\" font-size=\"" << FmtFloat(height)
                         << "\" fill=\"" << DXFColorToHex(entityColor) << "\">"
@@ -742,17 +782,27 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
     if (vbW <= 0) vbW = 100;
     if (vbH <= 0) vbH = 100;
 
+    // 替换占位 stroke-width
     std::string strokeW = CalcStrokeWidth(bbox.maxDim());
+    std::string bodyStr = svgBody.str();
+    {
+        const std::string placeholder = "\" stroke-width=\"__SW__\"";
+        const std::string replacement = "\" stroke-width=\"" + strokeW + "\"";
+        size_t p = 0;
+        while ((p = bodyStr.find(placeholder, p)) != std::string::npos) {
+            bodyStr.replace(p, placeholder.size(), replacement);
+            p += replacement.size();
+        }
+    }
 
     std::ostringstream svg;
-    svg << "<svg xmlns=\"http://www.w3.org/2000/svg\""
+    svg << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        << "<svg xmlns=\"http://www.w3.org/2000/svg\""
         << " viewBox=\"" << FmtFloat(vbX) << " " << FmtFloat(vbY) << " "
         << FmtFloat(vbW) << " " << FmtFloat(vbH) << "\""
         << " width=\"" << FmtFloat(vbW) << "\" height=\"" << FmtFloat(vbH)
         << "\">\n"
-        << "<g fill=\"none\" stroke-width=\"" << strokeW << "\">\n"
-        << svgBody.str()
-        << "</g>\n"
+        << bodyStr
         << "</svg>";
 
     std::string result = svg.str();
