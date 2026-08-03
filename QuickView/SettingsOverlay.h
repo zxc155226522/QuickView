@@ -41,7 +41,8 @@ enum class OptionType {
     InfoLabel,        
     CopyrightLabel,
     HotkeyBindRow,
-    TagCloud
+    TagCloud,
+    SwatchGrid
 };
 
 struct SettingsItem {

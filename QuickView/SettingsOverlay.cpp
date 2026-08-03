@@ -1463,59 +1463,21 @@ void SettingsOverlay::BuildMenu() {
     // Backdrop
     tabVisuals.items.push_back({ AppStrings::Settings_Header_Backdrop, OptionType::Header });
     
-    // Canvas Color: Swatch mode only (9 swatches: 0-2 built-in checkerboards, 3-8 custom RGBA)
-    bool isZh = (g_config.Language == 2 || g_config.Language == 3);
+    // Canvas Color: 9 swatches in a compact grid
     tabVisuals.items.push_back({ AppStrings::Settings_Label_CanvasColor, OptionType::Header });
-    tabVisuals.items.push_back({ isZh ? L"0-2: 内置棋盘格（白/黑/灰）  3-8: 自定义颜色" : L"0-2: Built-in checkerboards (white/black/gray)  3-8: Custom colors", OptionType::InfoLabel });
-    
-    for (int i = 3; i < 9; ++i) {
-        SettingsItem itemSwatch = { isZh ? (std::wstring(L"颜色 ") + std::to_wstring(i)) : (std::wstring(L"Color ") + std::to_wstring(i)), OptionType::CustomColorRow, nullptr, &g_config.SwatchColors[i][0] };
-        itemSwatch.minVal = (float)i;
-        itemSwatch.onChange = []([[maybe_unused]] SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) {
-            int si = (int)item->minVal;
-            extern HWND g_mainHwnd;
-            HWND hwnd = g_mainHwnd ? g_mainHwnd : GetActiveWindow();
-            // Get cursor position for popup placement
-            POINT pt;
-            GetCursorPos(&pt);
-            // Use ColorPickerPopup instead of ChooseColor
-            QuickView::UI::ColorPickerPopup::Show(hwnd, pt.x, pt.y,
-                g_config.SwatchColors[si][0], g_config.SwatchColors[si][1],
-                g_config.SwatchColors[si][2], g_config.SwatchColors[si][3],
-                // onChange (real-time)
-                [si](float r, float g, float b, float a) {
-                    g_config.SwatchColors[si][0] = r;
-                    g_config.SwatchColors[si][1] = g;
-                    g_config.SwatchColors[si][2] = b;
-                    g_config.SwatchColors[si][3] = a;
-                    extern void RequestRepaint(QuickView::PaintLayer layerMask);
-                    RequestRepaint(QuickView::PaintLayer::All);
-                },
-                // onConfirm (close)
-                [si](float r, float g, float b, float a) {
-                    g_config.SwatchColors[si][0] = r;
-                    g_config.SwatchColors[si][1] = g;
-                    g_config.SwatchColors[si][2] = b;
-                    g_config.SwatchColors[si][3] = a;
-                    SaveConfig();
-                    extern void RequestRepaint(QuickView::PaintLayer layerMask);
-                    RequestRepaint(QuickView::PaintLayer::All);
-                });
+    {
+        SettingsItem itemSwatchGrid = { L"画布颜色", OptionType::SwatchGrid };
+        itemSwatchGrid.onChange = []([[maybe_unused]] SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) {
+            // Click handled in OnClick - this is a no-op fallback
         };
-        tabVisuals.items.push_back(itemSwatch);
-        // Alpha slider for this swatch
-        SettingsItem itemAlpha = { isZh ? (std::wstring(L"颜色 ") + std::to_wstring(i) + L" 透明度") : (std::wstring(L"Color ") + std::to_wstring(i) + L" Alpha"), OptionType::Slider, nullptr, &g_config.SwatchColors[i][3] };
-        itemAlpha.minVal = 0.0f;
-        itemAlpha.maxVal = 1.0f;
-        itemAlpha.onChange = []([[maybe_unused]] SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) { SaveConfig(); };
-        tabVisuals.items.push_back(itemAlpha);
+        tabVisuals.items.push_back(itemSwatchGrid);
     }
     
     // Reset swatch colors to defaults
     {
-        SettingsItem itemResetSwatch = { isZh ? L"重置色块" : L"Reset Swatches", OptionType::ActionButton };
-        itemResetSwatch.buttonText = isZh ? L"重置" : L"Reset";
-        itemResetSwatch.buttonActivatedText = isZh ? L"已重置" : L"Done";
+        SettingsItem itemResetSwatch = { L"重置色块", OptionType::ActionButton };
+        itemResetSwatch.buttonText = L"重置";
+        itemResetSwatch.buttonActivatedText = L"已重置";
         itemResetSwatch.onChange = []([[maybe_unused]] SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) {
             // Reset custom swatches (3-8) to defaults
             static const float defaults[6][4] = {
@@ -1530,6 +1492,7 @@ void SettingsOverlay::BuildMenu() {
                 for (int j = 0; j < 4; ++j) {
                     g_config.SwatchColors[i + 3][j] = defaults[i][j];
                 }
+                g_config.SwatchIsCheckerboard[i + 3] = false;
             }
             SaveConfig();
             ApplyWindowTheme(overlay->m_hwnd);
@@ -3992,6 +3955,111 @@ void SettingsOverlay::Render(ID2D1DeviceContext* pRT, float winW, float winH) {
                 }
 
 
+                case OptionType::SwatchGrid: {
+                     item.interactRect = controlRect;
+                     const float s = m_uiScale;
+                     float swatchSize = 28.0f * s;
+                     float gap = 6.0f * s;
+                     float totalW = 9.0f * swatchSize + 8.0f * gap;
+                     float startX = controlRect.left + (controlRect.right - controlRect.left - totalW) * 0.5f;
+                     float swatchY = controlRect.top + (rowHeight - swatchSize) * 0.5f;
+
+                     item.optionRects.clear();
+                     ComPtr<ID2D1Factory> factory;
+                     pRT->GetFactory(&factory);
+
+                     for (int i = 0; i < 9; ++i) {
+                         float sx = startX + i * (swatchSize + gap);
+                         D2D1_RECT_F sr = D2D1::RectF(sx, swatchY, sx + swatchSize, swatchY + swatchSize);
+                         item.optionRects.push_back(sr);
+                         float cx = (sr.left + sr.right) * 0.5f;
+                         float cy = (sr.top + sr.bottom) * 0.5f;
+                         float radius = swatchSize * 0.5f;
+                         D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(cx, cy), radius, radius);
+
+                         bool isChecker = g_config.SwatchIsCheckerboard[i];
+                         bool isSelected = (i == g_config.SwatchColorIndex && g_config.CanvasColor == 5);
+
+                         if (i < 3) {
+                             // Built-in checkerboard presets
+                             D2D1_COLOR_F c1, c2;
+                             if (i == 0) { c1 = D2D1::ColorF(1,1,1,1); c2 = D2D1::ColorF(0.80f,0.80f,0.80f,1); }
+                             else if (i == 1) { c1 = D2D1::ColorF(0.10f,0.10f,0.10f,1); c2 = D2D1::ColorF(0.18f,0.18f,0.18f,1); }
+                             else { c1 = D2D1::ColorF(0.50f,0.50f,0.50f,1); c2 = D2D1::ColorF(0.60f,0.60f,0.60f,1); }
+
+                             ComPtr<ID2D1EllipseGeometry> clipGeo;
+                             if (factory) factory->CreateEllipseGeometry(ellipse, &clipGeo);
+                             ComPtr<ID2D1Layer> layer;
+                             if (clipGeo && SUCCEEDED(pRT->CreateLayer(&layer))) {
+                                 pRT->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), clipGeo.Get()), layer.Get());
+                                 ComPtr<ID2D1SolidColorBrush> b1, b2;
+                                 pRT->CreateSolidColorBrush(c1, &b1);
+                                 pRT->CreateSolidColorBrush(c2, &b2);
+                                 pRT->FillRectangle(sr, b1.Get());
+                                 pRT->FillRectangle(D2D1::RectF(cx, sr.top, sr.right, cy), b2.Get());
+                                 pRT->FillRectangle(D2D1::RectF(sr.left, cy, cx, sr.bottom), b2.Get());
+                                 pRT->PopLayer();
+                             }
+                         } else if (isChecker) {
+                             // Custom checkerboard: use picked color + derived second color
+                             float r = g_config.SwatchColors[i][0];
+                             float g = g_config.SwatchColors[i][1];
+                             float b = g_config.SwatchColors[i][2];
+                             float lum = 0.2126f*r + 0.7152f*g + 0.0722f*b;
+                             D2D1_COLOR_F c1(r, g, b, 1.0f);
+                             D2D1_COLOR_F c2 = (lum > 0.5f) ? D2D1::ColorF(r*0.82f, g*0.82f, b*0.82f, 1.0f) : D2D1::ColorF(std::min(r*1.2f,1.0f), std::min(g*1.2f,1.0f), std::min(b*1.2f,1.0f), 1.0f);
+
+                             ComPtr<ID2D1EllipseGeometry> clipGeo;
+                             if (factory) factory->CreateEllipseGeometry(ellipse, &clipGeo);
+                             ComPtr<ID2D1Layer> layer;
+                             if (clipGeo && SUCCEEDED(pRT->CreateLayer(&layer))) {
+                                 pRT->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), clipGeo.Get()), layer.Get());
+                                 ComPtr<ID2D1SolidColorBrush> b1, b2;
+                                 pRT->CreateSolidColorBrush(c1, &b1);
+                                 pRT->CreateSolidColorBrush(c2, &b2);
+                                 pRT->FillRectangle(sr, b1.Get());
+                                 pRT->FillRectangle(D2D1::RectF(cx, sr.top, sr.right, cy), b2.Get());
+                                 pRT->FillRectangle(D2D1::RectF(sr.left, cy, cx, sr.bottom), b2.Get());
+                                 pRT->PopLayer();
+                             }
+                         } else {
+                             // Solid color
+                             D2D1_COLOR_F color(g_config.SwatchColors[i][0], g_config.SwatchColors[i][1], g_config.SwatchColors[i][2], g_config.SwatchColors[i][3]);
+                             ComPtr<ID2D1SolidColorBrush> brush;
+                             pRT->CreateSolidColorBrush(color, &brush);
+                             pRT->FillEllipse(ellipse, brush.Get());
+                         }
+
+                         // Selection ring
+                         if (isSelected) {
+                             ComPtr<ID2D1SolidColorBrush> ringBrush;
+                             pRT->CreateSolidColorBrush(D2D1::ColorF(0.4f, 0.6f, 1.0f, 1.0f), &ringBrush);
+                             if (ringBrush) pRT->DrawEllipse(ellipse, ringBrush.Get(), 2.5f * s);
+                         }
+                         // Hover ring
+                         bool isHoveredSwatch = false;
+                         if (m_pHoverItem == &item && i < (int)item.optionRects.size()) {
+                             POINT pt; GetCursorPos(&pt);
+                             if (GetFocus()) {
+                                 RECT wr; GetWindowRect(m_hwnd, &wr);
+                                 float mx = (float)(pt.x - wr.left);
+                                 float my = (float)(pt.y - wr.top);
+                                 if (mx >= item.optionRects[i].left && mx <= item.optionRects[i].right &&
+                                     my >= item.optionRects[i].top && my <= item.optionRects[i].bottom) {
+                                     isHoveredSwatch = true;
+                                 }
+                             }
+                         }
+                         if (isHoveredSwatch && !isSelected) {
+                             ComPtr<ID2D1SolidColorBrush> hoverRing;
+                             pRT->CreateSolidColorBrush(D2D1::ColorF(1,1,1,0.6f), &hoverRing);
+                             if (hoverRing) pRT->DrawEllipse(ellipse, hoverRing.Get(), 1.5f * s);
+                         }
+                     }
+                     break;
+                 }
+
+
                 default: break;
             }
 
@@ -4778,6 +4846,56 @@ SettingsAction SettingsOverlay::OnLButtonDown(float x, float y) {
                  return SettingsAction::OpenHelp;
              }
              return SettingsAction::None;
+        }
+        // SwatchGrid: 9 color swatches
+        if (m_pHoverItem->type == OptionType::SwatchGrid) {
+            for (int i = 0; i < (int)m_pHoverItem->optionRects.size(); ++i) {
+                const auto& sr = m_pHoverItem->optionRects[i];
+                if (x >= sr.left && x <= sr.right && y >= sr.top && y <= sr.bottom) {
+                    // Select this swatch
+                    g_config.CanvasColor = 5;
+                    g_config.SwatchColorIndex = i;
+                    ApplyWindowTheme(m_hwnd);
+                    SaveConfig();
+                    extern void RequestRepaint(QuickView::PaintLayer layerMask);
+                    RequestRepaint(QuickView::PaintLayer::All);
+
+                    // For custom swatches (3-8), open color picker
+                    if (i >= 3) {
+                        extern HWND g_mainHwnd;
+                        HWND hwnd = g_mainHwnd ? g_mainHwnd : m_hwnd;
+                        POINT pt;
+                        GetCursorPos(&pt);
+                        QuickView::UI::ColorPickerPopup::Show(hwnd, pt.x, pt.y,
+                            g_config.SwatchColors[i][0], g_config.SwatchColors[i][1],
+                            g_config.SwatchColors[i][2], g_config.SwatchColors[i][3],
+                            g_config.SwatchIsCheckerboard[i],
+                            // onChange (real-time)
+                            [i](float r, float g, float b, float a, bool isChecker) {
+                                g_config.SwatchColors[i][0] = r;
+                                g_config.SwatchColors[i][1] = g;
+                                g_config.SwatchColors[i][2] = b;
+                                g_config.SwatchColors[i][3] = a;
+                                g_config.SwatchIsCheckerboard[i] = isChecker;
+                                extern void RequestRepaint(QuickView::PaintLayer layerMask);
+                                RequestRepaint(QuickView::PaintLayer::All);
+                            },
+                            // onConfirm (close)
+                            [i](float r, float g, float b, float a, bool isChecker) {
+                                g_config.SwatchColors[i][0] = r;
+                                g_config.SwatchColors[i][1] = g;
+                                g_config.SwatchColors[i][2] = b;
+                                g_config.SwatchColors[i][3] = a;
+                                g_config.SwatchIsCheckerboard[i] = isChecker;
+                                SaveConfig();
+                                extern void RequestRepaint(QuickView::PaintLayer layerMask);
+                                RequestRepaint(QuickView::PaintLayer::All);
+                            });
+                    }
+                    return SettingsAction::RepaintAll;
+                }
+            }
+            return SettingsAction::RepaintAll;
         }
         // Custom Color Row: Checkbox vs Button
         if (m_pHoverItem->type == OptionType::CustomColorRow) {

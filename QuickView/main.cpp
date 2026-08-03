@@ -4329,6 +4329,11 @@ void SaveConfig() {
         WriteConfigFloat(L"View", keyB, g_config.SwatchColors[i][2], iniPath.c_str());
         WriteConfigFloat(L"View", keyA, g_config.SwatchColors[i][3], iniPath.c_str());
     }
+    for (int i = 3; i < 9; ++i) {
+        wchar_t keyCB[32];
+        swprintf_s(keyCB, L"Swatch%dChecker", i);
+        WriteConfigBool(L"View", keyCB, g_config.SwatchIsCheckerboard[i], iniPath.c_str());
+    }
     WriteConfigBool(L"View", L"AlwaysOnTop", g_config.AlwaysOnTop, iniPath.c_str());
     WriteConfigInt(L"View", L"OpenFullScreenMode", g_config.OpenFullScreenMode, iniPath.c_str());
     WriteConfigInt(L"View", L"FullScreenZoomMode", g_config.FullScreenZoomMode, iniPath.c_str());
@@ -4631,9 +4636,14 @@ void LoadConfig() {
         g_config.SwatchColors[i][2] = (float)_wtof(buf);
         swprintf_s(defBuf, L"%.6f", g_config.SwatchColors[i][3]);
         GetPrivateProfileStringW(L"View", keyA, defBuf, buf, 32, iniPath.c_str());
-        g_config.SwatchColors[i][3] = (float)_wtof(buf);
-    }
-    g_config.AlwaysOnTop = GetPrivateProfileIntW(L"View", L"AlwaysOnTop", 0, iniPath.c_str()) != 0;
+g_config.SwatchColors[i][3] = (float)_wtof(buf);
+}
+for (int i = 3; i < 9; ++i) {
+    wchar_t keyCB[32];
+    swprintf_s(keyCB, L"Swatch%dChecker", i);
+    g_config.SwatchIsCheckerboard[i] = GetPrivateProfileIntW(L"View", keyCB, 0, iniPath.c_str()) != 0;
+}
+g_config.AlwaysOnTop = GetPrivateProfileIntW(L"View", L"AlwaysOnTop", 0, iniPath.c_str()) != 0;
     g_config.OpenFullScreenMode = GetPrivateProfileIntW(L"View", L"OpenFullScreenMode", 0, iniPath.c_str());
     g_config.FullScreenZoomMode = GetPrivateProfileIntW(L"View", L"FullScreenZoomMode", 0, iniPath.c_str());
     g_config.LockWindowSize = GetPrivateProfileIntW(L"View", L"LockWindowSize", 1, iniPath.c_str()) != 0;
@@ -5577,17 +5587,30 @@ void SyncDCompState([[maybe_unused]] HWND hwnd, float winW, float winH, bool ani
     if (IsOverlayModeActive()) {
         showGrid = false;
     }
-    // [Swatch] Set checkerboard mode for PS-style presets
-    if (g_config.CanvasColor == 5 && g_config.SwatchColorIndex >= 0 && g_config.SwatchColorIndex < 3) {
-        showGrid = false; // Don't overlay grid on checkerboard
-        switch (g_config.SwatchColorIndex) {
-            case 0: g_compEngine->SetCheckerboardMode(true, D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), D2D1::ColorF(0.80f, 0.80f, 0.80f, 1.0f)); break;
-            case 1: g_compEngine->SetCheckerboardMode(true, D2D1::ColorF(0.10f, 0.10f, 0.10f, 1.0f), D2D1::ColorF(0.18f, 0.18f, 0.18f, 1.0f)); break;
-            case 2: g_compEngine->SetCheckerboardMode(true, D2D1::ColorF(0.50f, 0.50f, 0.50f, 1.0f), D2D1::ColorF(0.60f, 0.60f, 0.60f, 1.0f)); break;
-        }
-    } else {
-        g_compEngine->SetCheckerboardMode(false);
+// [Swatch] Set checkerboard mode for PS-style presets
+if (g_config.CanvasColor == 5 && g_config.SwatchColorIndex >= 0 && g_config.SwatchColorIndex < 3) {
+    showGrid = false;
+    switch (g_config.SwatchColorIndex) {
+        case 0: g_compEngine->SetCheckerboardMode(true, D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), D2D1::ColorF(0.80f, 0.80f, 0.80f, 1.0f)); break;
+        case 1: g_compEngine->SetCheckerboardMode(true, D2D1::ColorF(0.10f, 0.10f, 0.10f, 1.0f), D2D1::ColorF(0.18f, 0.18f, 0.18f, 1.0f)); break;
+        case 2: g_compEngine->SetCheckerboardMode(true, D2D1::ColorF(0.50f, 0.50f, 0.50f, 1.0f), D2D1::ColorF(0.60f, 0.60f, 0.60f, 1.0f)); break;
     }
+} else if (g_config.CanvasColor == 5 && g_config.SwatchColorIndex >= 3 && g_config.SwatchColorIndex < 9 && g_config.SwatchIsCheckerboard[g_config.SwatchColorIndex]) {
+    // Custom checkerboard: use picked color + derived second color
+    showGrid = false;
+    int idx = g_config.SwatchColorIndex;
+    float r = g_config.SwatchColors[idx][0];
+    float g = g_config.SwatchColors[idx][1];
+    float b = g_config.SwatchColors[idx][2];
+    float lum = 0.2126f*r + 0.7152f*g + 0.0722f*b;
+    D2D1_COLOR_F c1(r, g, b, 1.0f);
+    D2D1_COLOR_F c2 = (lum > 0.5f)
+        ? D2D1::ColorF(r*0.82f, g*0.82f, b*0.82f, 1.0f)
+        : D2D1::ColorF(std::min(r*1.2f,1.0f), std::min(g*1.2f,1.0f), std::min(b*1.2f,1.0f), 1.0f);
+    g_compEngine->SetCheckerboardMode(true, c1, c2);
+} else {
+    g_compEngine->SetCheckerboardMode(false);
+}
     // Compute viewport layout
     const ImageViewportLayout viewport = ComputeImageViewportLayout(winW, winH);
     g_compEngine->UpdateBackground(winW, winH, bgColor, showGrid);
@@ -9537,20 +9560,23 @@ SKIP_EDGE_NAV:;
                             QuickView::UI::ColorPickerPopup::Show(hwnd, pt.x, pt.y,
                                 g_config.SwatchColors[8][0], g_config.SwatchColors[8][1],
                                 g_config.SwatchColors[8][2], g_config.SwatchColors[8][3],
+                                g_config.SwatchIsCheckerboard[8],
                                 // onChange (real-time preview)
-                                [](float r, float g, float b, float a) {
+                                [](float r, float g, float b, float a, bool isChecker) {
                                     g_config.SwatchColors[8][0] = r;
                                     g_config.SwatchColors[8][1] = g;
                                     g_config.SwatchColors[8][2] = b;
                                     g_config.SwatchColors[8][3] = a;
+                                    g_config.SwatchIsCheckerboard[8] = isChecker;
                                     RequestRepaint(PaintLayer::All);
                                 },
                                 // onConfirm (save)
-                                [](float r, float g, float b, float a) {
+                                [](float r, float g, float b, float a, bool isChecker) {
                                     g_config.SwatchColors[8][0] = r;
                                     g_config.SwatchColors[8][1] = g;
                                     g_config.SwatchColors[8][2] = b;
                                     g_config.SwatchColors[8][3] = a;
+                                    g_config.SwatchIsCheckerboard[8] = isChecker;
                                     SaveConfig();
                                     RequestRepaint(PaintLayer::All);
                                 });

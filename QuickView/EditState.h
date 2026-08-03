@@ -572,6 +572,7 @@ struct AppConfig {
         {0.15f, 0.40f, 0.25f, 1.0f}, // 8: Green
     };
     int SwatchColorIndex = 0; // Default to white checkerboard
+bool SwatchIsCheckerboard[9] = {true, true, true, false, false, false, false, false, false}; // 0-2 built-in checkerboards
     bool AlwaysOnTop = false;
     int OpenFullScreenMode = 0;         // 0=Off, 1=Large Only, 2=All
     bool LockWindowSize = true; // [Requirement] 默认锁定窗口大小，不跟随图片缩放

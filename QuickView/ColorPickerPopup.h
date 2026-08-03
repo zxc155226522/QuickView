@@ -3,7 +3,7 @@
 // ColorPickerPopup.h - D2D 色盘弹窗
 // ============================================================
 // 复用 GeekContextMenu 的 D2D+DComp 弹窗模式
-// 布局: SV方块 + 色相条 + 透明条 + 预览
+// 布局: SV方块 + 色相条 + 透明条 + 纯色/棋盘格切换 + 预览
 // 拖动时实时回调 onChange, 关闭时回调 onConfirm
 // ============================================================
 
@@ -21,14 +21,13 @@ using Microsoft::WRL::ComPtr;
 
 class ColorPickerPopup {
 public:
-    using ColorCallback = std::function<void(float r, float g, float b, float a)>;
+    // Callback: (r, g, b, a, isCheckerboard)
+    using ColorCallback = std::function<void(float r, float g, float b, float a, bool isChecker)>;
 
     // 弹出色盘 (屏幕坐标)
-    // initialRGBA: 初始颜色 [r,g,b,a] 0.0-1.0
-    // onChange: 拖动时实时回调 (可为nullptr)
-    // onConfirm: 关闭时回调 (可为nullptr)
     static void Show(HWND parent, int screenX, int screenY,
                      float initialR, float initialG, float initialB, float initialA,
+                     bool initialIsChecker,
                      ColorCallback onChange = nullptr,
                      ColorCallback onConfirm = nullptr);
     static void Dismiss();
@@ -63,12 +62,14 @@ private:
     void DrawSvSquare();
     void DrawHueBar();
     void DrawAlphaBar();
+    void DrawModeToggle();
     void DrawPreview();
     void DrawCheckerboard(const D2D1_RECT_F& rect, float squareSize,
                           D2D1_COLOR_F c1, D2D1_COLOR_F c2);
 
     // State
     float m_h = 0.0f, m_s = 1.0f, m_v = 1.0f, m_a = 1.0f;
+    bool m_isChecker = false;
     ColorCallback m_onChange;
     ColorCallback m_onConfirm;
     HWND m_hwnd = nullptr;
@@ -84,12 +85,14 @@ private:
     static constexpr float BAR_W = 24.0f;
     static constexpr float BAR_GAP = 12.0f;
     static constexpr float PREVIEW_H = 32.0f;
+    static constexpr float TOGGLE_H = 28.0f;
     static constexpr float TOTAL_W = PADDING * 2 + SV_SIZE + BAR_GAP + BAR_W;
 
     // Layout rects (DIPs)
     D2D1_RECT_F m_svRect{};
     D2D1_RECT_F m_hueRect{};
     D2D1_RECT_F m_alphaRect{};
+    D2D1_RECT_F m_toggleRect{};   // 纯色/棋盘格 切换按钮
     D2D1_RECT_F m_previewRect{};
 
     // D2D resources
