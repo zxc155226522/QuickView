@@ -3,6 +3,8 @@
 // ============================================================================
 // Y 轴翻转策略: 直接在坐标中取负 (y' = -y)，不使用 <g transform>，
 // 因为 D2D 的 SVG 渲染器对 transform 支持有限。
+// viewBox 从实际绘制坐标计算，不依赖文件头元数据。
+// stroke-width 按坐标系比例设置，避免大坐标系下线宽不可见。
 // ============================================================================
 #include "pch.h"
 #include "VectorLoader.h"
@@ -28,6 +30,45 @@ static std::string FmtFloat(double v) {
         if (*end == '.') *end = '\0';
     }
     return buf;
+}
+
+// 简易 BBox 跟踪器
+struct BBox {
+    double minX = 1e18, minY = 1e18, maxX = -1e18, maxY = -1e18;
+    bool valid = false;
+
+    void add(double x, double y) {
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+        valid = true;
+    }
+
+    double width() const { return valid ? (maxX - minX) : 0; }
+    double height() const { return valid ? (maxY - minY) : 0; }
+    double maxDim() const { return std::max(width(), height()); }
+};
+
+// 按坐标系比例计算线宽 (至少 0.1，确保可见)
+static std::string CalcStrokeWidth(double maxDim) {
+    if (maxDim <= 0) return "0.5";
+    double sw = maxDim * 0.0008; // 0.08% of max dimension
+    if (sw < 0.1) sw = 0.1;
+    return FmtFloat(sw);
+}
+
+// 调试: 将生成的 SVG 保存到桌面 (临时诊断用)
+static void DebugDumpSvg(const std::string& svg, const char* suffix) {
+    char path[MAX_PATH];
+    snprintf(path, sizeof(path),
+             "C:\\Users\\Administrator\\Desktop\\debug_%s.svg", suffix);
+    FILE* fp = nullptr;
+    fopen_s(&fp, path, "wb");
+    if (fp) {
+        fwrite(svg.data(), 1, svg.size(), fp);
+        fclose(fp);
+    }
 }
 
 // ============================================================================
@@ -77,8 +118,7 @@ std::string LoadPLTtoSVG(const uint8_t* data, size_t size) {
     int currentPen = 1;
     bool penDown = false;
     double curX = 0, curY = 0; // 原始 HPGL 坐标
-    double minX = 1e18, minY = 1e18, maxX = -1e18, maxY = -1e18;
-    bool hasPoints = false;
+    BBox bbox;
 
     // 收集所有 path 元素（用原始坐标），最后统一翻转 Y
     std::ostringstream paths;
@@ -88,8 +128,8 @@ std::string LoadPLTtoSVG(const uint8_t* data, size_t size) {
         if (activePen >= 0) {
             const char* color = (activePen >= 0 && activePen <= kPLTMaxPen)
                                     ? kPLTPenColors[activePen] : "black";
-            paths << "\" stroke=\"" << color
-                  << "\" stroke-width=\"0.5\" fill=\"none\"/>\n";
+            // stroke-width 和 fill 由 <g> 统一设置，此处不重复
+            paths << "\" stroke=\"" << color << "\" fill=\"none\"/>\n";
             activePen = -1;
         }
     };
@@ -100,21 +140,19 @@ std::string LoadPLTtoSVG(const uint8_t* data, size_t size) {
         activePen = pen;
     };
 
-    // 更新包围盒
+    // 更新包围盒 (原始坐标)
     auto updateBBox = [&](double x, double y) {
-        if (x < minX) minX = x;
-        if (y < minY) minY = y;
-        if (x > maxX) maxX = x;
-        if (y > maxY) maxY = y;
-        hasPoints = true;
+        bbox.add(x, y);
     };
 
     // 输出 M/L 命令时翻转 Y: y' = -y
     auto outM = [&](double x, double y) {
         paths << "M " << FmtFloat(x) << " " << FmtFloat(-y) << " ";
+        updateBBox(x, y); // 起始点也纳入 bbox
     };
     auto outL = [&](double x, double y) {
         paths << "L " << FmtFloat(x) << " " << FmtFloat(-y) << " ";
+        updateBBox(x, y);
     };
 
     size_t pos = 0;
@@ -177,7 +215,6 @@ std::string LoadPLTtoSVG(const uint8_t* data, size_t size) {
                 for (size_t i = 0; i < xs.size() && i < ys.size(); i++) {
                     outL(xs[i], ys[i]);
                     curX = xs[i]; curY = ys[i];
-                    updateBBox(curX, curY);
                 }
                 penDown = true;
             }
@@ -193,7 +230,6 @@ std::string LoadPLTtoSVG(const uint8_t* data, size_t size) {
                     for (size_t i = 0; i < xs.size() && i < ys.size(); i++) {
                         outL(xs[i], ys[i]);
                         curX = xs[i]; curY = ys[i];
-                        updateBBox(curX, curY);
                     }
                 } else {
                     curX = xs[0]; curY = ys[0];
@@ -239,22 +275,27 @@ std::string LoadPLTtoSVG(const uint8_t* data, size_t size) {
                           << " " << FmtFloat(ex) << " " << FmtFloat(-ey) << " ";
                     curX = ex; curY = ey;
                     updateBBox(curX, curY);
+                    updateBBox(cx - r, cy - r);
+                    updateBBox(cx + r, cy + r);
                 }
             }
         }
     }
 
     flushPath();
-    if (!hasPoints) return {};
+    if (!bbox.valid) return {};
 
     // 翻转后的 Y 范围: [-maxY, -minY]
-    double margin = 2.0;
-    double vbX = minX - margin;
-    double vbY = -maxY - margin;       // 翻转后 Y 最小值
-    double vbW = (maxX - minX) + margin * 2;
-    double vbH = (maxY - minY) + margin * 2;
+    double margin = bbox.maxDim() * 0.02; // 2% margin
+    if (margin < 1.0) margin = 1.0;
+    double vbX = bbox.minX - margin;
+    double vbY = -bbox.maxY - margin;       // 翻转后 Y 最小值
+    double vbW = bbox.width() + margin * 2;
+    double vbH = bbox.height() + margin * 2;
     if (vbW <= 0) vbW = 100;
     if (vbH <= 0) vbH = 100;
+
+    std::string strokeW = CalcStrokeWidth(bbox.maxDim());
 
     std::ostringstream svg;
     svg << "<svg xmlns=\"http://www.w3.org/2000/svg\""
@@ -262,15 +303,21 @@ std::string LoadPLTtoSVG(const uint8_t* data, size_t size) {
         << FmtFloat(vbW) << " " << FmtFloat(vbH) << "\""
         << " width=\"" << FmtFloat(vbW) << "\" height=\"" << FmtFloat(vbH)
         << "\">\n"
+        << "<g fill=\"none\" stroke-width=\"" << strokeW << "\">\n"
         << paths.str()
+        << "</g>\n"
         << "</svg>";
-    return svg.str();
+
+    std::string result = svg.str();
+    DebugDumpSvg(result, "plt");
+    return result;
 }
 
 // ============================================================================
 // DXF (AutoCAD) 解析器
 // ============================================================================
 // Y轴朝上 → SVG Y朝下: y' = -y
+// viewBox 从实际实体坐标计算，不依赖 HEADER 段的 $EXTMIN/$EXTMAX
 // ============================================================================
 
 static const char* kDXFColors[] = {
@@ -400,80 +447,35 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
 
     DXFReader reader(reinterpret_cast<const char*>(data), size);
 
-    // 第一遍: 解析 HEADER 获取边界
-    double extMinX = 0, extMinY = 0, extMaxX = 0, extMaxY = 0;
-    bool hasExtMin = false, hasExtMax = false;
-    int code;
-    std::string value;
-    std::string currentSection, currentVar;
-
-    while (reader.NextPair(code, value)) {
-        if (code == 0 && value == "SECTION") {
-            int code2; std::string val2;
-            if (reader.NextPair(code2, val2) && code2 == 2)
-                currentSection = val2;
-            continue;
-        }
-        if (code == 0 && value == "ENDSEC") { currentSection.clear(); continue; }
-
-        if (currentSection == "HEADER") {
-            if (code == 9) currentVar = value;
-            else if (currentVar == "$EXTMIN") {
-                if (code == 10) extMinX = ParseDouble(value);
-                else if (code == 20) { extMinY = ParseDouble(value); hasExtMin = true; }
-            } else if (currentVar == "$EXTMAX") {
-                if (code == 10) extMaxX = ParseDouble(value);
-                else if (code == 20) { extMaxY = ParseDouble(value); hasExtMax = true; }
-            }
-        }
-        if (currentSection == "ENTITIES") break;
-    }
-
-    if (!hasExtMin || !hasExtMax) {
-        extMinX = 0; extMinY = 0; extMaxX = 100; extMaxY = 100;
-    }
-
-    double minX = std::min(extMinX, extMaxX);
-    double maxX = std::max(extMinX, extMaxX);
-    double minY = std::min(extMinY, extMaxY);
-    double maxY = std::max(extMinY, extMaxY);
-    double w = maxX - minX; if (w <= 0) w = 100;
-    double h = maxY - minY; if (h <= 0) h = 100;
-
-    // 第二遍: 解析 ENTITIES
-    reader.Reset();
+    // 跳到 ENTITIES 段
     bool inEntities = false;
-    while (reader.NextPair(code, value)) {
-        if (code == 0 && value == "SECTION") {
-            int code2; std::string val2;
-            if (reader.NextPair(code2, val2) && code2 == 2) {
-                if (val2 == "ENTITIES") { inEntities = true; break; }
+    {
+        int code;
+        std::string value;
+        while (reader.NextPair(code, value)) {
+            if (code == 0 && value == "SECTION") {
+                int code2; std::string val2;
+                if (reader.NextPair(code2, val2) && code2 == 2) {
+                    if (val2 == "ENTITIES") { inEntities = true; break; }
+                }
+                continue;
             }
-            continue;
         }
     }
     if (!inEntities) return {};
 
-    // viewBox: Y 翻转后范围 [-maxY, -minY]
-    double margin = std::max(w, h) * 0.02;
-    double vbX = minX - margin;
-    double vbY = -maxY - margin;
-    double vbW = w + margin * 2;
-    double vbH = h + margin * 2;
-
     // 辅助: Y 翻转
     auto FY = [](double y) { return -y; };
 
-    std::ostringstream svg;
-    svg << "<svg xmlns=\"http://www.w3.org/2000/svg\""
-        << " viewBox=\"" << FmtFloat(vbX) << " " << FmtFloat(vbY) << " "
-        << FmtFloat(vbW) << " " << FmtFloat(vbH) << "\""
-        << " width=\"" << FmtFloat(vbW) << "\" height=\"" << FmtFloat(vbH)
-        << "\">\n";
-
+    BBox bbox;
+    std::ostringstream svgBody;
     int entityColor = 7;
     std::string currentEntityType;
+
     auto resetEntity = [&]() { entityColor = 7; };
+
+    int code;
+    std::string value;
 
     while (reader.NextPair(code, value)) {
         if (code == 0 && (value == "ENDSEC" || value == "EOF")) break;
@@ -490,10 +492,11 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
                 else if (code == 62) { entityColor = atoi(value.c_str()); }
             } while (reader.NextPair(code, value) && code != 0);
             if (hasP1 && hasP2) {
-                svg << "<line x1=\"" << FmtFloat(x1) << "\" y1=\"" << FmtFloat(FY(y1))
-                    << "\" x2=\"" << FmtFloat(x2) << "\" y2=\"" << FmtFloat(FY(y2))
-                    << "\" stroke=\"" << DXFColorToHex(entityColor)
-                    << "\" stroke-width=\"0.5\"/>\n";
+                bbox.add(x1, y1);
+                bbox.add(x2, y2);
+                svgBody << "<line x1=\"" << FmtFloat(x1) << "\" y1=\"" << FmtFloat(FY(y1))
+                        << "\" x2=\"" << FmtFloat(x2) << "\" y2=\"" << FmtFloat(FY(y2))
+                        << "\" stroke=\"" << DXFColorToHex(entityColor) << "\"/>\n";
             }
             if (code == 0) { resetEntity(); currentEntityType = value; }
             continue;
@@ -509,10 +512,12 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
                 else if (code == 62) { entityColor = atoi(value.c_str()); }
             } while (reader.NextPair(code, value) && code != 0);
             if (hasC && hasR && r > 0) {
-                svg << "<circle cx=\"" << FmtFloat(cx) << "\" cy=\""
-                    << FmtFloat(FY(cy)) << "\" r=\"" << FmtFloat(r)
-                    << "\" stroke=\"" << DXFColorToHex(entityColor)
-                    << "\" stroke-width=\"0.5\" fill=\"none\"/>\n";
+                bbox.add(cx - r, cy - r);
+                bbox.add(cx + r, cy + r);
+                svgBody << "<circle cx=\"" << FmtFloat(cx) << "\" cy=\""
+                        << FmtFloat(FY(cy)) << "\" r=\"" << FmtFloat(r)
+                        << "\" stroke=\"" << DXFColorToHex(entityColor)
+                        << "\" fill=\"none\"/>\n";
             }
             if (code == 0) { resetEntity(); currentEntityType = value; }
             continue;
@@ -541,11 +546,15 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
                 if (arcAngle < 0) arcAngle += 360.0;
                 int largeArc = (arcAngle > 180.0) ? 1 : 0;
                 // Y 翻转后 sweep 方向反转
-                svg << "<path d=\"M " << FmtFloat(x1) << " " << FmtFloat(FY(y1))
-                    << " A " << FmtFloat(r) << " " << FmtFloat(r) << " 0 "
-                    << largeArc << " 0 " << FmtFloat(x2) << " " << FmtFloat(FY(y2))
-                    << "\" stroke=\"" << DXFColorToHex(entityColor)
-                    << "\" stroke-width=\"0.5\" fill=\"none\"/>\n";
+                bbox.add(x1, y1);
+                bbox.add(x2, y2);
+                bbox.add(cx - r, cy - r);
+                bbox.add(cx + r, cy + r);
+                svgBody << "<path d=\"M " << FmtFloat(x1) << " " << FmtFloat(FY(y1))
+                        << " A " << FmtFloat(r) << " " << FmtFloat(r) << " 0 "
+                        << largeArc << " 0 " << FmtFloat(x2) << " " << FmtFloat(FY(y2))
+                        << "\" stroke=\"" << DXFColorToHex(entityColor)
+                        << "\" fill=\"none\"/>\n";
             }
             if (code == 0) { resetEntity(); currentEntityType = value; }
             continue;
@@ -561,12 +570,14 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
                 else if (code == 62) { entityColor = atoi(value.c_str()); }
             } while (reader.NextPair(code, value) && code != 0);
             if (!px.empty()) {
-                svg << "<path d=\"M " << FmtFloat(px[0]) << " " << FmtFloat(FY(py[0]));
+                for (size_t i = 0; i < px.size() && i < py.size(); i++)
+                    bbox.add(px[i], py[i]);
+                svgBody << "<path d=\"M " << FmtFloat(px[0]) << " " << FmtFloat(FY(py[0]));
                 for (size_t i = 1; i < px.size(); i++)
-                    svg << " L " << FmtFloat(px[i]) << " " << FmtFloat(FY(py[i]));
-                if (closed) svg << " Z";
-                svg << "\" stroke=\"" << DXFColorToHex(entityColor)
-                    << "\" stroke-width=\"0.5\" fill=\"none\"/>\n";
+                    svgBody << " L " << FmtFloat(px[i]) << " " << FmtFloat(FY(py[i]));
+                if (closed) svgBody << " Z";
+                svgBody << "\" stroke=\"" << DXFColorToHex(entityColor)
+                        << "\" fill=\"none\"/>\n";
             }
             if (code == 0) { resetEntity(); currentEntityType = value; }
             continue;
@@ -586,15 +597,18 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
                     if (code == 10) { vx = ParseDouble(value); }
                     else if (code == 20) { vy = ParseDouble(value); hasV = true; }
                 } while (reader.NextPair(code, value) && code != 0);
-                if (hasV) { px.push_back(vx); py.push_back(vy); }
+                if (hasV) {
+                    px.push_back(vx); py.push_back(vy);
+                    bbox.add(vx, vy);
+                }
             }
             if (!px.empty()) {
-                svg << "<path d=\"M " << FmtFloat(px[0]) << " " << FmtFloat(FY(py[0]));
+                svgBody << "<path d=\"M " << FmtFloat(px[0]) << " " << FmtFloat(FY(py[0]));
                 for (size_t i = 1; i < px.size(); i++)
-                    svg << " L " << FmtFloat(px[i]) << " " << FmtFloat(FY(py[i]));
-                if (closed) svg << " Z";
-                svg << "\" stroke=\"" << DXFColorToHex(entityColor)
-                    << "\" stroke-width=\"0.5\" fill=\"none\"/>\n";
+                    svgBody << " L " << FmtFloat(px[i]) << " " << FmtFloat(FY(py[i]));
+                if (closed) svgBody << " Z";
+                svgBody << "\" stroke=\"" << DXFColorToHex(entityColor)
+                        << "\" fill=\"none\"/>\n";
             }
             if (code == 0) { resetEntity(); currentEntityType = value; }
             continue;
@@ -623,18 +637,19 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
                 if (uMax <= uMin) uMax = uMin + 1.0;
                 int numSamples = std::max(100, numCtrl * 20);
                 double du = (uMax - uMin) / numSamples;
-                svg << "<path d=\"";
+                svgBody << "<path d=\"";
                 for (int i = 0; i <= numSamples; i++) {
                     double u = (i == numSamples) ? uMax : (uMin + du * i);
                     double px, py;
                     DeBoorSpline(degree, knots, ctrlX, ctrlY,
                                  rational ? weights : std::vector<double>(),
                                  u, px, py);
-                    if (i == 0) svg << "M " << FmtFloat(px) << " " << FmtFloat(FY(py));
-                    else        svg << " L " << FmtFloat(px) << " " << FmtFloat(FY(py));
+                    bbox.add(px, py);
+                    if (i == 0) svgBody << "M " << FmtFloat(px) << " " << FmtFloat(FY(py));
+                    else        svgBody << " L " << FmtFloat(px) << " " << FmtFloat(FY(py));
                 }
-                svg << "\" stroke=\"" << DXFColorToHex(entityColor)
-                    << "\" stroke-width=\"0.5\" fill=\"none\"/>\n";
+                svgBody << "\" stroke=\"" << DXFColorToHex(entityColor)
+                        << "\" fill=\"none\"/>\n";
             }
             if (code == 0) { resetEntity(); currentEntityType = value; }
             continue;
@@ -652,11 +667,13 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
             } while (reader.NextPair(code, value) && code != 0);
             if (hasC && hasR) {
                 double majorLen = std::hypot(rx, ry);
-                svg << "<ellipse cx=\"" << FmtFloat(cx) << "\" cy=\""
-                    << FmtFloat(FY(cy)) << "\" rx=\"" << FmtFloat(majorLen)
-                    << "\" ry=\"" << FmtFloat(majorLen * 0.5)
-                    << "\" stroke=\"" << DXFColorToHex(entityColor)
-                    << "\" stroke-width=\"0.5\" fill=\"none\"/>\n";
+                bbox.add(cx - majorLen, cy - majorLen * 0.5);
+                bbox.add(cx + majorLen, cy + majorLen * 0.5);
+                svgBody << "<ellipse cx=\"" << FmtFloat(cx) << "\" cy=\""
+                        << FmtFloat(FY(cy)) << "\" rx=\"" << FmtFloat(majorLen)
+                        << "\" ry=\"" << FmtFloat(majorLen * 0.5)
+                        << "\" stroke=\"" << DXFColorToHex(entityColor)
+                        << "\" fill=\"none\"/>\n";
             }
             if (code == 0) { resetEntity(); currentEntityType = value; }
             continue;
@@ -673,6 +690,7 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
                 else if (code == 62) { entityColor = atoi(value.c_str()); }
             } while (reader.NextPair(code, value) && code != 0);
             if (hasPos && !txt.empty()) {
+                bbox.add(tx, ty);
                 std::string esc;
                 for (char c : txt) {
                     switch (c) {
@@ -683,10 +701,10 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
                         default: esc += c;
                     }
                 }
-                svg << "<text x=\"" << FmtFloat(tx) << "\" y=\""
-                    << FmtFloat(FY(ty)) << "\" font-size=\"" << FmtFloat(height)
-                    << "\" fill=\"" << DXFColorToHex(entityColor) << "\">"
-                    << esc << "</text>\n";
+                svgBody << "<text x=\"" << FmtFloat(tx) << "\" y=\""
+                        << FmtFloat(FY(ty)) << "\" font-size=\"" << FmtFloat(height)
+                        << "\" fill=\"" << DXFColorToHex(entityColor) << "\">"
+                        << esc << "</text>\n";
             }
             if (code == 0) { resetEntity(); currentEntityType = value; }
             continue;
@@ -701,9 +719,10 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
                 else if (code == 62) { entityColor = atoi(value.c_str()); }
             } while (reader.NextPair(code, value) && code != 0);
             if (hasPos) {
-                svg << "<circle cx=\"" << FmtFloat(px) << "\" cy=\""
-                    << FmtFloat(FY(py)) << "\" r=\"0.5\" fill=\""
-                    << DXFColorToHex(entityColor) << "\"/>\n";
+                bbox.add(px, py);
+                svgBody << "<circle cx=\"" << FmtFloat(px) << "\" cy=\""
+                        << FmtFloat(FY(py)) << "\" r=\"" << FmtFloat(bbox.maxDim() * 0.002)
+                        << "\" fill=\"" << DXFColorToHex(entityColor) << "\"/>\n";
             }
             if (code == 0) { resetEntity(); currentEntityType = value; }
             continue;
@@ -711,8 +730,34 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
         // 未知实体: 外层循环继续读取
     }
 
-    svg << "</svg>";
-    return svg.str();
+    if (!bbox.valid) return {};
+
+    // viewBox: Y 翻转后范围 [-maxY, -minY]
+    double margin = bbox.maxDim() * 0.02; // 2% margin
+    if (margin < 1.0) margin = 1.0;
+    double vbX = bbox.minX - margin;
+    double vbY = -bbox.maxY - margin;
+    double vbW = bbox.width() + margin * 2;
+    double vbH = bbox.height() + margin * 2;
+    if (vbW <= 0) vbW = 100;
+    if (vbH <= 0) vbH = 100;
+
+    std::string strokeW = CalcStrokeWidth(bbox.maxDim());
+
+    std::ostringstream svg;
+    svg << "<svg xmlns=\"http://www.w3.org/2000/svg\""
+        << " viewBox=\"" << FmtFloat(vbX) << " " << FmtFloat(vbY) << " "
+        << FmtFloat(vbW) << " " << FmtFloat(vbH) << "\""
+        << " width=\"" << FmtFloat(vbW) << "\" height=\"" << FmtFloat(vbH)
+        << "\">\n"
+        << "<g fill=\"none\" stroke-width=\"" << strokeW << "\">\n"
+        << svgBody.str()
+        << "</g>\n"
+        << "</svg>";
+
+    std::string result = svg.str();
+    DebugDumpSvg(result, "dxf");
+    return result;
 }
 
 } // namespace QuickView
