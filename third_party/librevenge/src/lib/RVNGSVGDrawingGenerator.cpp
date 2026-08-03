@@ -388,7 +388,18 @@ void RVNGSVGDrawingGeneratorPrivate::setStyle(const RVNGPropertyList &propList)
 		else if (!m_style["draw:style"] || m_style["draw:style"]->getStr() == "linear" || m_style["draw:style"]->getStr() == "axial")
 		{
 			m_outputSink << "<" << getNamespaceAndDelim() << "defs>\n";
-			m_outputSink << "  <" << getNamespaceAndDelim() << "linearGradient id=\"grad" << m_gradientIndex++ << "\" >\n";
+			m_outputSink << "  <" << getNamespaceAndDelim() << "linearGradient id=\"grad" << m_gradientIndex++ << "\"";
+			// [Fix] D2D's SVG renderer does not support xlink:href on gradient elements.
+			// When the gradient angle is not 270°, merge the direction and transform
+			// attributes directly into this gradient instead of creating a second
+			// gradient with xlink:href (which D2D cannot resolve, causing missing fills).
+			if (angle < 270 || angle > 270)
+			{
+				m_outputSink << " x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"";
+				m_outputSink << " gradientTransform=\"rotate(" << angle << " .5 .5)\"";
+				m_outputSink << " gradientUnits=\"objectBoundingBox\"";
+			}
+			m_outputSink << " >\n";
 
 			if (m_gradient.count())
 			{
@@ -487,17 +498,6 @@ void RVNGSVGDrawingGeneratorPrivate::setStyle(const RVNGPropertyList &propList)
 				}
 			}
 			m_outputSink << "  </" << getNamespaceAndDelim() << "linearGradient>\n";
-
-			// not a simple horizontal gradient
-			if (angle<270 || angle>270)
-			{
-				m_outputSink << "  <" << getNamespaceAndDelim() << "linearGradient xlink:href=\"#grad" << m_gradientIndex-1 << "\"";
-				m_outputSink << " id=\"grad" << m_gradientIndex++ << "\" ";
-				m_outputSink << "x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\" ";
-				m_outputSink << "gradientTransform=\"rotate(" << angle << " .5 .5)\" ";
-				m_outputSink << "gradientUnits=\"objectBoundingBox\" >\n";
-				m_outputSink << "  </" << getNamespaceAndDelim() << "linearGradient>\n";
-			}
 
 			m_outputSink << "</" << getNamespaceAndDelim() << "defs>\n";
 		}
