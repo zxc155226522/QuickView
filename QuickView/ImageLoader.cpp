@@ -10895,6 +10895,164 @@ static void CropSvgWhitespace(std::string &svgContent, float &outW, float &outH)
 }
 
 // ----------------------------------------------------------------------------
+// CDR/CMX SVG CSS Style Inliner
+// ----------------------------------------------------------------------------
+// librevenge's RVNGSVGDrawingGenerator writes fill/stroke as CSS inline
+// style="fill: #ff0000; stroke: #000000;". D2D's SVG renderer does NOT parse
+// CSS properties inside the style attribute, so fills and strokes are lost.
+// This function converts CSS style properties to direct SVG attributes:
+//   style="fill: #ff0000;"  ->  fill="#ff0000"
+//   style="stroke: #000;"   ->  stroke="#000"
+// Only adds an attribute if it does not already exist on the element.
+// ----------------------------------------------------------------------------
+
+static void InlineSvgStyleAttrs(std::string &svg) {
+  // CSS property name -> SVG attribute name mapping
+  struct CssMap { const char *cssProp; const char *svgAttr; };
+  static constexpr CssMap kMap[] = {
+    {"fill",              "fill"},
+    {"stroke",            "stroke"},
+    {"stroke-width",      "stroke-width"},
+    {"fill-opacity",      "fill-opacity"},
+    {"fill-rule",         "fill-rule"},
+    {"stroke-opacity",    "stroke-opacity"},
+    {"stroke-dasharray",  "stroke-dasharray"},
+    {"stroke-linecap",    "stroke-linecap"},
+    {"stroke-linejoin",   "stroke-linejoin"},
+    {"opacity",           "opacity"},
+  };
+
+  size_t pos = 0;
+  while (pos < svg.size()) {
+    // Find next '<'
+    size_t lt = svg.find('<', pos);
+    if (lt == std::string::npos) break;
+    pos = lt + 1;
+    if (pos >= svg.size()) break;
+
+    // Skip declarations, comments, CDATA
+    if (svg[pos] == '?' || svg[pos] == '!') {
+      size_t gt = svg.find('>', pos);
+      if (gt == std::string::npos) break;
+      pos = gt + 1;
+      continue;
+    }
+
+    // Find end of tag (respecting quotes)
+    bool inQuote = false;
+    char quote = '\0';
+    size_t tagEnd = pos;
+    while (tagEnd < svg.size()) {
+      char ch = svg[tagEnd];
+      if (inQuote) {
+        if (ch == quote) inQuote = false;
+      } else {
+        if (ch == '"' || ch == '\'') { inQuote = true; quote = ch; }
+        else if (ch == '>') break;
+      }
+      ++tagEnd;
+    }
+    if (tagEnd >= svg.size()) break;
+
+    // Extract style="..." value from this tag
+    std::string styleVal = FindAttrVal(svg.substr(lt, tagEnd - lt + 1), "style");
+    if (styleVal.empty()) {
+      pos = tagEnd + 1;
+      continue;
+    }
+
+    // Parse CSS declarations from style value
+    // Collect (attrName, value) pairs to insert
+    std::vector<std::pair<std::string, std::string>> toAdd;
+    const char *p = styleVal.c_str();
+    while (*p) {
+      // Skip whitespace and semicolons
+      while (*p && (isspace((unsigned char)*p) || *p == ';')) ++p;
+      if (!*p) break;
+      // Read property name
+      const char *nameStart = p;
+      while (*p && *p != ':' && *p != ';' && !isspace((unsigned char)*p)) ++p;
+      if (!*p || *p == ';') { if (*p) ++p; continue; }
+      std::string propName(nameStart, p - nameStart);
+      // Skip whitespace before ':'
+      while (*p && isspace((unsigned char)*p)) ++p;
+      if (*p != ':') continue;
+      ++p; // skip ':'
+      // Skip whitespace after ':'
+      while (*p && isspace((unsigned char)*p)) ++p;
+      // Read value until ';' or end
+      const char *valStart = p;
+      while (*p && *p != ';') ++p;
+      std::string val(valStart, p - valStart);
+      // Trim trailing whitespace
+      while (!val.empty() && isspace((unsigned char)val.back())) val.pop_back();
+      if (val.empty()) { if (*p) ++p; continue; }
+
+      // Map CSS property to SVG attribute
+      for (const auto &m : kMap) {
+        if (propName == m.cssProp) {
+          toAdd.emplace_back(m.svgAttr, val);
+          break;
+        }
+      }
+      if (*p == ';') ++p;
+    }
+
+    if (toAdd.empty()) {
+      pos = tagEnd + 1;
+      continue;
+    }
+
+    // For each attribute to add, check if it already exists on the tag.
+    // If not, insert it right before the closing '>' or '/>'.
+    // We need to re-find tagEnd each time since string may change.
+    for (const auto &kv : toAdd) {
+      // Re-locate this tag (positions may have shifted)
+      // Find the tag that starts at or after 'lt'
+      size_t searchLt = svg.find('<', pos > 0 ? pos - 1 : 0);
+      if (searchLt == std::string::npos) break;
+      // Re-scan tag end
+      bool iq = false; char q = '\0';
+      size_t te = searchLt + 1;
+      while (te < svg.size()) {
+        char ch = svg[te];
+        if (iq) { if (ch == q) iq = false; }
+        else { if (ch == '"' || ch == '\'') { iq = true; q = ch; } else if (ch == '>') break; }
+        ++te;
+      }
+      if (te >= svg.size()) break;
+
+      // Check if attribute already exists
+      std::string tagStr = svg.substr(searchLt, te - searchLt + 1);
+      if (!FindAttrVal(tagStr, kv.first.c_str()).empty()) continue;
+
+      // Insert attr="val" before the closing '>'
+      // Handle self-closing tags (/>)
+      size_t insertPos = te;
+      if (insertPos > 0 && svg[insertPos - 1] == '/')
+        --insertPos;
+
+      std::string insertion = std::string(" ") + kv.first + "=\"" + kv.second + "\"";
+      svg.insert(insertPos, insertion);
+      // Update pos to after the inserted text
+      // (te is now shifted by insertion.length())
+    }
+
+    // Move past this tag
+    // Re-find the end of current tag
+    bool iq2 = false; char q2 = '\0';
+    size_t te2 = lt + 1;
+    while (te2 < svg.size()) {
+      char ch = svg[te2];
+      if (iq2) { if (ch == q2) iq2 = false; }
+      else { if (ch == '"' || ch == '\'') { iq2 = true; q2 = ch; } else if (ch == '>') break; }
+      ++te2;
+    }
+    pos = te2 + 1;
+  }
+}
+
+// ----------------------------------------------------------------------------
 // libcdr Decoder (CDR/CMX → SVG → D2D Native SVG Pipeline)
 // ----------------------------------------------------------------------------
 HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
@@ -10964,6 +11122,10 @@ HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
   // and rewrites the root viewBox/width/height to eliminate blank margins.
   float cropW = 0.0f, cropH = 0.0f;
   CropSvgWhitespace(svgContent, cropW, cropH);
+
+  // [Style Inliner] librevenge writes fill/stroke as CSS style="..." which
+  // D2D's SVG renderer ignores. Convert CSS properties to direct attributes.
+  InlineSvgStyleAttrs(svgContent);
 
   // Parse the generated SVG using the same CSS length rules as native SVG.
   // librevenge writes physical root dimensions such as width="8.5in" while
