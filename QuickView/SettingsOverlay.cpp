@@ -8,6 +8,7 @@
 #include "ImageEngine.h"
 #include "DialogController.h"
 #include "OSDState.h"
+#include "ColorPickerPopup.h"
 #include <algorithm>
 #include <cmath>
 #include <Shlobj.h>
@@ -1463,31 +1464,47 @@ void SettingsOverlay::BuildMenu() {
     tabVisuals.items.push_back({ AppStrings::Settings_Header_Backdrop, OptionType::Header });
     
     // Canvas Color: Swatch mode only (9 swatches: 0-2 built-in checkerboards, 3-8 custom RGBA)
+    bool isZh = (g_config.Language == 2 || g_config.Language == 3);
     tabVisuals.items.push_back({ AppStrings::Settings_Label_CanvasColor, OptionType::Header });
-    tabVisuals.items.push_back({ L"0-2: Built-in checkerboards (white/black/gray)  3-8: Custom colors", OptionType::InfoLabel });
+    tabVisuals.items.push_back({ isZh ? L"0-2: 内置棋盘格（白/黑/灰）  3-8: 自定义颜色" : L"0-2: Built-in checkerboards (white/black/gray)  3-8: Custom colors", OptionType::InfoLabel });
     
     for (int i = 3; i < 9; ++i) {
-        SettingsItem itemSwatch = { std::wstring(L"Color ") + std::to_wstring(i), OptionType::CustomColorRow, nullptr, &g_config.SwatchColors[i][0] };
+        SettingsItem itemSwatch = { isZh ? (std::wstring(L"颜色 ") + std::to_wstring(i)) : (std::wstring(L"Color ") + std::to_wstring(i)), OptionType::CustomColorRow, nullptr, &g_config.SwatchColors[i][0] };
         itemSwatch.minVal = (float)i;
         itemSwatch.onChange = []([[maybe_unused]] SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) {
             int si = (int)item->minVal;
-            HWND hwnd = GetActiveWindow();
-            static COLORREF acrCustClr[16];
-            CHOOSECOLOR cc{};
-            cc.lStructSize = sizeof(CHOOSECOLOR);
-            cc.hwndOwner = hwnd;
-            cc.lpCustColors = acrCustClr;
-            cc.rgbResult = RGB((int)(g_config.SwatchColors[si][0] * 255), (int)(g_config.SwatchColors[si][1] * 255), (int)(g_config.SwatchColors[si][2] * 255));
-            cc.Flags = CC_FULLOPEN | CC_RGBINIT;
-            if (ChooseColor(&cc)) {
-                g_config.SwatchColors[si][0] = GetRValue(cc.rgbResult) / 255.0f;
-                g_config.SwatchColors[si][1] = GetGValue(cc.rgbResult) / 255.0f;
-                g_config.SwatchColors[si][2] = GetBValue(cc.rgbResult) / 255.0f;
-            }
+            extern HWND g_mainHwnd;
+            HWND hwnd = g_mainHwnd ? g_mainHwnd : GetActiveWindow();
+            // Get cursor position for popup placement
+            POINT pt;
+            GetCursorPos(&pt);
+            // Use ColorPickerPopup instead of ChooseColor
+            QuickView::UI::ColorPickerPopup::Show(hwnd, pt.x, pt.y,
+                g_config.SwatchColors[si][0], g_config.SwatchColors[si][1],
+                g_config.SwatchColors[si][2], g_config.SwatchColors[si][3],
+                // onChange (real-time)
+                [si](float r, float g, float b, float a) {
+                    g_config.SwatchColors[si][0] = r;
+                    g_config.SwatchColors[si][1] = g;
+                    g_config.SwatchColors[si][2] = b;
+                    g_config.SwatchColors[si][3] = a;
+                    extern void RequestRepaint(QuickView::PaintLayer layerMask);
+                    RequestRepaint(QuickView::PaintLayer::All);
+                },
+                // onConfirm (close)
+                [si](float r, float g, float b, float a) {
+                    g_config.SwatchColors[si][0] = r;
+                    g_config.SwatchColors[si][1] = g;
+                    g_config.SwatchColors[si][2] = b;
+                    g_config.SwatchColors[si][3] = a;
+                    SaveConfig();
+                    extern void RequestRepaint(QuickView::PaintLayer layerMask);
+                    RequestRepaint(QuickView::PaintLayer::All);
+                });
         };
         tabVisuals.items.push_back(itemSwatch);
         // Alpha slider for this swatch
-        SettingsItem itemAlpha = { std::wstring(L"Color ") + std::to_wstring(i) + L" Alpha", OptionType::Slider, nullptr, &g_config.SwatchColors[i][3] };
+        SettingsItem itemAlpha = { isZh ? (std::wstring(L"颜色 ") + std::to_wstring(i) + L" 透明度") : (std::wstring(L"Color ") + std::to_wstring(i) + L" Alpha"), OptionType::Slider, nullptr, &g_config.SwatchColors[i][3] };
         itemAlpha.minVal = 0.0f;
         itemAlpha.maxVal = 1.0f;
         itemAlpha.onChange = []([[maybe_unused]] SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) { SaveConfig(); };
@@ -1496,10 +1513,9 @@ void SettingsOverlay::BuildMenu() {
     
     // Reset swatch colors to defaults
     {
-        bool isChinese = (g_config.Language == 2 || g_config.Language == 3);
-        SettingsItem itemResetSwatch = { isChinese ? L"重置色块" : L"Reset Swatches", OptionType::ActionButton };
-        itemResetSwatch.buttonText = isChinese ? L"重置" : L"Reset";
-        itemResetSwatch.buttonActivatedText = isChinese ? L"已重置" : L"Done";
+        SettingsItem itemResetSwatch = { isZh ? L"重置色块" : L"Reset Swatches", OptionType::ActionButton };
+        itemResetSwatch.buttonText = isZh ? L"重置" : L"Reset";
+        itemResetSwatch.buttonActivatedText = isZh ? L"已重置" : L"Done";
         itemResetSwatch.onChange = []([[maybe_unused]] SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) {
             // Reset custom swatches (3-8) to defaults
             static const float defaults[6][4] = {

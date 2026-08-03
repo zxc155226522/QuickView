@@ -17,6 +17,7 @@ static constexpr const char* CURRENT_MODULE = "Main";
 #include "DialogController.h"
 #include "ZoomAnimation.h"
 #include "ColorMath.h"
+#include "ColorPickerPopup.h"
 using namespace ColorMath;
 
 // --- Controller Refactoring Constants & Declarations ---
@@ -9524,11 +9525,42 @@ SKIP_EDGE_NAV:;
                     int swatchIdx = g_toolbar.GetClickedSwatchIndex();
                     g_toolbar.ClearClickedSwatchIndex();
                     if (swatchIdx >= 0 && swatchIdx < AppConfig::MAX_SWATCH_COLORS) {
-                        g_config.CanvasColor = 5;
-                        g_config.SwatchColorIndex = swatchIdx;
-                        ApplyWindowTheme(hwnd);
-                        SaveConfig();
-                        RequestRepaint(PaintLayer::All);
+                        // Swatch 8: open color picker popup for real-time temp color
+                        if (swatchIdx == 8) {
+                            g_config.CanvasColor = 5;
+                            g_config.SwatchColorIndex = 8;
+                            ApplyWindowTheme(hwnd);
+                            RequestRepaint(PaintLayer::All);
+                            // Get swatch screen position for popup placement
+                            POINT pt;
+                            GetCursorPos(&pt);
+                            QuickView::UI::ColorPickerPopup::Show(hwnd, pt.x, pt.y,
+                                g_config.SwatchColors[8][0], g_config.SwatchColors[8][1],
+                                g_config.SwatchColors[8][2], g_config.SwatchColors[8][3],
+                                // onChange (real-time preview)
+                                [](float r, float g, float b, float a) {
+                                    g_config.SwatchColors[8][0] = r;
+                                    g_config.SwatchColors[8][1] = g;
+                                    g_config.SwatchColors[8][2] = b;
+                                    g_config.SwatchColors[8][3] = a;
+                                    RequestRepaint(PaintLayer::All);
+                                },
+                                // onConfirm (save)
+                                [](float r, float g, float b, float a) {
+                                    g_config.SwatchColors[8][0] = r;
+                                    g_config.SwatchColors[8][1] = g;
+                                    g_config.SwatchColors[8][2] = b;
+                                    g_config.SwatchColors[8][3] = a;
+                                    SaveConfig();
+                                    RequestRepaint(PaintLayer::All);
+                                });
+                        } else {
+                            g_config.CanvasColor = 5;
+                            g_config.SwatchColorIndex = swatchIdx;
+                            ApplyWindowTheme(hwnd);
+                            SaveConfig();
+                            RequestRepaint(PaintLayer::All);
+                        }
                     }
                 }
             return 0;
