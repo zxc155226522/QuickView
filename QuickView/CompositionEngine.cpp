@@ -1320,7 +1320,7 @@ void CompositionEngine::SetCheckerboardMode(bool enabled, D2D1_COLOR_F color1, D
     m_psCheckSquareSize = squareSize;
 }
 
-HRESULT CompositionEngine::UpdateBackground(float width, float height, const D2D1_COLOR_F& bgColor, bool showGrid, const D2D1_RECT_F* viewportRect) {
+HRESULT CompositionEngine::UpdateBackground(float width, float height, const D2D1_COLOR_F& bgColor, bool showGrid, [[maybe_unused]] const D2D1_RECT_F* viewportRect) {
     if (!m_device) return E_FAIL;
     
     // Ensure visibility
