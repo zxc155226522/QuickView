@@ -147,11 +147,11 @@ public:
 
 private:
     // Layout Constants
-    const float BUTTON_SIZE = 32.0f;
+    const float BUTTON_SIZE = 24.0f;
     const float GAP = 6.0f;
     const float PADDING_X = 10.0f;
-    const float PADDING_Y = 4.0f;
-    const float BOTTOM_MARGIN = 24.0f; // Gap from window bottom
+    const float PADDING_Y = 6.0f; // 6+24+6 = 36px = title bar height
+    const float BOTTOM_MARGIN = 0.0f; // Docked to bottom edge
 
     // Animation
     float m_opacity = 0.0f;

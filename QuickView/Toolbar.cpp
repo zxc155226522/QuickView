@@ -67,7 +67,7 @@ Toolbar::Toolbar() {
 Toolbar::~Toolbar() {}
 
 float Toolbar::GetReservedHeight() const {
-  return (BOTTOM_MARGIN + BUTTON_SIZE + PADDING_Y * 2) * m_uiScale;
+  return 36.0f * m_uiScale; // Same as title bar height
 }
 
 void Toolbar::SetUIScale(float scale) {
@@ -616,13 +616,13 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
 
   CreateResources(pRT);
 
-  bool isLight = IsLightThemeActive();
-  m_brushBg->SetColor(isLight ? D2D1::ColorF(0.95f, 0.95f, 0.97f, 1.0f) : D2D1::ColorF(0.08f, 0.08f, 0.10f, 1.0f));
-  m_brushIcon->SetColor(isLight ? D2D1::ColorF(D2D1::ColorF::Black) : D2D1::ColorF(D2D1::ColorF::White));
+  // Toolbar: always white background with black icons
+  m_brushBg->SetColor(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f));
+  m_brushIcon->SetColor(D2D1::ColorF(D2D1::ColorF::Black));
   m_brushIconActive->SetColor(D2D1::ColorF(0.4f, 0.6f, 1.0f, 1.0f));
-  m_brushIconDisabled->SetColor(isLight ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.3f) : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.3f));
+  m_brushIconDisabled->SetColor(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.3f));
   m_brushWarning->SetColor(D2D1::ColorF(1.0f, 0.3f, 0.3f, 1.0f));
-  m_brushHover->SetColor(isLight ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.05f) : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.1f));
+  m_brushHover->SetColor(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.05f));
 
   ComPtr<ID2D1Layer> layer;
   if (SUCCEEDED(pRT->CreateLayer(&layer))) {
@@ -694,9 +694,7 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
     // Separator line at top of docked toolbar
     {
         ComPtr<ID2D1SolidColorBrush> lineBrush;
-        D2D1_COLOR_F lineColor = isLight
-            ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.12f)
-            : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.12f);
+        D2D1_COLOR_F lineColor = D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.12f);
         pRT->CreateSolidColorBrush(lineColor, &lineBrush);
         if (lineBrush) {
             float lineY = m_bgRect.rect.top;
@@ -774,9 +772,7 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
                 D2D1_RECT_F pillRect = D2D1::RectF(pillX, pillY, pillX + pillW, pillY + pillH);
                 
                 // Draw background pill
-                D2D1_COLOR_F tipBgBase = isLight 
-                    ? D2D1::ColorF(1.0f, 1.0f, 1.0f, g_config.GlassOsdOpacity / 100.0f)
-                    : D2D1::ColorF(0.15f, 0.15f, 0.15f, g_config.GlassOsdOpacity / 100.0f);
+                D2D1_COLOR_F tipBgBase = D2D1::ColorF(1.0f, 1.0f, 1.0f, g_config.GlassOsdOpacity / 100.0f);
                 ComPtr<ID2D1SolidColorBrush> tipBg;
                 pRT->CreateSolidColorBrush(tipBgBase, &tipBg);
                 pRT->FillRoundedRectangle(D2D1::RoundedRect(pillRect, 4.0f * m_uiScale, 4.0f * m_uiScale), tipBg.Get());
@@ -1097,9 +1093,7 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
       D2D1_RECT_F tipRect =
           D2D1::RectF(tipX, tipY, tipX + tipWidth, tipY + tipHeight);
       ComPtr<ID2D1SolidColorBrush> tipBg;
-      D2D1_COLOR_F tipBgBase =
-          isLight ? D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.95f)
-                  : D2D1::ColorF(0.15f, 0.15f, 0.15f, 0.95f);
+      D2D1_COLOR_F tipBgBase = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.95f);
       pRT->CreateSolidColorBrush(tipBgBase, &tipBg);
       pRT->FillRoundedRectangle(
           D2D1::RoundedRect(tipRect, 4.0f * m_uiScale, 4.0f * m_uiScale),

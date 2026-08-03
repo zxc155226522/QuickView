@@ -22,16 +22,17 @@ ImageViewportLayout ComputeImageViewportLayout(float windowWidth, float windowHe
         toolbarReservedHeight = g_toolbar.GetReservedHeight();
     }
 
-    // Symmetric padding: top margin = bottom margin = toolbarReservedHeight
-    // Left/right margin = padding
-    float verticalMargin = g_isFullScreen ? 0.0f : toolbarReservedHeight;
+    // Image area: top = titleBar + gallery + padding, bottom = window - toolbar height
+    // Toolbar is docked at bottom with same height as title bar (36px)
     float horizontalMargin = g_isFullScreen ? 0.0f : padding;
+    float topMargin = g_isFullScreen ? 0.0f : titleBarHeight + galleryHeight + padding;
+    float bottomReserved = g_isFullScreen ? 0.0f : toolbarReservedHeight;
 
     ImageViewportLayout layout;
     layout.Left = (std::min)(horizontalMargin, safeWidth - 1.0f);
-    layout.Top = (std::min)(titleBarHeight + galleryHeight + verticalMargin, safeHeight - 1.0f);
+    layout.Top = (std::min)(topMargin, safeHeight - 1.0f);
     layout.Right = (std::max)(layout.Left + 1.0f, safeWidth - horizontalMargin);
-    layout.Bottom = (std::max)(layout.Top + 1.0f, safeHeight - verticalMargin);
+    layout.Bottom = (std::max)(layout.Top + 1.0f, safeHeight - bottomReserved);
     layout.Right = (std::min)(layout.Right, safeWidth);
     layout.Bottom = (std::min)(layout.Bottom, safeHeight);
     layout.Width = (std::max)(1.0f, layout.Right - layout.Left);
