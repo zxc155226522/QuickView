@@ -42,7 +42,9 @@ enum class ToolbarButtonID {
     OverlayExit,
     // Slideshow mode
     SlideshowImmersiveToggle,
-    SlideshowExit
+    SlideshowExit,
+    // Swatch background
+    SwatchSelect
 };
 
 struct ToolbarButton {
@@ -133,6 +135,10 @@ public:
     // Total vertical space from window bottom to toolbar top edge (including bottom margin)
     float GetReservedHeight() const;
 
+    // [Swatch] Get the last clicked swatch index (-1 if none)
+    int GetClickedSwatchIndex() const { return m_swatchClickIndex; }
+    void ClearClickedSwatchIndex() { m_swatchClickIndex = -1; }
+
     // [Geek Glass] Data Injection
     void SetGeekGlassData(ID2D1CommandList* list, const D2D1_MATRIX_3X2_F& transform) {
         m_bgCmdList = list;
@@ -194,6 +200,11 @@ private:
     bool m_animProgressHover = false;
     bool m_isDraggingProgress = false;
     float m_animSeekHoverProgress = 0.0f;
+
+    // [Swatch] Color swatch circles on the right of toolbar
+    D2D1_RECT_F m_swatchRects[9] = {};
+    int m_swatchHoverIndex = -1;
+    int m_swatchClickIndex = -1;
     
     // Resources
     ComPtr<ID2D1SolidColorBrush> m_brushBg;

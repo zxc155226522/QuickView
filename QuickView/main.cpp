@@ -4316,6 +4316,18 @@ void SaveConfig() {
     WriteConfigFloat(L"View", L"CanvasCustomG", g_config.CanvasCustomG, iniPath.c_str());
     WriteConfigFloat(L"View", L"CanvasCustomB", g_config.CanvasCustomB, iniPath.c_str());
     WriteConfigBool(L"View", L"CanvasShowGrid", g_config.CanvasShowGrid, iniPath.c_str());
+    WriteConfigInt(L"View", L"SwatchColorIndex", g_config.SwatchColorIndex, iniPath.c_str());
+    for (int i = 3; i < 9; ++i) {
+        wchar_t keyR[32], keyG[32], keyB[32], keyA[32];
+        swprintf_s(keyR, L"Swatch%dR", i);
+        swprintf_s(keyG, L"Swatch%dG", i);
+        swprintf_s(keyB, L"Swatch%dB", i);
+        swprintf_s(keyA, L"Swatch%dA", i);
+        WriteConfigFloat(L"View", keyR, g_config.SwatchColors[i][0], iniPath.c_str());
+        WriteConfigFloat(L"View", keyG, g_config.SwatchColors[i][1], iniPath.c_str());
+        WriteConfigFloat(L"View", keyB, g_config.SwatchColors[i][2], iniPath.c_str());
+        WriteConfigFloat(L"View", keyA, g_config.SwatchColors[i][3], iniPath.c_str());
+    }
     WriteConfigBool(L"View", L"AlwaysOnTop", g_config.AlwaysOnTop, iniPath.c_str());
     WriteConfigInt(L"View", L"OpenFullScreenMode", g_config.OpenFullScreenMode, iniPath.c_str());
     WriteConfigInt(L"View", L"FullScreenZoomMode", g_config.FullScreenZoomMode, iniPath.c_str());
@@ -4605,6 +4617,24 @@ void LoadConfig() {
     g_config.CanvasCustomG = (float)_wtof(bufG);
     g_config.CanvasCustomB = (float)_wtof(bufB);
     g_config.CanvasShowGrid = GetPrivateProfileIntW(L"View", L"CanvasShowGrid", 0, iniPath.c_str()) != 0;
+    g_config.SwatchColorIndex = GetPrivateProfileIntW(L"View", L"SwatchColorIndex", 0, iniPath.c_str());
+    if (g_config.SwatchColorIndex < 0 || g_config.SwatchColorIndex >= AppConfig::MAX_SWATCH_COLORS) g_config.SwatchColorIndex = 0;
+    for (int i = 3; i < 9; ++i) {
+        wchar_t keyR[32], keyG[32], keyB[32], keyA[32];
+        wchar_t buf[32];
+        swprintf_s(keyR, L"Swatch%dR", i);
+        swprintf_s(keyG, L"Swatch%dG", i);
+        swprintf_s(keyB, L"Swatch%dB", i);
+        swprintf_s(keyA, L"Swatch%dA", i);
+        GetPrivateProfileStringW(L"View", keyR, L"0", buf, 32, iniPath.c_str());
+        g_config.SwatchColors[i][0] = (float)_wtof(buf);
+        GetPrivateProfileStringW(L"View", keyG, L"0", buf, 32, iniPath.c_str());
+        g_config.SwatchColors[i][1] = (float)_wtof(buf);
+        GetPrivateProfileStringW(L"View", keyB, L"0", buf, 32, iniPath.c_str());
+        g_config.SwatchColors[i][2] = (float)_wtof(buf);
+        GetPrivateProfileStringW(L"View", keyA, L"1", buf, 32, iniPath.c_str());
+        g_config.SwatchColors[i][3] = (float)_wtof(buf);
+    }
     g_config.AlwaysOnTop = GetPrivateProfileIntW(L"View", L"AlwaysOnTop", 0, iniPath.c_str()) != 0;
     g_config.OpenFullScreenMode = GetPrivateProfileIntW(L"View", L"OpenFullScreenMode", 0, iniPath.c_str());
     g_config.FullScreenZoomMode = GetPrivateProfileIntW(L"View", L"FullScreenZoomMode", 0, iniPath.c_str());
@@ -5502,6 +5532,21 @@ static D2D1_COLOR_F ResolveCanvasColor() {
                 return D2D1::ColorF(0.18f, 0.18f, 0.18f); // Windows 10 fallback to standard dark background
             }
             return D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f); // Effects (Transparent for DWM backdrop on Win11)
+        case 5: { // Swatch
+            int idx = g_config.SwatchColorIndex;
+            if (idx >= 0 && idx < 3) {
+                // Checkerboard presets - return color1
+                switch (idx) {
+                    case 0: return D2D1::ColorF(1.0f, 1.0f, 1.0f);
+                    case 1: return D2D1::ColorF(0.10f, 0.10f, 0.10f);
+                    case 2: return D2D1::ColorF(0.50f, 0.50f, 0.50f);
+                }
+            } else if (idx >= 3 && idx < 9) {
+                return D2D1::ColorF(g_config.SwatchColors[idx][0], g_config.SwatchColors[idx][1],
+                                   g_config.SwatchColors[idx][2], g_config.SwatchColors[idx][3]);
+            }
+            return D2D1::ColorF(1.0f, 1.0f, 1.0f); // Default white
+        }
         default: return D2D1::ColorF(0.18f, 0.18f, 0.18f);
     }
 }
@@ -5528,6 +5573,17 @@ void SyncDCompState([[maybe_unused]] HWND hwnd, float winW, float winH, bool ani
     }
     if (IsOverlayModeActive()) {
         showGrid = false;
+    }
+    // [Swatch] Set checkerboard mode for PS-style presets
+    if (g_config.CanvasColor == 5 && g_config.SwatchColorIndex >= 0 && g_config.SwatchColorIndex < 3) {
+        showGrid = false; // Don't overlay grid on checkerboard
+        switch (g_config.SwatchColorIndex) {
+            case 0: g_compEngine->SetCheckerboardMode(true, D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), D2D1::ColorF(0.80f, 0.80f, 0.80f, 1.0f)); break;
+            case 1: g_compEngine->SetCheckerboardMode(true, D2D1::ColorF(0.10f, 0.10f, 0.10f, 1.0f), D2D1::ColorF(0.18f, 0.18f, 0.18f, 1.0f)); break;
+            case 2: g_compEngine->SetCheckerboardMode(true, D2D1::ColorF(0.50f, 0.50f, 0.50f, 1.0f), D2D1::ColorF(0.60f, 0.60f, 0.60f, 1.0f)); break;
+        }
+    } else {
+        g_compEngine->SetCheckerboardMode(false);
     }
     g_compEngine->UpdateBackground(winW, winH, bgColor, showGrid);
 
@@ -9460,6 +9516,18 @@ SKIP_EDGE_NAV:;
                 default:
                     break;
             }
+                // [Swatch] Handle swatch click (after switch, still inside if block)
+                if (tbId == ToolbarButtonID::SwatchSelect) {
+                    int swatchIdx = g_toolbar.GetClickedSwatchIndex();
+                    g_toolbar.ClearClickedSwatchIndex();
+                    if (swatchIdx >= 0 && swatchIdx < AppConfig::MAX_SWATCH_COLORS) {
+                        g_config.CanvasColor = 5;
+                        g_config.SwatchColorIndex = swatchIdx;
+                        ApplyWindowTheme(hwnd);
+                        SaveConfig();
+                        RequestRepaint(PaintLayer::All);
+                    }
+                }
             return 0;
         }
 

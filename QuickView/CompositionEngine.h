@@ -94,6 +94,7 @@ public:
     
     // Background management
     HRESULT UpdateBackground(float width, float height, const D2D1_COLOR_F& bgColor, bool showGrid);
+    void SetCheckerboardMode(bool enabled, D2D1_COLOR_F color1 = {}, D2D1_COLOR_F color2 = {}, float squareSize = 16.0f);
     
     // Legacy compatibility
     ID2D1DeviceContext* BeginUIUpdate(const RECT* dirtyRect = nullptr) {
@@ -266,6 +267,15 @@ private:
     UINT m_lastBgH = 0;
     float m_lastGalleryH = -1.0f;
     bool m_lastSpotlight = false;
+
+    // PS-style checkerboard state
+    bool m_psCheckerboard = false;
+    D2D1_COLOR_F m_psCheckColor1 = {};
+    D2D1_COLOR_F m_psCheckColor2 = {};
+    float m_psCheckSquareSize = 16.0f;
+    bool m_lastPsCheckerboard = false;
+    D2D1_COLOR_F m_lastPsCheckColor1 = {};
+    D2D1_COLOR_F m_lastPsCheckColor2 = {};
 
     // State tracking for Drift Compensation and Glass rendering
     float m_currentScale = 1.0f;

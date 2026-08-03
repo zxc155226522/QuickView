@@ -1313,6 +1313,13 @@ HRESULT CompositionEngine::SetRootOpacity(float opacity) {
 // ============================================================================
 // Background Management
 // ============================================================================
+void CompositionEngine::SetCheckerboardMode(bool enabled, D2D1_COLOR_F color1, D2D1_COLOR_F color2, float squareSize) {
+    m_psCheckerboard = enabled;
+    m_psCheckColor1 = color1;
+    m_psCheckColor2 = color2;
+    m_psCheckSquareSize = squareSize;
+}
+
 HRESULT CompositionEngine::UpdateBackground(float width, float height, const D2D1_COLOR_F& bgColor, bool showGrid) {
     if (!m_device) return E_FAIL;
     
@@ -1336,11 +1343,24 @@ HRESULT CompositionEngine::UpdateBackground(float width, float height, const D2D
     bool isSpotlight =
         g_slideshowState.IsActive && g_config.SlideshowImmersiveMode == 1;
 
+    // Check if checkerboard state changed
+    bool cbChanged = (m_psCheckerboard != m_lastPsCheckerboard) ||
+        (m_psCheckerboard &&
+         (m_psCheckColor1.r != m_lastPsCheckColor1.r ||
+          m_psCheckColor1.g != m_lastPsCheckColor1.g ||
+          m_psCheckColor1.b != m_lastPsCheckColor1.b ||
+          m_psCheckColor1.a != m_lastPsCheckColor1.a ||
+          m_psCheckColor2.r != m_lastPsCheckColor2.r ||
+          m_psCheckColor2.g != m_lastPsCheckColor2.g ||
+          m_psCheckColor2.b != m_lastPsCheckColor2.b ||
+          m_psCheckColor2.a != m_lastPsCheckColor2.a));
+
     bool needsRedraw =
         (bgColor.r != m_lastBgColor.r || bgColor.g != m_lastBgColor.g ||
          bgColor.b != m_lastBgColor.b || bgColor.a != m_lastBgColor.a) ||
         (showGrid != m_lastBgGrid) || (w != m_lastBgW || h != m_lastBgH) ||
         (galleryH != m_lastGalleryH) || (isSpotlight != m_lastSpotlight) ||
+        cbChanged ||
         (!m_backgroundLayer.surface);
 
     if (!needsRedraw) return S_OK;
@@ -1379,6 +1399,34 @@ HRESULT CompositionEngine::UpdateBackground(float width, float height, const D2D
 
     // Handle Transparency
     m_backgroundLayer.context->Clear(bgColor);
+
+    // PS-style checkerboard rendering (full-opacity alternating squares)
+    if (m_psCheckerboard && !isSpotlight) {
+        ComPtr<ID2D1SolidColorBrush> cbBrush1, cbBrush2;
+        m_backgroundLayer.context->CreateSolidColorBrush(m_psCheckColor1, &cbBrush1);
+        m_backgroundLayer.context->CreateSolidColorBrush(m_psCheckColor2, &cbBrush2);
+
+        // Fill entire background with color1
+        m_backgroundLayer.context->FillRectangle(
+            D2D1::RectF(0, 0, (float)w, (float)h), cbBrush1.Get());
+
+        // Draw alternating squares with color2
+        float startY = 0.0f;
+        if (g_gallery.IsVisible()) {
+            startY = g_gallery.GetVisualHeight((float)h);
+        }
+        const float sq = m_psCheckSquareSize;
+        float alignedStartY = std::floor(startY / sq) * sq;
+
+        for (float y = alignedStartY; y < (float)h; y += sq) {
+            for (float x = 0; x < (float)w; x += sq) {
+                if (((int)(x / sq) + (int)(y / sq)) % 2 != 0) {
+                    m_backgroundLayer.context->FillRectangle(
+                        D2D1::RectF(x, y, x + sq, y + sq), cbBrush2.Get());
+                }
+            }
+        }
+    }
 
     if (isSpotlight) {
       // Spotlight Mode - Draw a premium theatrical radial gradient background
@@ -1477,6 +1525,9 @@ HRESULT CompositionEngine::UpdateBackground(float width, float height, const D2D
     m_lastBgH = h;
     m_lastGalleryH = galleryH;
     m_lastSpotlight = isSpotlight;
+    m_lastPsCheckerboard = m_psCheckerboard;
+    m_lastPsCheckColor1 = m_psCheckColor1;
+    m_lastPsCheckColor2 = m_psCheckColor2;
 
     return S_OK;
 }

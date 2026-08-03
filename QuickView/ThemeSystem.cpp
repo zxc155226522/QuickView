@@ -72,6 +72,19 @@ namespace QuickView::UI::ThemeSystem {
         yyjson_mut_obj_add_int(doc, root, "canvas_effect_style", config.CanvasEffectStyle);
         add_color("canvas_custom", config.CanvasCustomR, config.CanvasCustomG, config.CanvasCustomB);
 
+        // [Swatch] Export swatch colors and index
+        yyjson_mut_obj_add_int(doc, root, "swatch_color_index", config.SwatchColorIndex);
+        for (int i = 3; i < 9; ++i) {
+            char key[32];
+            snprintf(key, sizeof(key), "swatch_color_%d", i);
+            yyjson_mut_val *arr = yyjson_mut_arr(doc);
+            yyjson_mut_arr_add_real(doc, arr, config.SwatchColors[i][0]);
+            yyjson_mut_arr_add_real(doc, arr, config.SwatchColors[i][1]);
+            yyjson_mut_arr_add_real(doc, arr, config.SwatchColors[i][2]);
+            yyjson_mut_arr_add_real(doc, arr, config.SwatchColors[i][3]);
+            yyjson_mut_obj_add_val(doc, root, key, arr);
+        }
+
         size_t len;
         char *json = yyjson_mut_write(doc, YYJSON_WRITE_PRETTY, &len);
         if (json) {
@@ -165,6 +178,24 @@ namespace QuickView::UI::ThemeSystem {
         get_int("canvas_color", config.CanvasColor);
         get_int("canvas_effect_style", config.CanvasEffectStyle);
         get_color("canvas_custom", config.CanvasCustomR, config.CanvasCustomG, config.CanvasCustomB);
+
+        // [Swatch] Import swatch colors and index
+        {
+            yyjson_val *v;
+            v = yyjson_obj_get(obj, "swatch_color_index");
+            if (v && yyjson_is_int(v)) config.SwatchColorIndex = (int)yyjson_get_int(v);
+        }
+        for (int i = 3; i < 9; ++i) {
+            char key[32];
+            snprintf(key, sizeof(key), "swatch_color_%d", i);
+            yyjson_val *arr = yyjson_obj_get(obj, key);
+            if (arr && yyjson_is_arr(arr) && yyjson_arr_size(arr) >= 4) {
+                config.SwatchColors[i][0] = (float)yyjson_get_real(yyjson_arr_get(arr, 0));
+                config.SwatchColors[i][1] = (float)yyjson_get_real(yyjson_arr_get(arr, 1));
+                config.SwatchColors[i][2] = (float)yyjson_get_real(yyjson_arr_get(arr, 2));
+                config.SwatchColors[i][3] = (float)yyjson_get_real(yyjson_arr_get(arr, 3));
+            }
+        }
 
         config.EnforceGlassSafetyLimits();
         ::SaveConfig(); // Persist to QuickView.ini as requested
