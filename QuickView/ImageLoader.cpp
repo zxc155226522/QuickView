@@ -44,6 +44,7 @@ extern struct AppConfig g_config;
 #include <mupdf/fitz.h>
 #include "MuPdfDocument.h"
 #include "DocumentRenderController.h"
+#include "VectorLoader.h"
 
 
 using namespace QuickView;
@@ -10105,6 +10106,19 @@ HRESULT CImageLoader::GetImageInfoFast(LPCWSTR filePath, ImageInfo *pInfo) {
       pInfo->height = 512;
       return S_OK;
     }
+    // PLT/DXF: vector formats parsed by VectorLoader (dimensions resolved at load time)
+    if (QuickView::ExtEqualsIgnoreCase(cdrExt, L".plt")) {
+      pInfo->format = L"PLT";
+      pInfo->width = 512;
+      pInfo->height = 512;
+      return S_OK;
+    }
+    if (QuickView::ExtEqualsIgnoreCase(cdrExt, L".dxf")) {
+      pInfo->format = L"DXF";
+      pInfo->width = 512;
+      pInfo->height = 512;
+      return S_OK;
+    }
   }
 
   // Check content (XML/SVG) or extension
@@ -11207,6 +11221,135 @@ HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
   return S_OK;
 }
 
+// ============================================================================
+// PLT (HPGL) → SVG via VectorLoader → RawImageFrame(SVG_XML)
+// ============================================================================
+HRESULT CImageLoader::LoadPLT(LPCWSTR filePath,
+                              QuickView::RawImageFrame *outFrame,
+                              std::wstring *pLoaderName,
+                              CImageLoader::ImageMetadata *pMetadata,
+                              CancelPredicate checkCancel) {
+  std::vector<uint8_t> fileData;
+  if (!ReadFileToVector(filePath, fileData) || fileData.empty()) {
+    if (pMetadata)
+      pMetadata->Format = L"PLT (File Read Error)";
+    return E_FAIL;
+  }
+
+  if (checkCancel && checkCancel())
+    return E_ABORT;
+
+  std::string svgContent = QuickView::LoadPLTtoSVG(fileData.data(), fileData.size());
+  if (svgContent.empty()) {
+    if (pMetadata)
+      pMetadata->Format = L"PLT (Parse Failed)";
+    return E_FAIL;
+  }
+
+  // Parse viewBox dimensions from generated SVG
+  float svgW = 0.0f, svgH = 0.0f;
+  const std::string wStr = GetSvgRootAttrVal(svgContent, "width");
+  const std::string hStr = GetSvgRootAttrVal(svgContent, "height");
+  const bool hasWidth = TryParseSvgLengthToDip(wStr, &svgW);
+  const bool hasHeight = TryParseSvgLengthToDip(hStr, &svgH);
+
+  if (!hasWidth || !hasHeight || svgW <= 0.0f || svgH <= 0.0f) {
+    const std::string viewBox = GetSvgRootAttrVal(svgContent, "viewBox");
+    TryParseSvgViewBoxSize(viewBox, &svgW, &svgH);
+  }
+
+  if (svgW <= 0) svgW = 512;
+  if (svgH <= 0) svgH = 512;
+
+  outFrame->format = PixelFormat::SVG_XML;
+  outFrame->width = (int)std::lround(svgW);
+  outFrame->height = (int)std::lround(svgH);
+  outFrame->stride = 0;
+  outFrame->pixels = nullptr;
+
+  outFrame->svg = std::make_unique<RawImageFrame::SvgData>();
+  outFrame->svg->xmlData.assign(svgContent.begin(), svgContent.end());
+  outFrame->svg->viewBoxW = svgW;
+  outFrame->svg->viewBoxH = svgH;
+
+  if (pLoaderName)
+    *pLoaderName = L"VectorLoader (PLT)";
+  if (pMetadata) {
+    pMetadata->LoaderName = L"VectorLoader (PLT)";
+    pMetadata->Format = L"PLT";
+    pMetadata->FormatDetails = L"Vector (HPGL)";
+    pMetadata->Width = (UINT)svgW;
+    pMetadata->Height = (UINT)svgH;
+  }
+  outFrame->formatDetails = L"PLT";
+
+  return S_OK;
+}
+
+// ============================================================================
+// DXF (AutoCAD) → SVG via VectorLoader → RawImageFrame(SVG_XML)
+// ============================================================================
+HRESULT CImageLoader::LoadDXF(LPCWSTR filePath,
+                              QuickView::RawImageFrame *outFrame,
+                              std::wstring *pLoaderName,
+                              CImageLoader::ImageMetadata *pMetadata,
+                              CancelPredicate checkCancel) {
+  std::vector<uint8_t> fileData;
+  if (!ReadFileToVector(filePath, fileData) || fileData.empty()) {
+    if (pMetadata)
+      pMetadata->Format = L"DXF (File Read Error)";
+    return E_FAIL;
+  }
+
+  if (checkCancel && checkCancel())
+    return E_ABORT;
+
+  std::string svgContent = QuickView::LoadDXFtoSVG(fileData.data(), fileData.size());
+  if (svgContent.empty()) {
+    if (pMetadata)
+      pMetadata->Format = L"DXF (Parse Failed)";
+    return E_FAIL;
+  }
+
+  // Parse viewBox dimensions from generated SVG
+  float svgW = 0.0f, svgH = 0.0f;
+  const std::string wStr = GetSvgRootAttrVal(svgContent, "width");
+  const std::string hStr = GetSvgRootAttrVal(svgContent, "height");
+  const bool hasWidth = TryParseSvgLengthToDip(wStr, &svgW);
+  const bool hasHeight = TryParseSvgLengthToDip(hStr, &svgH);
+
+  if (!hasWidth || !hasHeight || svgW <= 0.0f || svgH <= 0.0f) {
+    const std::string viewBox = GetSvgRootAttrVal(svgContent, "viewBox");
+    TryParseSvgViewBoxSize(viewBox, &svgW, &svgH);
+  }
+
+  if (svgW <= 0) svgW = 512;
+  if (svgH <= 0) svgH = 512;
+
+  outFrame->format = PixelFormat::SVG_XML;
+  outFrame->width = (int)std::lround(svgW);
+  outFrame->height = (int)std::lround(svgH);
+  outFrame->stride = 0;
+  outFrame->pixels = nullptr;
+
+  outFrame->svg = std::make_unique<RawImageFrame::SvgData>();
+  outFrame->svg->xmlData.assign(svgContent.begin(), svgContent.end());
+  outFrame->svg->viewBoxW = svgW;
+  outFrame->svg->viewBoxH = svgH;
+
+  if (pLoaderName)
+    *pLoaderName = L"VectorLoader (DXF)";
+  if (pMetadata) {
+    pMetadata->LoaderName = L"VectorLoader (DXF)";
+    pMetadata->Format = L"DXF";
+    pMetadata->FormatDetails = L"Vector (AutoCAD)";
+    pMetadata->Width = (UINT)svgW;
+    pMetadata->Height = (UINT)svgH;
+  }
+  outFrame->formatDetails = L"DXF";
+
+  return S_OK;
+}
 // ----------------------------------------------------------------------------
 // Wuffs NetPBM (PAM, PBM, PGM, PPM)
 // ----------------------------------------------------------------------------
@@ -14307,6 +14450,21 @@ HRESULT CImageLoader::LoadToFrame(
     if (QuickView::ExtEqualsIgnoreCase(ext, L".cdr") ||
         QuickView::ExtEqualsIgnoreCase(ext, L".cmx")) {
       return LoadCDR(filePath, outFrame, pLoaderName, pMetadata, checkCancel);
+    }
+
+    // ========================================================================
+    // PLT/DXF Path (VectorLoader → SVG XML → D2D Native SVG)
+    // ========================================================================
+    // PLT (HPGL plotter format) and DXF (AutoCAD Drawing Exchange Format)
+    // are vector formats parsed by hand-written decoders in VectorLoader.
+    // They generate SVG XML strings reusing the same RawImageFrame(SVG_XML)
+    // pipeline as native SVG files.
+    // ========================================================================
+    if (QuickView::ExtEqualsIgnoreCase(ext, L".plt")) {
+      return LoadPLT(filePath, outFrame, pLoaderName, pMetadata, checkCancel);
+    }
+    if (QuickView::ExtEqualsIgnoreCase(ext, L".dxf")) {
+      return LoadDXF(filePath, outFrame, pLoaderName, pMetadata, checkCancel);
     }
 
     // ========================================================================

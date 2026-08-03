@@ -110,6 +110,7 @@ set(QUICKVIEW_SOURCES
     QuickView/QuickViewETW.cpp
     QuickView/MuPdfDocument.cpp
     QuickView/DocumentRenderController.cpp
+    QuickView/VectorLoader.cpp
     
     # Third party manually included
     third_party/yyjson/yyjson.c

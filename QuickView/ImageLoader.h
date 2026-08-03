@@ -514,6 +514,18 @@ private:
                   CImageLoader::ImageMetadata *pMetadata = nullptr,
                   CancelPredicate checkCancel = {});
 
+  // PLT (HPGL) → SVG via VectorLoader
+  HRESULT LoadPLT(LPCWSTR filePath, QuickView::RawImageFrame *outFrame,
+                  std::wstring *pLoaderName = nullptr,
+                  CImageLoader::ImageMetadata *pMetadata = nullptr,
+                  CancelPredicate checkCancel = {});
+
+  // DXF (AutoCAD) → SVG via VectorLoader
+  HRESULT LoadDXF(LPCWSTR filePath, QuickView::RawImageFrame *outFrame,
+                  std::wstring *pLoaderName = nullptr,
+                  CImageLoader::ImageMetadata *pMetadata = nullptr,
+                  CancelPredicate checkCancel = {});
+
   // NetPBM via Wuffs (PAM, PBM, PGM, PPM)
   HRESULT LoadNetpbmWuffs(LPCWSTR filePath, IWICBitmap **ppBitmap);
 
