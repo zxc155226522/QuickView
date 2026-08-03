@@ -2,6 +2,7 @@
 #include "ImageViewportLayout.h"
 #include "AppContext.h"
 #include "GalleryOverlay.h"
+#include "Toolbar.h"
 
 extern float g_uiScale;
 extern GalleryOverlay g_gallery;
@@ -15,11 +16,17 @@ ImageViewportLayout ComputeImageViewportLayout(float windowWidth, float windowHe
         ? g_gallery.GetVisualHeight(safeHeight)
         : 0.0f;
 
+    // Reserve bottom space for toolbar when visible (non-fullscreen only)
+    float toolbarReservedHeight = 0.0f;
+    if (!g_isFullScreen && g_toolbar.IsVisible() && !g_toolbar.IsWindowTooNarrow()) {
+        toolbarReservedHeight = g_toolbar.GetReservedHeight();
+    }
+
     ImageViewportLayout layout;
     layout.Left = (std::min)(padding, safeWidth - 1.0f);
     layout.Top = (std::min)(titleBarHeight + galleryHeight + padding, safeHeight - 1.0f);
     layout.Right = (std::max)(layout.Left + 1.0f, safeWidth - padding);
-    layout.Bottom = (std::max)(layout.Top + 1.0f, safeHeight - padding);
+    layout.Bottom = (std::max)(layout.Top + 1.0f, safeHeight - padding - toolbarReservedHeight);
     layout.Right = (std::min)(layout.Right, safeWidth);
     layout.Bottom = (std::min)(layout.Bottom, safeHeight);
     layout.Width = (std::max)(1.0f, layout.Right - layout.Left);

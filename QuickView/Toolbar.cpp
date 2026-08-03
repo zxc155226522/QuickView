@@ -66,6 +66,10 @@ Toolbar::Toolbar() {
 
 Toolbar::~Toolbar() {}
 
+float Toolbar::GetReservedHeight() const {
+  return (BOTTOM_MARGIN + BUTTON_SIZE + PADDING_Y * 2) * m_uiScale;
+}
+
 void Toolbar::SetUIScale(float scale) {
   if (scale < 1.0f)
     scale = 1.0f;

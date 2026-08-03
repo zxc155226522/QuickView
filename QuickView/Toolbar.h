@@ -130,6 +130,9 @@ public:
     float GetMinWidth() const { return m_minRequiredWidth > 0.0f ? m_minRequiredWidth : (PADDING_X * 2 + 8 * BUTTON_SIZE + 7 * GAP) * m_uiScale; }
     bool IsWindowTooNarrow() const { return m_windowTooNarrow; }
 
+    // Total vertical space from window bottom to toolbar top edge (including bottom margin)
+    float GetReservedHeight() const;
+
     // [Geek Glass] Data Injection
     void SetGeekGlassData(ID2D1CommandList* list, const D2D1_MATRIX_3X2_F& transform) {
         m_bgCmdList = list;
