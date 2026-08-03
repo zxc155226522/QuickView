@@ -9891,6 +9891,9 @@ HRESULT CImageLoader::GetImageInfoFast(LPCWSTR filePath, ImageInfo *pInfo) {
     uint32_t ifdOffset = read32(4);
     if (ifdOffset > 0) {
       int w = 0, h = 0;
+      uint16_t tiffPhotometric = 0;
+      uint16_t tiffSamples = 1;
+      bool hasExtraSamples = false;
       bool readSuccess = false;
 
       if (ifdOffset + 2 < size) {
@@ -9906,10 +9909,20 @@ HRESULT CImageLoader::GetImageInfoFast(LPCWSTR filePath, ImageInfo *pInfo) {
           else if (type == 4 && count == 1) val = read32(entryOff + 8);
 
           if (tag == 256) w = (int)val;
-          if (tag == 257) h = (int)val;
-          if (w > 0 && h > 0) break;
+          else if (tag == 257) h = (int)val;
+          else if (tag == 262) tiffPhotometric = (uint16_t)val;
+          else if (tag == 277) tiffSamples = (uint16_t)val;
+          else if (tag == 338) hasExtraSamples = (count >= 1);
         }
         readSuccess = true;
+
+        // Alpha detection: extra samples beyond what photometric requires
+        if (tiffPhotometric == 2) // RGB needs 3 samples; 4+ means alpha
+          pInfo->hasAlpha = (tiffSamples >= 4) || hasExtraSamples;
+        else if (tiffPhotometric == 0 || tiffPhotometric == 1) // Grayscale needs 1; 2+ means alpha
+          pInfo->hasAlpha = (tiffSamples >= 2) || hasExtraSamples;
+        else if (tiffPhotometric == 5) // CMYK needs 4; 5+ means alpha
+          pInfo->hasAlpha = (tiffSamples >= 5) || hasExtraSamples;
       } else {
         // IFD is outside the 64KB chunk. We must open the file and read it.
         FILE* f = nullptr;
@@ -9934,6 +9947,9 @@ HRESULT CImageLoader::GetImageInfoFast(LPCWSTR filePath, ImageInfo *pInfo) {
                                     (((uint32_t)ifdBuf[off] << 24) | ((uint32_t)ifdBuf[off + 1] << 16) | ((uint32_t)ifdBuf[off + 2] << 8) | ifdBuf[off + 3]);
                 };
 
+                uint16_t tiffPhotometric = 0;
+                uint16_t tiffSamples = 1;
+                bool hasExtraSamples = false;
                 for (uint16_t i = 0; i < numEntries; ++i) {
                   size_t entryOff = i * 12;
                   if (entryOff + 12 > ifdBuf.size()) break;
@@ -9946,9 +9962,19 @@ HRESULT CImageLoader::GetImageInfoFast(LPCWSTR filePath, ImageInfo *pInfo) {
                   else if (type == 4 && count == 1) val = read32_ifd(entryOff + 8);
 
                   if (tag == 256) w = (int)val;
-                  if (tag == 257) h = (int)val;
-                  if (w > 0 && h > 0) break;
+                  else if (tag == 257) h = (int)val;
+                  else if (tag == 262) tiffPhotometric = (uint16_t)val;
+                  else if (tag == 277) tiffSamples = (uint16_t)val;
+                  else if (tag == 338) hasExtraSamples = (count >= 1);
                 }
+
+                // Alpha detection
+                if (tiffPhotometric == 2)
+                  pInfo->hasAlpha = (tiffSamples >= 4) || hasExtraSamples;
+                else if (tiffPhotometric == 0 || tiffPhotometric == 1)
+                  pInfo->hasAlpha = (tiffSamples >= 2) || hasExtraSamples;
+                else if (tiffPhotometric == 5)
+                  pInfo->hasAlpha = (tiffSamples >= 5) || hasExtraSamples;
               }
             }
           }

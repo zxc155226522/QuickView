@@ -853,6 +853,14 @@ HRESULT LoadRegion(const uint8_t* data, size_t size,
     result.metadata.Width = desc.width;
     result.metadata.Height = desc.height;
     result.metadata.Format = L"TIFF";
+
+    // Alpha detection: extra samples beyond what photometric requires
+    if (photometric == 2) // RGB needs 3; 4+ means alpha
+      result.metadata.hasAlpha = (desc.samples >= 4) || (desc.extraSamples > 0);
+    else if (photometric == 0 || photometric == 1) // Grayscale needs 1; 2+ means alpha
+      result.metadata.hasAlpha = (desc.samples >= 2) || (desc.extraSamples > 0);
+    else if (photometric == 5) // CMYK needs 4; 5+ means alpha
+      result.metadata.hasAlpha = (desc.samples >= 5) || (desc.extraSamples > 0);
     
     wchar_t details[128];
     const wchar_t* compStr = L"";
