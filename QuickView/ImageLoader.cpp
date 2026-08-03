@@ -13636,46 +13636,48 @@ HRESULT CImageLoader::LoadToFrame(
         return E_FAIL;
       }
 
-      MuPdfDocument doc(ctx);
-      std::wstring errorMessage;
-      HRESULT hr = doc.Open(filePath, errorMessage);
-      if (FAILED(hr)) {
-        fz_drop_context(ctx);
-        if (pMetadata)
-          pMetadata->Format = L"PDF (Parse Failed)";
-        return hr;
-      }
+      // Scope doc so its destructor (which uses ctx) runs BEFORE fz_drop_context.
+      // If fz_drop_context runs first, doc's destructor uses freed memory → crash.
+      HRESULT pdfHr;
+      {
+        MuPdfDocument doc(ctx);
+        std::wstring errorMessage;
+        HRESULT hr = doc.Open(filePath, errorMessage);
+        if (FAILED(hr)) {
+          if (pMetadata)
+            pMetadata->Format = L"PDF (Parse Failed)";
+          pdfHr = hr;
+        } else {
+          DocumentRenderResult renderResult;
+          RECT rc;
+          GetClientRect(GetForegroundWindow(), &rc);
+          int viewportW = (rc.right > 64) ? (rc.right - rc.left) : 1920;
+          int viewportH = (rc.bottom > 64) ? (rc.bottom - rc.top) : 1080;
+          hr = doc.RenderPage(0, viewportW, viewportH, 1.0f, renderResult);
+          if (FAILED(hr) || !renderResult.frame) {
+            if (pMetadata)
+              pMetadata->Format = L"PDF (Render Failed)";
+            pdfHr = hr;
+          } else {
+            *outFrame = std::move(*renderResult.frame);
+            outFrame->formatDetails = L"MuPDF 1.27.2";
 
-      // Render first page at 150 DPI (zoom ≈ 2.08x of 72 DPI)
-      DocumentRenderResult renderResult;
-      RECT rc;
-      GetClientRect(GetForegroundWindow(), &rc);
-      int viewportW = (rc.right > 64) ? (rc.right - rc.left) : 1920;
-      int viewportH = (rc.bottom > 64) ? (rc.bottom - rc.top) : 1080;
-      hr = doc.RenderPage(0, viewportW, viewportH, 1.0f, renderResult);
-      if (FAILED(hr) || !renderResult.frame) {
-        fz_drop_context(ctx);
-        if (pMetadata)
-          pMetadata->Format = L"PDF (Render Failed)";
-        return hr;
-      }
-
-      // Transfer frame to output
-      *outFrame = std::move(*renderResult.frame);
-      outFrame->formatDetails = L"MuPDF 1.27.2";
-
-      if (pLoaderName)
-        *pLoaderName = L"MuPDF (PDF)";
-      if (pMetadata) {
-        pMetadata->LoaderName = L"MuPDF (PDF)";
-        pMetadata->Format = QuickView::ExtEqualsIgnoreCase(ext, L".ai") ? L"AI" : L"PDF";
-        pMetadata->FormatDetails = L"Document (MuPDF)";
-        pMetadata->Width = (UINT)outFrame->width;
-        pMetadata->Height = (UINT)outFrame->height;
-      }
+            if (pLoaderName)
+              *pLoaderName = L"MuPDF (PDF)";
+            if (pMetadata) {
+              pMetadata->LoaderName = L"MuPDF (PDF)";
+              pMetadata->Format = QuickView::ExtEqualsIgnoreCase(ext, L".ai") ? L"AI" : L"PDF";
+              pMetadata->FormatDetails = L"Document (MuPDF)";
+              pMetadata->Width = (UINT)outFrame->width;
+              pMetadata->Height = (UINT)outFrame->height;
+            }
+            pdfHr = S_OK;
+          }
+        }
+      } // doc destructor runs here (while ctx is still valid)
 
       fz_drop_context(ctx);
-      return S_OK;
+      return pdfHr;
     }
   }
 
