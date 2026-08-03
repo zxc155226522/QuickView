@@ -11113,6 +11113,22 @@ HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
   // Multi-page: future enhancement could stitch pages vertically.
   std::string svgContent(svgPages[0].cstr());
 
+  // [Canvas] Record original page dimensions before cropping.
+  // librevenge generates viewBox="0 0 pageW pageH" covering the entire
+  // page. We need these to draw a page boundary rectangle after cropping.
+  float pageX = 0.0f, pageY = 0.0f, pageW = 0.0f, pageH = 0.0f;
+  {
+    std::string vbStr = GetSvgRootAttrVal(svgContent, "viewBox");
+    if (!vbStr.empty()) {
+      const char *p = vbStr.c_str();
+      char *endp = nullptr;
+      pageX = strtof(p, &endp);
+      if (endp != p) { p = endp; pageY = strtof(p, &endp);
+      if (endp != p) { p = endp; pageW = strtof(p, &endp);
+      if (endp != p) { p = endp; pageH = strtof(p, &endp); }}}
+    }
+  }
+
   // [Crop] librevenge generates viewBox="0 0 pageW pageH" covering the entire
   // page. When drawing content occupies only a small or off-center region,
   // the viewer scales the whole page down, producing excessive whitespace.
@@ -11124,6 +11140,25 @@ HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
   // [Style Inliner] librevenge writes fill/stroke as CSS style="..." which
   // D2D's SVG renderer ignores. Convert CSS properties to direct attributes.
   InlineSvgStyleAttrs(svgContent);
+
+  // [Canvas] Insert a page boundary rectangle as the first child element.
+  // This draws a white "paper" area with a thin gray border at the original
+  // page coordinates, so the user can distinguish content inside the page
+  // from content spilling outside (CorelDRAW "desktop" feel).
+  // Must be inserted AFTER InlineSvgStyleAttrs to avoid being stripped,
+  // and as the first child so it renders behind all drawing elements.
+  if (pageW > 0.0f && pageH > 0.0f) {
+    std::string pageRect = "<rect x=\"" + FmtFloat(pageX) + "\" y=\"" +
+                           FmtFloat(pageY) + "\" width=\"" + FmtFloat(pageW) +
+                           "\" height=\"" + FmtFloat(pageH) +
+                           "\" fill=\"white\" stroke=\"#c0c0c0\" stroke-width=\"0.5\"/>";
+    std::string_view rootTag = GetSvgRootTag(svgContent);
+    if (!rootTag.empty()) {
+      size_t insertPos = (size_t)(rootTag.data() - svgContent.data()) +
+                         rootTag.length();
+      svgContent.insert(insertPos, pageRect);
+    }
+  }
 
   // Parse the generated SVG using the same CSS length rules as native SVG.
   // librevenge writes physical root dimensions such as width="8.5in" while
