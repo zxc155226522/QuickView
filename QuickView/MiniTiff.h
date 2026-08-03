@@ -44,7 +44,7 @@ HRESULT LoadRegion(const uint8_t* data, size_t size,
                    int cropX, int cropY, int cropW, int cropH);
 
 // Internal helper for Phase 3 CMYK to BGRA conversion
-void ConvertCmykToBgra(const uint8_t* src, uint8_t* dst, int width, int samples);
+void ConvertCmykToBgra(const uint8_t* src, uint8_t* dst, int width, int samples, bool premultiply);
 
 // Internal helper for Phase 1 LZW decompression
 bool DecompressLzw(const uint8_t* src, size_t srcLen, uint8_t* dst, size_t dstLen);

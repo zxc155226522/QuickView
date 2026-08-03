@@ -21,12 +21,14 @@
 
 namespace QuickView::MiniTiff {
 
-void ConvertCmykToBgra(const uint8_t* src, uint8_t* dst, int width, int samples) {
+void ConvertCmykToBgra(const uint8_t* src, uint8_t* dst, int width, int samples, bool premultiply) {
+    bool hasAlpha = (samples >= 5);
     for (int x = 0; x < width; ++x) {
         uint8_t c = src[x * samples + 0];
         uint8_t m = src[x * samples + 1];
         uint8_t y = src[x * samples + 2];
         uint8_t k = src[x * samples + 3];
+        uint8_t a = hasAlpha ? src[x * samples + 4] : 255;
 
         uint32_t invK = 255 - k;
         uint32_t rTemp = (255 - c) * invK;
@@ -34,10 +36,20 @@ void ConvertCmykToBgra(const uint8_t* src, uint8_t* dst, int width, int samples)
         uint32_t bTemp = (255 - y) * invK;
 
         // Mathematical fixed-point division by 255 with 100% precision: (val + 128 + (val >> 8)) >> 8
-        dst[x * 4 + 0] = static_cast<uint8_t>((bTemp + 128 + (bTemp >> 8)) >> 8); // B
-        dst[x * 4 + 1] = static_cast<uint8_t>((gTemp + 128 + (gTemp >> 8)) >> 8); // G
-        dst[x * 4 + 2] = static_cast<uint8_t>((rTemp + 128 + (rTemp >> 8)) >> 8); // R
-        dst[x * 4 + 3] = 255;
+        uint8_t r = static_cast<uint8_t>((rTemp + 128 + (rTemp >> 8)) >> 8);
+        uint8_t g = static_cast<uint8_t>((gTemp + 128 + (gTemp >> 8)) >> 8);
+        uint8_t b = static_cast<uint8_t>((bTemp + 128 + (bTemp >> 8)) >> 8);
+
+        if (hasAlpha && premultiply) {
+            r = static_cast<uint8_t>((r * a + 127) / 255);
+            g = static_cast<uint8_t>((g * a + 127) / 255);
+            b = static_cast<uint8_t>((b * a + 127) / 255);
+        }
+
+        dst[x * 4 + 0] = b;
+        dst[x * 4 + 1] = g;
+        dst[x * 4 + 2] = r;
+        dst[x * 4 + 3] = a;
     }
 }
 

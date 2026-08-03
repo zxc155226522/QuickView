@@ -11393,9 +11393,14 @@ HRESULT CImageLoader::ReadMetadata(LPCWSTR filePath, ImageMetadata *pMetadata,
   PopulateFileStats(filePath, pMetadata);
   
   // [Titan Perf] Get fast info to fetch alpha status
+  // [Fix] Only update hasAlpha if fastInfo detected alpha (true).
+  // Never overwrite an existing hasAlpha=true with false, since the default
+  // is true and the decoder may have already correctly detected alpha.
   ImageInfo fastInfo;
   if (SUCCEEDED(GetImageInfoFast(filePath, &fastInfo))) {
-      pMetadata->hasAlpha = fastInfo.hasAlpha;
+      if (fastInfo.hasAlpha || !pMetadata->hasAlpha) {
+          pMetadata->hasAlpha = fastInfo.hasAlpha;
+      }
   }
 
   // 1. Detect Format (if missing) - Detect first so native probes and WIC fallback know the format

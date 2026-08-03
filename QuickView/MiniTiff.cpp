@@ -630,28 +630,35 @@ HRESULT LoadRegion(const uint8_t* data, size_t size,
                         } else {
                             decodeFailed = true;
                         }
-                    } else if (photometric == 5) {
-                        int localXStart = intersectX - tileX;
-                        int outXStart = intersectX - cropX;
-                        int runWidth = intersectEndX - intersectX;
-                        if (bytesPerSample == 1) {
-                            ConvertCmykToBgra(srcRow + localXStart * pixelStride, dstRow + outXStart * 4, runWidth, samples);
-                        } else {
-                            for (int dx = 0; dx < runWidth; ++dx) {
-                                uint8_t c = srcRow[(localXStart + dx) * pixelStride + 0 * bytesPerSample + highByteOffset];
-                                uint8_t m = srcRow[(localXStart + dx) * pixelStride + 1 * bytesPerSample + highByteOffset];
-                                uint8_t ye = srcRow[(localXStart + dx) * pixelStride + 2 * bytesPerSample + highByteOffset];
-                                uint8_t k = (samples >= 4) ? srcRow[(localXStart + dx) * pixelStride + 3 * bytesPerSample + highByteOffset] : 0;
-                                uint8_t r = (255 - c) * (255 - k) / 255;
-                                uint8_t g = (255 - m) * (255 - k) / 255;
-                                uint8_t b = (255 - ye) * (255 - k) / 255;
-                                dstRow[(outXStart + dx) * 4 + 0] = b;
-                                dstRow[(outXStart + dx) * 4 + 1] = g;
-                                dstRow[(outXStart + dx) * 4 + 2] = r;
-                                dstRow[(outXStart + dx) * 4 + 3] = 255;
-                            }
-                        }
-                    }
+} else if (photometric == 5) {
+int localXStart = intersectX - tileX;
+int outXStart = intersectX - cropX;
+int runWidth = intersectEndX - intersectX;
+bool cmykPremultiply = (desc.extraSamples != 1);
+if (bytesPerSample == 1) {
+ConvertCmykToBgra(srcRow + localXStart * pixelStride, dstRow + outXStart * 4, runWidth, samples, cmykPremultiply);
+} else {
+for (int dx = 0; dx < runWidth; ++dx) {
+uint8_t c = srcRow[(localXStart + dx) * pixelStride + 0 * bytesPerSample + highByteOffset];
+uint8_t m = srcRow[(localXStart + dx) * pixelStride + 1 * bytesPerSample + highByteOffset];
+uint8_t ye = srcRow[(localXStart + dx) * pixelStride + 2 * bytesPerSample + highByteOffset];
+uint8_t k = (samples >= 4) ? srcRow[(localXStart + dx) * pixelStride + 3 * bytesPerSample + highByteOffset] : 0;
+uint8_t a = (samples >= 5) ? srcRow[(localXStart + dx) * pixelStride + 4 * bytesPerSample + highByteOffset] : 255;
+uint8_t r = (255 - c) * (255 - k) / 255;
+uint8_t g = (255 - m) * (255 - k) / 255;
+uint8_t b = (255 - ye) * (255 - k) / 255;
+if (samples >= 5 && cmykPremultiply) {
+r = static_cast<uint8_t>((r * a + 127) / 255);
+g = static_cast<uint8_t>((g * a + 127) / 255);
+b = static_cast<uint8_t>((b * a + 127) / 255);
+}
+dstRow[(outXStart + dx) * 4 + 0] = b;
+dstRow[(outXStart + dx) * 4 + 1] = g;
+dstRow[(outXStart + dx) * 4 + 2] = r;
+dstRow[(outXStart + dx) * 4 + 3] = a;
+}
+}
+}
                 }
             }
     } else {
@@ -814,24 +821,31 @@ HRESULT LoadRegion(const uint8_t* data, size_t size,
                         } else {
                             decodeFailed = true;
                         }
-                    } else if (photometric == 5) {
-                        if (bytesPerSample == 1) {
-                            ConvertCmykToBgra(srcRow + cropX * pixelStride, dstRow, cropW, samples);
-                        } else {
-                            for (int dx = 0; dx < cropW; ++dx) {
-                                uint8_t c = srcRow[(cropX + dx) * pixelStride + 0 * bytesPerSample + highByteOffset];
-                                uint8_t m = srcRow[(cropX + dx) * pixelStride + 1 * bytesPerSample + highByteOffset];
-                                uint8_t ye = srcRow[(cropX + dx) * pixelStride + 2 * bytesPerSample + highByteOffset];
-                                uint8_t k = (samples >= 4) ? srcRow[(cropX + dx) * pixelStride + 3 * bytesPerSample + highByteOffset] : 0;
-                                uint8_t r = (255 - c) * (255 - k) / 255;
-                                uint8_t g = (255 - m) * (255 - k) / 255;
-                                uint8_t b = (255 - ye) * (255 - k) / 255;
-                                dstRow[dx * 4 + 0] = b;
-                                dstRow[dx * 4 + 1] = g;
-                                dstRow[dx * 4 + 2] = r;
-                                dstRow[dx * 4 + 3] = 255;
-                            }
-                        }
+} else if (photometric == 5) {
+bool cmykPremultiply = (desc.extraSamples != 1);
+if (bytesPerSample == 1) {
+ConvertCmykToBgra(srcRow + cropX * pixelStride, dstRow, cropW, samples, cmykPremultiply);
+} else {
+for (int dx = 0; dx < cropW; ++dx) {
+uint8_t c = srcRow[(cropX + dx) * pixelStride + 0 * bytesPerSample + highByteOffset];
+uint8_t m = srcRow[(cropX + dx) * pixelStride + 1 * bytesPerSample + highByteOffset];
+uint8_t ye = srcRow[(cropX + dx) * pixelStride + 2 * bytesPerSample + highByteOffset];
+uint8_t k = (samples >= 4) ? srcRow[(cropX + dx) * pixelStride + 3 * bytesPerSample + highByteOffset] : 0;
+uint8_t a = (samples >= 5) ? srcRow[(cropX + dx) * pixelStride + 4 * bytesPerSample + highByteOffset] : 255;
+uint8_t r = (255 - c) * (255 - k) / 255;
+uint8_t g = (255 - m) * (255 - k) / 255;
+uint8_t b = (255 - ye) * (255 - k) / 255;
+if (samples >= 5 && cmykPremultiply) {
+r = static_cast<uint8_t>((r * a + 127) / 255);
+g = static_cast<uint8_t>((g * a + 127) / 255);
+b = static_cast<uint8_t>((b * a + 127) / 255);
+}
+dstRow[dx * 4 + 0] = b;
+dstRow[dx * 4 + 1] = g;
+dstRow[dx * 4 + 2] = r;
+dstRow[dx * 4 + 3] = a;
+}
+}
                     }
                 }
             }

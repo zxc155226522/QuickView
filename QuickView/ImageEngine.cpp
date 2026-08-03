@@ -1158,6 +1158,7 @@ void ImageEngine::FastLane::QueueWorker() {
             
             QuickView::RawImageFrame rawFrame;
             std::wstring loaderName;
+            CImageLoader::ImageMetadata decodeMeta; // [Fix] Capture hasAlpha from decoder
             
             auto info = m_loader->PeekHeader(cmd.path.c_str());
             
@@ -1191,7 +1192,7 @@ void ImageEngine::FastLane::QueueWorker() {
                     rawFrame.onAuxLayerReady.ctxDeleter = [](void* c) { delete static_cast<AuxLayerReadyCtx*>(c); };
                 }
             }
-            HRESULT hr = m_loader->LoadToFrame(cmd.path.c_str(), &rawFrame, &arena, targetW, targetH, &loaderName, {}, nullptr, true, false, cmd.targetHdrHeadroomStops);
+            HRESULT hr = m_loader->LoadToFrame(cmd.path.c_str(), &rawFrame, &arena, targetW, targetH, &loaderName, {}, &decodeMeta, true, false, cmd.targetHdrHeadroomStops);
             
             int decodeMs = (int)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start).count();
 
@@ -1271,6 +1272,8 @@ void ImageEngine::FastLane::QueueWorker() {
                 e.metadata.FileSize = info.fileSize;
                 e.metadata.colorInfo = rawFrame.colorInfo;
                 e.metadata.hdrMetadata = rawFrame.hdrMetadata;
+                // [Fix] Propagate hasAlpha from decoder result (critical for TIFF transparency)
+                e.metadata.hasAlpha = decodeMeta.hasAlpha;
                 if (!e.metadata.HasEmbeddedColorProfile.has_value()) {
                     e.metadata.HasEmbeddedColorProfile =
                         rawFrame.colorInfo.hasEmbeddedIcc || !safeFrame->iccProfile.empty();
