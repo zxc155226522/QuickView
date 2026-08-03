@@ -651,18 +651,6 @@ void libcdr::CDRContentCollector::collectLevel(unsigned level)
 void libcdr::CDRContentCollector::collectFillStyleId(unsigned id)
 {
   std::map<unsigned, CDRFillStyle>::const_iterator iter = m_ps.m_fillStyles.find(id);
-  // [Debug] Log fillStyleId lookup
-  {
-    FILE *dbg = nullptr;
-    fopen_s(&dbg, "C:\\temp\\cdr_filltype_debug.log", "a");
-    if (dbg)
-    {
-      fprintf(dbg, "collectFillStyleId: id=%u found=%d fillType=%u\n",
-              id, iter != m_ps.m_fillStyles.end(),
-              iter != m_ps.m_fillStyles.end() ? (unsigned)iter->second.fillType : 0);
-      fclose(dbg);
-    }
-  }
   if (iter != m_ps.m_fillStyles.end())
     m_currentFillStyle = iter->second;
 }
@@ -701,30 +689,11 @@ void libcdr::CDRContentCollector::collectPolygonTransform(unsigned numAngles, un
 
 void libcdr::CDRContentCollector::_fillProperties(librevenge::RVNGPropertyList &propList)
 {
-  // [Debug] Log fillType and styleId to diagnose missing fill colors
-  {
-    FILE *dbg = nullptr;
-    fopen_s(&dbg, "C:\\temp\\cdr_filltype_debug.log", "a");
-    if (dbg)
-    {
-      fprintf(dbg, "_fillProperties: fillType=%u styleId=%u fillStylesCount=%zu\n",
-              (unsigned)m_currentFillStyle.fillType, m_currentStyleId, m_ps.m_fillStyles.size());
-      fclose(dbg);
-    }
-  }
   if (m_currentFillStyle.fillType == (unsigned short)-1 && m_currentStyleId)
   {
     CDRStyle tmpStyle;
     m_ps.getRecursedStyle(tmpStyle, m_currentStyleId);
     m_currentFillStyle = tmpStyle.m_fillStyle;
-    // [Debug] Log after style lookup
-    FILE *dbg2 = nullptr;
-    fopen_s(&dbg2, "C:\\temp\\cdr_filltype_debug.log", "a");
-    if (dbg2)
-    {
-      fprintf(dbg2, "  after style lookup: fillType=%u\n", (unsigned)m_currentFillStyle.fillType);
-      fclose(dbg2);
-    }
   }
 
   if (m_fillOpacity < 1.0)
