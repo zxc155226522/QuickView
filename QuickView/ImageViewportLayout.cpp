@@ -16,9 +16,10 @@ ImageViewportLayout ComputeImageViewportLayout(float windowWidth, float windowHe
         ? g_gallery.GetVisualHeight(safeHeight)
         : 0.0f;
 
-    // Reserve bottom space for toolbar when visible (non-fullscreen only)
+    // Always reserve bottom space for toolbar (non-fullscreen only)
+    // This prevents the image from expanding behind the toolbar when it auto-hides
     float toolbarReservedHeight = 0.0f;
-    if (!g_isFullScreen && g_toolbar.IsVisible() && !g_toolbar.IsWindowTooNarrow()) {
+    if (!g_isFullScreen && !g_toolbar.IsWindowTooNarrow()) {
         toolbarReservedHeight = g_toolbar.GetReservedHeight();
     }
 

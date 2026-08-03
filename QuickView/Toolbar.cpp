@@ -390,6 +390,21 @@ void Toolbar::UpdateLayout(float winW, float winH) {
     }
   }
 
+  // [Swatch] Calculate swatch section within toolbar capsule
+  bool showSwatches = !m_compareMode && !m_animMode && !m_slideshowMode && !m_overlayMode && !m_comicMode;
+  const float swatchDiameter = 14.0f * m_uiScale;
+  const float swatchGap = 3.0f * m_uiScale;
+  const float swatchSeparatorGap = 12.0f * m_uiScale;
+  float swatchSectionW = 0.0f;
+  if (showSwatches) {
+    swatchSectionW = swatchSeparatorGap + 9.0f * swatchDiameter + 8.0f * swatchGap;
+    if (totalW + swatchSectionW > winW) {
+      showSwatches = false;
+      swatchSectionW = 0.0f;
+    }
+  }
+  totalW += swatchSectionW;
+
   m_minRequiredWidth = totalW + (PADDING_X * 2 * m_uiScale);
 
   float startX = (winW - totalW) / 2.0f;
@@ -484,24 +499,10 @@ void Toolbar::UpdateLayout(float winW, float winH) {
     }
   }
 
-  // [Swatch] Calculate swatch circle positions to the right of toolbar capsule
-  bool showSwatches = !m_compareMode && !m_animMode && !m_slideshowMode && !m_overlayMode && !m_comicMode;
+  // [Swatch] Position swatches within the toolbar capsule (right-aligned)
   if (showSwatches) {
-    const float swatchDiameter = 18.0f * m_uiScale;
-    const float swatchGap = 4.0f * m_uiScale;
-    const float swatchOffsetX = 12.0f * m_uiScale;
-    float sx = m_bgRect.rect.right + swatchOffsetX;
-    float totalSwatchW = 9.0f * swatchDiameter + 8.0f * swatchGap;
-    if (sx + totalSwatchW > winW - PADDING_X * m_uiScale) {
-      showSwatches = false;
-    }
-  }
-  if (showSwatches) {
-    const float swatchDiameter = 18.0f * m_uiScale;
-    const float swatchGap = 4.0f * m_uiScale;
-    const float swatchOffsetX = 12.0f * m_uiScale;
-    float sx = m_bgRect.rect.right + swatchOffsetX;
-    float sy = m_bgRect.rect.top + (m_bgRect.rect.bottom - m_bgRect.rect.top - swatchDiameter) * 0.5f;
+    float sx = m_bgRect.rect.right - padX - (9.0f * swatchDiameter + 8.0f * swatchGap);
+    float sy = startY + (buttonSize + padY * 2 - swatchDiameter) * 0.5f;
     for (int i = 0; i < 9; ++i) {
       m_swatchRects[i] = D2D1::RectF(sx, sy, sx + swatchDiameter, sy + swatchDiameter);
       sx += swatchDiameter + swatchGap;
@@ -948,81 +949,79 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
         drawChevron(m_animSpeedDownRect, false);
       }
     }
-    pRT->PopLayer();
-  }
+    // [Swatch] Render color swatches within the toolbar layer
+    {
+      extern AppConfig g_config;
+      const float swatchR = 7.0f * m_uiScale;
+      ComPtr<ID2D1Factory> factory;
+      pRT->GetFactory(&factory);
 
-  // [Swatch] Render color swatches to the right of toolbar
-  {
-    extern AppConfig g_config;
-    const float swatchR = 9.0f * m_uiScale;
-    ComPtr<ID2D1Factory> factory;
-    pRT->GetFactory(&factory);
-    float opacity = m_opacity;
+      for (int i = 0; i < 9; ++i) {
+        if (m_swatchRects[i].right <= m_swatchRects[i].left) continue;
+        float cx = (m_swatchRects[i].left + m_swatchRects[i].right) * 0.5f;
+        float cy = (m_swatchRects[i].top + m_swatchRects[i].bottom) * 0.5f;
+        D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(cx, cy), swatchR, swatchR);
 
-    for (int i = 0; i < 9; ++i) {
-      if (m_swatchRects[i].right <= m_swatchRects[i].left) continue;
-      float cx = (m_swatchRects[i].left + m_swatchRects[i].right) * 0.5f;
-      float cy = (m_swatchRects[i].top + m_swatchRects[i].bottom) * 0.5f;
-      D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(cx, cy), swatchR, swatchR);
+        if (i < 3) {
+          // Built-in checkerboard presets
+          D2D1_COLOR_F c1, c2;
+          if (i == 0) { c1 = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f); c2 = D2D1::ColorF(0.80f, 0.80f, 0.80f, 1.0f); }
+          else if (i == 1) { c1 = D2D1::ColorF(0.10f, 0.10f, 0.10f, 1.0f); c2 = D2D1::ColorF(0.18f, 0.18f, 0.18f, 1.0f); }
+          else { c1 = D2D1::ColorF(0.50f, 0.50f, 0.50f, 1.0f); c2 = D2D1::ColorF(0.60f, 0.60f, 0.60f, 1.0f); }
 
-      if (i < 3) {
-        // Built-in checkerboard presets
-        D2D1_COLOR_F c1, c2;
-        if (i == 0) { c1 = D2D1::ColorF(1.0f, 1.0f, 1.0f, opacity); c2 = D2D1::ColorF(0.80f, 0.80f, 0.80f, opacity); }
-        else if (i == 1) { c1 = D2D1::ColorF(0.10f, 0.10f, 0.10f, opacity); c2 = D2D1::ColorF(0.18f, 0.18f, 0.18f, opacity); }
-        else { c1 = D2D1::ColorF(0.50f, 0.50f, 0.50f, opacity); c2 = D2D1::ColorF(0.60f, 0.60f, 0.60f, opacity); }
-
-        ComPtr<ID2D1EllipseGeometry> clipGeo;
-        if (factory) factory->CreateEllipseGeometry(ellipse, &clipGeo);
-        ComPtr<ID2D1Layer> swatchLayer;
-        if (clipGeo && SUCCEEDED(pRT->CreateLayer(&swatchLayer))) {
-          pRT->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), clipGeo.Get()), swatchLayer.Get());
-          ComPtr<ID2D1SolidColorBrush> b1, b2;
-          pRT->CreateSolidColorBrush(c1, &b1);
-          pRT->CreateSolidColorBrush(c2, &b2);
-          pRT->FillRectangle(m_swatchRects[i], b1.Get());
-          pRT->FillRectangle(D2D1::RectF(cx, m_swatchRects[i].top, m_swatchRects[i].right, cy), b2.Get());
-          pRT->FillRectangle(D2D1::RectF(m_swatchRects[i].left, cy, cx, m_swatchRects[i].bottom), b2.Get());
-          pRT->PopLayer();
-        }
-      } else {
-        // Custom RGBA color
-        float alpha = g_config.SwatchColors[i][3] * opacity;
-        if (g_config.SwatchColors[i][3] < 1.0f) {
-          // Mini checkerboard background for transparency
           ComPtr<ID2D1EllipseGeometry> clipGeo;
           if (factory) factory->CreateEllipseGeometry(ellipse, &clipGeo);
           ComPtr<ID2D1Layer> swatchLayer;
           if (clipGeo && SUCCEEDED(pRT->CreateLayer(&swatchLayer))) {
             pRT->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), clipGeo.Get()), swatchLayer.Get());
-            ComPtr<ID2D1SolidColorBrush> cb1, cb2;
-            pRT->CreateSolidColorBrush(D2D1::ColorF(0.7f, 0.7f, 0.7f, opacity), &cb1);
-            pRT->CreateSolidColorBrush(D2D1::ColorF(0.4f, 0.4f, 0.4f, opacity), &cb2);
-            pRT->FillRectangle(m_swatchRects[i], cb1.Get());
-            pRT->FillRectangle(D2D1::RectF(cx, m_swatchRects[i].top, m_swatchRects[i].right, cy), cb2.Get());
-            pRT->FillRectangle(D2D1::RectF(m_swatchRects[i].left, cy, cx, m_swatchRects[i].bottom), cb2.Get());
+            ComPtr<ID2D1SolidColorBrush> b1, b2;
+            pRT->CreateSolidColorBrush(c1, &b1);
+            pRT->CreateSolidColorBrush(c2, &b2);
+            pRT->FillRectangle(m_swatchRects[i], b1.Get());
+            pRT->FillRectangle(D2D1::RectF(cx, m_swatchRects[i].top, m_swatchRects[i].right, cy), b2.Get());
+            pRT->FillRectangle(D2D1::RectF(m_swatchRects[i].left, cy, cx, m_swatchRects[i].bottom), b2.Get());
             pRT->PopLayer();
           }
+        } else {
+          // Custom RGBA color
+          float alpha = g_config.SwatchColors[i][3];
+          if (g_config.SwatchColors[i][3] < 1.0f) {
+            // Mini checkerboard background for transparency
+            ComPtr<ID2D1EllipseGeometry> clipGeo;
+            if (factory) factory->CreateEllipseGeometry(ellipse, &clipGeo);
+            ComPtr<ID2D1Layer> swatchLayer;
+            if (clipGeo && SUCCEEDED(pRT->CreateLayer(&swatchLayer))) {
+              pRT->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), clipGeo.Get()), swatchLayer.Get());
+              ComPtr<ID2D1SolidColorBrush> cb1, cb2;
+              pRT->CreateSolidColorBrush(D2D1::ColorF(0.7f, 0.7f, 0.7f, 1.0f), &cb1);
+              pRT->CreateSolidColorBrush(D2D1::ColorF(0.4f, 0.4f, 0.4f, 1.0f), &cb2);
+              pRT->FillRectangle(m_swatchRects[i], cb1.Get());
+              pRT->FillRectangle(D2D1::RectF(cx, m_swatchRects[i].top, m_swatchRects[i].right, cy), cb2.Get());
+              pRT->FillRectangle(D2D1::RectF(m_swatchRects[i].left, cy, cx, m_swatchRects[i].bottom), cb2.Get());
+              pRT->PopLayer();
+            }
+          }
+          D2D1_COLOR_F color(g_config.SwatchColors[i][0], g_config.SwatchColors[i][1], g_config.SwatchColors[i][2], alpha);
+          ComPtr<ID2D1SolidColorBrush> brush;
+          pRT->CreateSolidColorBrush(color, &brush);
+          pRT->FillEllipse(ellipse, brush.Get());
         }
-        D2D1_COLOR_F color(g_config.SwatchColors[i][0], g_config.SwatchColors[i][1], g_config.SwatchColors[i][2], alpha);
-        ComPtr<ID2D1SolidColorBrush> brush;
-        pRT->CreateSolidColorBrush(color, &brush);
-        pRT->FillEllipse(ellipse, brush.Get());
-      }
 
-      // Selected ring
-      if (i == g_config.SwatchColorIndex && g_config.CanvasColor == 5) {
-        ComPtr<ID2D1SolidColorBrush> ringBrush;
-        pRT->CreateSolidColorBrush(D2D1::ColorF(0.4f, 0.6f, 1.0f, opacity), &ringBrush);
-        pRT->DrawEllipse(ellipse, ringBrush.Get(), 2.0f * m_uiScale);
-      }
-      // Hover ring
-      if (i == m_swatchHoverIndex) {
-        ComPtr<ID2D1SolidColorBrush> hoverBrush;
-        pRT->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.6f * opacity), &hoverBrush);
-        pRT->DrawEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), swatchR + 1.5f * m_uiScale, swatchR + 1.5f * m_uiScale), hoverBrush.Get(), 1.5f * m_uiScale);
+        // Selected ring
+        if (i == g_config.SwatchColorIndex && g_config.CanvasColor == 5) {
+          ComPtr<ID2D1SolidColorBrush> ringBrush;
+          pRT->CreateSolidColorBrush(D2D1::ColorF(0.4f, 0.6f, 1.0f, 1.0f), &ringBrush);
+          pRT->DrawEllipse(ellipse, ringBrush.Get(), 2.0f * m_uiScale);
+        }
+        // Hover ring
+        if (i == m_swatchHoverIndex) {
+          ComPtr<ID2D1SolidColorBrush> hoverBrush;
+          pRT->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.6f), &hoverBrush);
+          pRT->DrawEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), swatchR + 1.5f * m_uiScale, swatchR + 1.5f * m_uiScale), hoverBrush.Get(), 1.5f * m_uiScale);
+        }
       }
     }
+    pRT->PopLayer();
   }
 
   const wchar_t *activeTip = nullptr;
