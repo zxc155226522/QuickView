@@ -176,6 +176,7 @@ namespace QuickView::UI::ThemeSystem {
         get_color("text_color", config.ThemeCustomTextR, config.ThemeCustomTextG, config.ThemeCustomTextB);
 
         get_int("canvas_color", config.CanvasColor);
+        config.CanvasColor = 5; // Force swatch mode
         get_int("canvas_effect_style", config.CanvasEffectStyle);
         get_color("canvas_custom", config.CanvasCustomR, config.CanvasCustomG, config.CanvasCustomB);
 

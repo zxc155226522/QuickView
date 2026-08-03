@@ -4598,17 +4598,9 @@ void LoadConfig() {
     g_config.GlassCustomTintB = (float)_wtof(bufGCTB);
 
     g_config.MenuBackdropStyle = GetPrivateProfileIntW(L"View", L"MenuBackdropStyle", 0, iniPath.c_str());
-    g_config.CanvasColor = GetPrivateProfileIntW(L"View", L"CanvasColor", 2, iniPath.c_str());
+    // Force CanvasColor=5 (Swatch mode) - old modes (0-4) are deprecated
+    g_config.CanvasColor = 5;
     g_config.CanvasEffectStyle = GetPrivateProfileIntW(L"View", L"CanvasEffectStyle", 0, iniPath.c_str());
-
-    // Legacy migration for 4, 5, 6 CanvasColor values
-    if (g_config.CanvasColor == 5) {
-        g_config.CanvasColor = 4;
-        g_config.CanvasEffectStyle = 1;
-    } else if (g_config.CanvasColor == 6) {
-        g_config.CanvasColor = 4;
-        g_config.CanvasEffectStyle = 2;
-    }
     wchar_t bufR[32], bufG[32], bufB[32];
     GetPrivateProfileStringW(L"View", L"CanvasCustomR", L"0.2", bufR, 32, iniPath.c_str());
     GetPrivateProfileStringW(L"View", L"CanvasCustomG", L"0.2", bufG, 32, iniPath.c_str());

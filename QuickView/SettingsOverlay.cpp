@@ -1462,80 +1462,65 @@ void SettingsOverlay::BuildMenu() {
     // Backdrop
     tabVisuals.items.push_back({ AppStrings::Settings_Header_Backdrop, OptionType::Header });
     
-    // Canvas Color Segment
-    SettingsItem itemColor = { AppStrings::Settings_Label_CanvasColor, OptionType::Segment, nullptr, nullptr, BindEnum(&g_config.CanvasColor), nullptr, 0, 0, {AppStrings::Settings_Option_Black, AppStrings::Settings_Option_White, AppStrings::Settings_Option_Grid, AppStrings::Settings_Option_Custom, AppStrings::Settings_Option_Effects, L"Swatch"} };
-    itemColor.isNewOption = true;
-    itemColor.onChange = []([[maybe_unused]] SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) {
-        ApplyWindowTheme(overlay->m_hwnd);
-        overlay->m_pendingRebuild = true;
-    }; // Rebuild to show/hide sub-options
-    tabVisuals.items.push_back(itemColor);
+    // Canvas Color: Swatch mode only (9 swatches: 0-2 built-in checkerboards, 3-8 custom RGBA)
+    tabVisuals.items.push_back({ AppStrings::Settings_Label_CanvasColor, OptionType::Header });
+    tabVisuals.items.push_back({ L"0-2: Built-in checkerboards (white/black/gray)  3-8: Custom colors", OptionType::InfoLabel });
     
-    if (g_config.CanvasColor == 4) {
-        // Effects mode: Show sub-segment for selecting effect (Mica, Mica Alt, Acrylic)
-        SettingsItem itemCanvasEffectStyle = { AppStrings::Settings_Label_CanvasEffectStyle, OptionType::Segment, nullptr, nullptr, BindEnum(&g_config.CanvasEffectStyle), nullptr, 0, 0, {L"Mica", L"Mica Alt", L"Acrylic"} };
-        itemCanvasEffectStyle.isNewOption = true;
-        itemCanvasEffectStyle.tooltipText = AppStrings::Settings_Tooltip_BackdropEffectsTip;
-        itemCanvasEffectStyle.onChange = []([[maybe_unused]] SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) {
-            ApplyWindowTheme(overlay->m_hwnd);
-        };
-        tabVisuals.items.push_back(itemCanvasEffectStyle);
-        // ShowGrid toggle for overlaying grid on backdrop effects
-        tabVisuals.items.push_back({ AppStrings::Settings_Label_ShowGrid, OptionType::Toggle, &g_config.CanvasShowGrid });
-    } else if (g_config.CanvasColor == 3) {
-        // Custom Mode: Show merged row
-        SettingsItem itemRow = { AppStrings::Settings_Label_Overlay, OptionType::CustomColorRow };
-        // We can use onChange as the Color Picker callback
-        itemRow.onChange = []([[maybe_unused]] SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) {
-             HWND hwnd = GetActiveWindow();
-            static COLORREF acrCustClr[16]; 
+    for (int i = 3; i < 9; ++i) {
+        SettingsItem itemSwatch = { std::wstring(L"Color ") + std::to_wstring(i), OptionType::CustomColorRow, nullptr, &g_config.SwatchColors[i][0] };
+        itemSwatch.minVal = (float)i;
+        itemSwatch.onChange = []([[maybe_unused]] SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) {
+            int si = (int)item->minVal;
+            HWND hwnd = GetActiveWindow();
+            static COLORREF acrCustClr[16];
             CHOOSECOLOR cc{};
             cc.lStructSize = sizeof(CHOOSECOLOR);
             cc.hwndOwner = hwnd;
             cc.lpCustColors = acrCustClr;
-            cc.rgbResult = RGB((int)(g_config.CanvasCustomR * 255), (int)(g_config.CanvasCustomG * 255), (int)(g_config.CanvasCustomB * 255));
+            cc.rgbResult = RGB((int)(g_config.SwatchColors[si][0] * 255), (int)(g_config.SwatchColors[si][1] * 255), (int)(g_config.SwatchColors[si][2] * 255));
             cc.Flags = CC_FULLOPEN | CC_RGBINIT;
-            
             if (ChooseColor(&cc)) {
-                g_config.CanvasCustomR = GetRValue(cc.rgbResult) / 255.0f;
-                g_config.CanvasCustomG = GetGValue(cc.rgbResult) / 255.0f;
-                g_config.CanvasCustomB = GetBValue(cc.rgbResult) / 255.0f;
+                g_config.SwatchColors[si][0] = GetRValue(cc.rgbResult) / 255.0f;
+                g_config.SwatchColors[si][1] = GetGValue(cc.rgbResult) / 255.0f;
+                g_config.SwatchColors[si][2] = GetBValue(cc.rgbResult) / 255.0f;
             }
         };
-        tabVisuals.items.push_back(itemRow);
-    } else if (g_config.CanvasColor == 5) {
-        // Swatch Mode: 3 built-in checkerboards + 6 custom RGBA
-        tabVisuals.items.push_back({ L"Swatch Settings (0-2: built-in checkerboards, 3-8: custom)", OptionType::InfoLabel });
-        for (int i = 3; i < 9; ++i) {
-            SettingsItem itemSwatch = { std::wstring(L"Swatch ") + std::to_wstring(i), OptionType::CustomColorRow, nullptr, &g_config.SwatchColors[i][0] };
-            itemSwatch.minVal = (float)i;
-            itemSwatch.onChange = []([[maybe_unused]] SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) {
-                int si = (int)item->minVal;
-                HWND hwnd = GetActiveWindow();
-                static COLORREF acrCustClr[16];
-                CHOOSECOLOR cc{};
-                cc.lStructSize = sizeof(CHOOSECOLOR);
-                cc.hwndOwner = hwnd;
-                cc.lpCustColors = acrCustClr;
-                cc.rgbResult = RGB((int)(g_config.SwatchColors[si][0] * 255), (int)(g_config.SwatchColors[si][1] * 255), (int)(g_config.SwatchColors[si][2] * 255));
-                cc.Flags = CC_FULLOPEN | CC_RGBINIT;
-                if (ChooseColor(&cc)) {
-                    g_config.SwatchColors[si][0] = GetRValue(cc.rgbResult) / 255.0f;
-                    g_config.SwatchColors[si][1] = GetGValue(cc.rgbResult) / 255.0f;
-                    g_config.SwatchColors[si][2] = GetBValue(cc.rgbResult) / 255.0f;
-                }
+        tabVisuals.items.push_back(itemSwatch);
+        // Alpha slider for this swatch
+        SettingsItem itemAlpha = { std::wstring(L"Color ") + std::to_wstring(i) + L" Alpha", OptionType::Slider, nullptr, &g_config.SwatchColors[i][3] };
+        itemAlpha.minVal = 0.0f;
+        itemAlpha.maxVal = 1.0f;
+        itemAlpha.onChange = []([[maybe_unused]] SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) { SaveConfig(); };
+        tabVisuals.items.push_back(itemAlpha);
+    }
+    
+    // Reset swatch colors to defaults
+    {
+        bool isChinese = (g_config.Language == 2 || g_config.Language == 3);
+        SettingsItem itemResetSwatch = { isChinese ? L"重置色块" : L"Reset Swatches", OptionType::ActionButton };
+        itemResetSwatch.buttonText = isChinese ? L"重置" : L"Reset";
+        itemResetSwatch.buttonActivatedText = isChinese ? L"已重置" : L"Done";
+        itemResetSwatch.onChange = []([[maybe_unused]] SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) {
+            // Reset custom swatches (3-8) to defaults
+            static const float defaults[6][4] = {
+                {0.08f, 0.08f, 0.08f, 1.0f}, // 3: Dark gray
+                {0.95f, 0.95f, 0.95f, 1.0f}, // 4: White
+                {0.50f, 0.50f, 0.50f, 1.0f}, // 5: Medium gray
+                {0.10f, 0.30f, 0.60f, 1.0f}, // 6: Blue
+                {0.60f, 0.20f, 0.20f, 1.0f}, // 7: Red
+                {0.15f, 0.40f, 0.25f, 1.0f}, // 8: Green
             };
-            tabVisuals.items.push_back(itemSwatch);
-            // Alpha slider for this swatch
-            SettingsItem itemAlpha = { std::wstring(L"Swatch ") + std::to_wstring(i) + L" Alpha", OptionType::Slider, nullptr, &g_config.SwatchColors[i][3] };
-            itemAlpha.minVal = 0.0f;
-            itemAlpha.maxVal = 1.0f;
-            itemAlpha.onChange = []([[maybe_unused]] SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) { SaveConfig(); };
-            tabVisuals.items.push_back(itemAlpha);
-        }
-    } else if (g_config.CanvasColor != 2) {
-        // Black (0) & White (1) Mode: Show Grid Toggle (Hidden for Grid (2) mode)
-        tabVisuals.items.push_back({ AppStrings::Settings_Label_ShowGrid, OptionType::Toggle, &g_config.CanvasShowGrid });
+            for (int i = 0; i < 6; ++i) {
+                for (int j = 0; j < 4; ++j) {
+                    g_config.SwatchColors[i + 3][j] = defaults[i][j];
+                }
+            }
+            SaveConfig();
+            ApplyWindowTheme(overlay->m_hwnd);
+            extern void RequestRepaint(QuickView::PaintLayer layerMask);
+            RequestRepaint(QuickView::PaintLayer::All);
+        };
+        tabVisuals.items.push_back(itemResetSwatch);
     }
 
     // Cross Fade Toggle

@@ -616,13 +616,14 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
 
   CreateResources(pRT);
 
-  // Toolbar: always white background with black icons
-  m_brushBg->SetColor(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f));
-  m_brushIcon->SetColor(D2D1::ColorF(D2D1::ColorF::Black));
+  // Toolbar: theme-aware background and icon colors
+  bool isLight = IsLightThemeActive();
+  m_brushBg->SetColor(isLight ? D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f) : D2D1::ColorF(0.12f, 0.12f, 0.14f, 1.0f));
+  m_brushIcon->SetColor(isLight ? D2D1::ColorF(D2D1::ColorF::Black) : D2D1::ColorF(D2D1::ColorF::White));
   m_brushIconActive->SetColor(D2D1::ColorF(0.4f, 0.6f, 1.0f, 1.0f));
-  m_brushIconDisabled->SetColor(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.3f));
+  m_brushIconDisabled->SetColor(isLight ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.3f) : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.3f));
   m_brushWarning->SetColor(D2D1::ColorF(1.0f, 0.3f, 0.3f, 1.0f));
-  m_brushHover->SetColor(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.05f));
+  m_brushHover->SetColor(isLight ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.05f) : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.1f));
 
   ComPtr<ID2D1Layer> layer;
   if (SUCCEEDED(pRT->CreateLayer(&layer))) {
@@ -689,10 +690,12 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
         pRT->FillRoundedRectangle(m_bgRect, m_brushBg.Get());
     }
 
-    // Separator line at top of docked toolbar
+    // Separator line at top of docked toolbar (theme-aware)
     {
         ComPtr<ID2D1SolidColorBrush> lineBrush;
-        D2D1_COLOR_F lineColor = D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.12f);
+        D2D1_COLOR_F lineColor = isLight
+            ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.12f)
+            : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.12f);
         pRT->CreateSolidColorBrush(lineColor, &lineBrush);
         if (lineBrush) {
             float lineY = m_bgRect.rect.top;
@@ -770,7 +773,9 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
                 D2D1_RECT_F pillRect = D2D1::RectF(pillX, pillY, pillX + pillW, pillY + pillH);
                 
                 // Draw background pill
-                D2D1_COLOR_F tipBgBase = D2D1::ColorF(1.0f, 1.0f, 1.0f, g_config.GlassOsdOpacity / 100.0f);
+                D2D1_COLOR_F tipBgBase = isLight
+                    ? D2D1::ColorF(1.0f, 1.0f, 1.0f, g_config.GlassOsdOpacity / 100.0f)
+                    : D2D1::ColorF(0.15f, 0.15f, 0.15f, g_config.GlassOsdOpacity / 100.0f);
                 ComPtr<ID2D1SolidColorBrush> tipBg;
                 pRT->CreateSolidColorBrush(tipBgBase, &tipBg);
                 pRT->FillRoundedRectangle(D2D1::RoundedRect(pillRect, 4.0f * m_uiScale, 4.0f * m_uiScale), tipBg.Get());
@@ -1024,10 +1029,13 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
           pRT->CreateSolidColorBrush(D2D1::ColorF(0.4f, 0.6f, 1.0f, 1.0f), &ringBrush);
           pRT->DrawEllipse(ellipse, ringBrush.Get(), 2.0f * m_uiScale);
         }
-        // Hover ring
+        // Hover ring (theme-aware contrast)
         if (i == m_swatchHoverIndex) {
           ComPtr<ID2D1SolidColorBrush> hoverBrush;
-          pRT->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.6f), &hoverBrush);
+          D2D1_COLOR_F hoverColor = isLight
+              ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.4f)
+              : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.6f);
+          pRT->CreateSolidColorBrush(hoverColor, &hoverBrush);
           pRT->DrawEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), swatchR + 1.5f * m_uiScale, swatchR + 1.5f * m_uiScale), hoverBrush.Get(), 1.5f * m_uiScale);
         }
       }
@@ -1091,7 +1099,9 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
       D2D1_RECT_F tipRect =
           D2D1::RectF(tipX, tipY, tipX + tipWidth, tipY + tipHeight);
       ComPtr<ID2D1SolidColorBrush> tipBg;
-      D2D1_COLOR_F tipBgBase = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.95f);
+      D2D1_COLOR_F tipBgBase = isLight
+          ? D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.95f)
+          : D2D1::ColorF(0.15f, 0.15f, 0.15f, 0.95f);
       pRT->CreateSolidColorBrush(tipBgBase, &tipBg);
       pRT->FillRoundedRectangle(
           D2D1::RoundedRect(tipRect, 4.0f * m_uiScale, 4.0f * m_uiScale),
