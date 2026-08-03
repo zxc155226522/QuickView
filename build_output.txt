@@ -1,0 +1,57 @@
+[1/37] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGMemoryStream.cpp.obj
+[2/37] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGStringVector.cpp.obj
+[3/37] Building CXX object CMakeFiles\QuickView.dir\QuickView\ImageViewportLayout.cpp.obj
+[4/37] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGStreamImplementation.cpp.obj
+[5/37] Building CXX object CMakeFiles\QuickView.dir\QuickView\PrintManager.cpp.obj
+[6/37] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGPropertyListVector.cpp.obj
+[7/37] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGString.cpp.obj
+[8/37] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGZipStream.cpp.obj
+[9/37] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGProperty.cpp.obj
+[10/37] Building CXX object CMakeFiles\QuickView.dir\QuickView\PrintPreviewUI.cpp.obj
+[11/37] Building CXX object CMakeFiles\QuickView.dir\QuickView\MiniTiffCmyk.cpp.obj
+[12/37] Building CXX object CMakeFiles\QuickView.dir\QuickView\MiniTiffLzw.cpp.obj
+[13/37] Building CXX object CMakeFiles\QuickView.dir\QuickView\CompareController.cpp.obj
+[14/37] Building CXX object CMakeFiles\QuickView.dir\QuickView\MiniTiff.cpp.obj
+[15/37] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGOLEStream.cpp.obj
+[16/37] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGBinaryData.cpp.obj
+[17/37] Building CXX object CMakeFiles\QuickView.dir\QuickView\DialogController.cpp.obj
+[18/37] Building CXX object CMakeFiles\QuickView.dir\QuickView\ZoomAnimation.cpp.obj
+[19/37] Building CXX object CMakeFiles\QuickView.dir\QuickView\HelpOverlay.cpp.obj
+[20/37] Building CXX object CMakeFiles\QuickView.dir\QuickView\Toolbar.cpp.obj
+[21/37] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGDirectoryStream.cpp.obj
+[22/37] Building CXX object CMakeFiles\QuickView.dir\QuickView\GalleryOverlay.cpp.obj
+[23/37] Building CXX object CMakeFiles\QuickView.dir\QuickView\ThumbnailManager.cpp.obj
+[24/37] Building CXX object CMakeFiles\QuickView.dir\QuickView\VectorLoader.cpp.obj
+FAILED: [code=1] CMakeFiles/QuickView.dir/QuickView/VectorLoader.cpp.obj 
+C:\PROGRA~1\LLVM\bin\clang-cl.exe  /nologo -TP -DHWY_STATIC_DEFINE -DJXL_STATIC_DEFINE -DLIBRAW_NODLL -DOPJ_STATIC -DTOOLCHAIN_MISS_ASM_HWCAP_H -DTOOLCHAIN_MISS_SYS_AUXV_H -DUNICODE -DUNRAR_SIMD_HWY -D_UNICODE -IE:\qv_build_tmp\QuickView -IE:\qv_build_tmp\third_party\yyjson -IE:\qv_build_tmp\third_party\unrar-mini -IE:\qv_build_tmp\third_party\unrar-mini\. -IE:\qv_build_tmp\third_party\librevenge\inc -IE:\qv_build_tmp\third_party\libcdr\inc -imsvc"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include" -imsvc"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\VS\include" -imsvc"D:\Windows Kits\10\include\10.0.26100.0\ucrt" -imsvc"D:\Windows Kits\10\include\10.0.26100.0\um" -imsvc"D:\Windows Kits\10\include\10.0.26100.0\shared" -imsvc"D:\Windows Kits\10\include\10.0.26100.0\winrt" -imsvc"D:\Windows Kits\10\include\10.0.26100.0\cppwinrt" -imsvc"C:\Program Files (x86)\Windows Kits\NETFXSDK\4.8\include\um" -imsvcE:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include -imsvcE:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include\webp -imsvcE:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include\libraw -imsvcE:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include\openjpeg-2.5 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -clang:-std=c++23 -MT /W4 /WX /utf-8 /Gw /Gy /permissive- /clang:-Wno-cast-function-type-mismatch /clang:-fno-ident /O2 /Zc:inline /GR- /fp:fast /GS- /EHs-c- /Z7 /clang:-flto=full /clang:-mllvm /clang:-inline-threshold=250 /clang:-fwhole-program-vtables /clang:-fvirtual-function-elimination /YuE:/qv_build_tmp/out/build/Release-LTO/CMakeFiles/QuickView.dir/cmake_pch.hxx /FpE:/qv_build_tmp/out/build/Release-LTO/CMakeFiles/QuickView.dir/./cmake_pch.cxx.pch /FIE:/qv_build_tmp/out/build/Release-LTO/CMakeFiles/QuickView.dir/cmake_pch.hxx /showIncludes /FoCMakeFiles\QuickView.dir\QuickView\VectorLoader.cpp.obj /FdCMakeFiles\QuickView.dir\ -c -- E:\qv_build_tmp\QuickView\VectorLoader.cpp
+E:\qv_build_tmp\QuickView\VectorLoader.cpp(133,10): error: unused variable 'startPath' [-Werror,-Wunused-variable]
+  133 |     auto startPath = [&](int pen) {
+      |          ^~~~~~~~~
+E:\qv_build_tmp\QuickView\VectorLoader.cpp(334,12): error: unused variable 'svgH' [-Werror,-Wunused-variable]
+  334 |     double svgH = maxY - minY;
+      |            ^~~~
+E:\qv_build_tmp\QuickView\VectorLoader.cpp(898,52): error: unused variable 'rot' [-Werror,-Wunused-variable]
+  898 |             double cx = 0, cy = 0, rx = 0, ry = 0, rot = 0;
+      |                                                    ^~~
+E:\qv_build_tmp\QuickView\VectorLoader.cpp(899,20): error: variable 'startParam' set but not used [-Werror,-Wunused-but-set-variable]
+  899 |             double startParam = 0, endParam = 6.283185307;
+      |                    ^
+E:\qv_build_tmp\QuickView\VectorLoader.cpp(899,36): error: variable 'endParam' set but not used [-Werror,-Wunused-but-set-variable]
+  899 |             double startParam = 0, endParam = 6.283185307;
+      |                                    ^
+E:\qv_build_tmp\QuickView\VectorLoader.cpp(618,10): error: variable 'inHeader' set but not used [-Werror,-Wunused-but-set-variable]
+  618 |     bool inHeader = false;
+      |          ^
+6 errors generated.
+[25/37] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGSVGDrawingGenerator.cpp.obj
+[26/37] Building CXX object CMakeFiles\QuickView.dir\QuickView\FileNavigator.cpp.obj
+[27/37] Building CXX object CMakeFiles\QuickView.dir\QuickView\CompositionEngine.cpp.obj
+[28/37] Building CXX object CMakeFiles\QuickView.dir\QuickView\TileScheduler.cpp.obj
+[29/37] Building CXX object CMakeFiles\QuickView.dir\QuickView\ImageEngine.cpp.obj
+[30/37] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGPropertyList.cpp.obj
+[31/37] Building CXX object CMakeFiles\QuickView.dir\QuickView\SettingsOverlay.cpp.obj
+[32/37] Building CXX object CMakeFiles\QuickView.dir\QuickView\HeavyLanePool.cpp.obj
+[33/37] Building CXX object CMakeFiles\QuickView.dir\QuickView\UIRenderer.cpp.obj
+[34/37] Building CXX object CMakeFiles\QuickView.dir\QuickView\main.cpp.obj
+[35/37] Building CXX object CMakeFiles\QuickView.dir\QuickView\ImageLoader.cpp.obj
+ninja: build stopped: subcommand failed.
