@@ -10435,6 +10435,466 @@ HRESULT CImageLoader::LoadTinyExrImage(LPCWSTR filePath, IWICBitmap **ppBitmap,
 // LoadSVG removed (NanoSVG cleanup)
 
 // ----------------------------------------------------------------------------
+// CDR/CMX SVG Whitespace Cropping
+// ----------------------------------------------------------------------------
+// librevenge generates SVG with viewBox="0 0 pageW pageH" covering the entire
+// page. When drawing content occupies only a small or off-center region, the
+// viewer scales the whole page down, producing excessive whitespace.
+// These functions scan the SVG's drawing elements to compute a tight content
+// bounding box, then rewrite the root viewBox/width/height to crop margins.
+// ----------------------------------------------------------------------------
+
+struct SvgContentBBox {
+  bool valid = false;
+  float minX = 0.0f, minY = 0.0f, maxX = 0.0f, maxY = 0.0f;
+
+  void Expand(float x, float y) {
+    if (!valid) {
+      minX = maxX = x;
+      minY = maxY = y;
+      valid = true;
+    } else {
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  }
+  void Merge(const SvgContentBBox &o) {
+    if (!o.valid) return;
+    if (!valid) { *this = o; return; }
+    if (o.minX < minX) minX = o.minX;
+    if (o.minY < minY) minY = o.minY;
+    if (o.maxX > maxX) maxX = o.maxX;
+    if (o.maxY > maxY) maxY = o.maxY;
+  }
+};
+
+// Find attribute value in a tag string with word-boundary safety.
+// e.g. FindAttrVal(tag, "x") matches x="..." but not cx="...".
+static std::string FindAttrVal(const std::string &tag, const char *attr) {
+  const size_t len = std::strlen(attr);
+  size_t pos = 0;
+  while (pos < tag.size()) {
+    size_t found = tag.find(attr, pos);
+    if (found == std::string::npos) return "";
+    // Check char before must be whitespace or start-of-string or '<'
+    if (found > 0) {
+      char prev = tag[found - 1];
+      if (prev != ' ' && prev != '\t' && prev != '\n' && prev != '\r' && prev != '<') {
+        pos = found + 1;
+        continue;
+      }
+    }
+    // Check char after attr name must be '='
+    size_t eqPos = found + len;
+    // Skip whitespace between attr name and '='
+    while (eqPos < tag.size() && (tag[eqPos] == ' ' || tag[eqPos] == '\t'))
+      ++eqPos;
+    if (eqPos >= tag.size() || tag[eqPos] != '=') {
+      pos = found + 1;
+      continue;
+    }
+    size_t valStart = eqPos + 1;
+    while (valStart < tag.size() && (tag[valStart] == ' ' || tag[valStart] == '\t'))
+      ++valStart;
+    if (valStart >= tag.size()) return "";
+    char quote = tag[valStart];
+    if (quote != '"' && quote != '\'') return "";
+    size_t valEnd = tag.find(quote, valStart + 1);
+    if (valEnd == std::string::npos) return "";
+    return tag.substr(valStart + 1, valEnd - valStart - 1);
+  }
+  return "";
+}
+
+static float ParseFloatStr(const char *s, const char **endptr) {
+  while (*s && (isspace((unsigned char)*s) || *s == ',')) ++s;
+  return strtof(s, (char **)endptr);
+}
+
+// Parse SVG path 'd' attribute to extract all coordinate points.
+static void ParsePathDForBBox(const std::string &d, SvgContentBBox &bbox) {
+  const char *p = d.c_str();
+  float curX = 0.0f, curY = 0.0f;
+  float startX = 0.0f, startY = 0.0f;
+  const char *endp = nullptr;
+
+  while (*p) {
+    while (*p && (isspace((unsigned char)*p) || *p == ',')) ++p;
+    if (!*p) break;
+
+    char cmd = *p;
+    bool relative = false;
+    if (isalpha((unsigned char)cmd)) {
+      relative = (cmd >= 'a' && cmd <= 'z');
+      cmd = (char)toupper((unsigned char)cmd);
+      ++p;
+    }
+
+    if (cmd == 'M' || cmd == 'L' || cmd == 'T') {
+      float x = strtof(p, (char **)&endp);
+      if (endp == p) { ++p; continue; }
+      p = endp;
+      float y = strtof(p, (char **)&endp);
+      if (endp == p) { ++p; continue; }
+      p = endp;
+      if (relative) { x += curX; y += curY; }
+      curX = x; curY = y;
+      if (cmd == 'M') { startX = x; startY = y; }
+      bbox.Expand(x, y);
+    } else if (cmd == 'H') {
+      float x = strtof(p, (char **)&endp);
+      if (endp == p) { ++p; continue; }
+      p = endp;
+      if (relative) x += curX;
+      curX = x;
+      bbox.Expand(curX, curY);
+    } else if (cmd == 'V') {
+      float y = strtof(p, (char **)&endp);
+      if (endp == p) { ++p; continue; }
+      p = endp;
+      if (relative) y += curY;
+      curY = y;
+      bbox.Expand(curX, curY);
+    } else if (cmd == 'C') {
+      float x1 = strtof(p, (char **)&endp);
+      if (endp == p) { ++p; continue; }
+      p = endp;
+      float y1 = strtof(p, (char **)&endp);
+      if (endp == p) { ++p; continue; }
+      p = endp;
+      float x2 = strtof(p, (char **)&endp);
+      if (endp == p) { ++p; continue; }
+      p = endp;
+      float y2 = strtof(p, (char **)&endp);
+      if (endp == p) { ++p; continue; }
+      p = endp;
+      float x = strtof(p, (char **)&endp);
+      if (endp == p) { ++p; continue; }
+      p = endp;
+      float y = strtof(p, (char **)&endp);
+      if (endp == p) { ++p; continue; }
+      p = endp;
+      if (relative) {
+        x1 += curX; y1 += curY; x2 += curX; y2 += curY; x += curX; y += curY;
+      }
+      bbox.Expand(x1, y1); bbox.Expand(x2, y2);
+      curX = x; curY = y;
+      bbox.Expand(curX, curY);
+    } else if (cmd == 'Q' || cmd == 'S') {
+      float x1 = strtof(p, (char **)&endp);
+      if (endp == p) { ++p; continue; }
+      p = endp;
+      float y1 = strtof(p, (char **)&endp);
+      if (endp == p) { ++p; continue; }
+      p = endp;
+      float x = strtof(p, (char **)&endp);
+      if (endp == p) { ++p; continue; }
+      p = endp;
+      float y = strtof(p, (char **)&endp);
+      if (endp == p) { ++p; continue; }
+      p = endp;
+      if (relative) {
+        x1 += curX; y1 += curY; x += curX; y += curY;
+      }
+      bbox.Expand(x1, y1);
+      curX = x; curY = y;
+      bbox.Expand(curX, curY);
+    } else if (cmd == 'A') {
+      // A rx ry x-rotation large-arc sweep x y
+      strtof(p, (char **)&endp); // rx (unused, consumed for position)
+      if (endp == p) { ++p; continue; }
+      p = endp;
+      strtof(p, (char **)&endp); p = endp; // ry
+      strtof(p, (char **)&endp); p = endp; // x-rotation
+      strtof(p, (char **)&endp); p = endp; // large-arc
+      strtof(p, (char **)&endp); p = endp; // sweep
+      float x = strtof(p, (char **)&endp);
+      if (endp == p) { ++p; continue; }
+      p = endp;
+      float y = strtof(p, (char **)&endp);
+      if (endp == p) { ++p; continue; }
+      p = endp;
+      if (relative) { x += curX; y += curY; }
+      curX = x; curY = y;
+      bbox.Expand(curX, curY);
+    } else if (cmd == 'Z') {
+      curX = startX; curY = startY;
+      ++p;
+    } else {
+      ++p;
+    }
+  }
+}
+
+// Parse polyline/polygon 'points' attribute.
+static void ParsePointsForBBox(const std::string &pts, SvgContentBBox &bbox) {
+  const char *p = pts.c_str();
+  const char *endp = nullptr;
+  while (*p) {
+    float x = ParseFloatStr(p, &endp);
+    if (endp == p) break;
+    p = endp;
+    float y = ParseFloatStr(p, &endp);
+    if (endp == p) break;
+    p = endp;
+    bbox.Expand(x, y);
+  }
+}
+
+// Scan SVG content for all drawing elements and compute their combined bbox.
+static SvgContentBBox ComputeSvgContentBBox(const std::string &svg) {
+  SvgContentBBox bbox;
+  size_t pos = 0;
+  while (pos < svg.size()) {
+    // Find next '<'
+    size_t lt = svg.find('<', pos);
+    if (lt == std::string::npos) break;
+    pos = lt + 1;
+    if (pos >= svg.size()) break;
+
+    // Skip declarations, comments, CDATA
+    if (svg[pos] == '?' || svg[pos] == '!') {
+      size_t gt = svg.find('>', pos);
+      if (gt == std::string::npos) break;
+      pos = gt + 1;
+      continue;
+    }
+
+    // Extract tag name
+    size_t nameStart = pos;
+    while (pos < svg.size() && (isalnum((unsigned char)svg[pos]) || svg[pos] == ':' || svg[pos] == '-'))
+      ++pos;
+    if (pos == nameStart) {
+      size_t gt = svg.find('>', pos);
+      if (gt == std::string::npos) break;
+      pos = gt + 1;
+      continue;
+    }
+    std::string tagName = svg.substr(nameStart, pos - nameStart);
+    // Strip namespace prefix (e.g. "svg:path" -> "path")
+    size_t colon = tagName.find(':');
+    if (colon != std::string::npos)
+      tagName = tagName.substr(colon + 1);
+
+    // Find end of tag (self-closing '>' or '>')
+    bool inQuote = false;
+    char quote = '\0';
+    size_t tagEnd = pos;
+    while (tagEnd < svg.size()) {
+      char ch = svg[tagEnd];
+      if (inQuote) {
+        if (ch == quote) inQuote = false;
+      } else {
+        if (ch == '"' || ch == '\'') { inQuote = true; quote = ch; }
+        else if (ch == '>') break;
+      }
+      ++tagEnd;
+    }
+    if (tagEnd >= svg.size()) break;
+
+    std::string tagContent = svg.substr(pos, tagEnd - pos);
+
+    // Process by tag type
+    if (tagName == "path") {
+      std::string d = FindAttrVal(tagContent, "d");
+      if (!d.empty()) ParsePathDForBBox(d, bbox);
+    } else if (tagName == "rect") {
+      std::string sx = FindAttrVal(tagContent, "x");
+      std::string sy = FindAttrVal(tagContent, "y");
+      std::string sw = FindAttrVal(tagContent, "width");
+      std::string sh = FindAttrVal(tagContent, "height");
+      if (!sx.empty() && !sy.empty() && !sw.empty() && !sh.empty()) {
+        float x = strtof(sx.c_str(), nullptr);
+        float y = strtof(sy.c_str(), nullptr);
+        float w = strtof(sw.c_str(), nullptr);
+        float h = strtof(sh.c_str(), nullptr);
+        bbox.Expand(x, y);
+        bbox.Expand(x + w, y + h);
+      }
+    } else if (tagName == "ellipse" || tagName == "circle") {
+      std::string scx = FindAttrVal(tagContent, "cx");
+      std::string scy = FindAttrVal(tagContent, "cy");
+      std::string srx, sry;
+      if (tagName == "ellipse") {
+        srx = FindAttrVal(tagContent, "rx");
+        sry = FindAttrVal(tagContent, "ry");
+      } else {
+        srx = FindAttrVal(tagContent, "r");
+        sry = srx;
+      }
+      if (!scx.empty() && !scy.empty() && !srx.empty() && !sry.empty()) {
+        float cx = strtof(scx.c_str(), nullptr);
+        float cy = strtof(scy.c_str(), nullptr);
+        float rx = strtof(srx.c_str(), nullptr);
+        float ry = strtof(sry.c_str(), nullptr);
+        bbox.Expand(cx - rx, cy - ry);
+        bbox.Expand(cx + rx, cy + ry);
+      }
+    } else if (tagName == "polyline" || tagName == "polygon") {
+      std::string pts = FindAttrVal(tagContent, "points");
+      if (!pts.empty()) ParsePointsForBBox(pts, bbox);
+    } else if (tagName == "line") {
+      std::string x1 = FindAttrVal(tagContent, "x1");
+      std::string y1 = FindAttrVal(tagContent, "y1");
+      std::string x2 = FindAttrVal(tagContent, "x2");
+      std::string y2 = FindAttrVal(tagContent, "y2");
+      if (!x1.empty() && !y1.empty() && !x2.empty() && !y2.empty()) {
+        bbox.Expand(strtof(x1.c_str(), nullptr), strtof(y1.c_str(), nullptr));
+        bbox.Expand(strtof(x2.c_str(), nullptr), strtof(y2.c_str(), nullptr));
+      }
+    } else if (tagName == "image" || tagName == "text" || tagName == "tspan") {
+      // For image/text, use x/y/width/height if available
+      std::string sx = FindAttrVal(tagContent, "x");
+      std::string sy = FindAttrVal(tagContent, "y");
+      std::string sw = FindAttrVal(tagContent, "width");
+      std::string sh = FindAttrVal(tagContent, "height");
+      if (!sx.empty() && !sy.empty()) {
+        float x = strtof(sx.c_str(), nullptr);
+        float y = strtof(sy.c_str(), nullptr);
+        float w = sw.empty() ? 0.0f : strtof(sw.c_str(), nullptr);
+        float h = sh.empty() ? 0.0f : strtof(sh.c_str(), nullptr);
+        bbox.Expand(x, y);
+        bbox.Expand(x + w, y + h);
+      }
+    }
+
+    pos = tagEnd + 1;
+  }
+  return bbox;
+}
+
+static std::string FmtFloat(double v) {
+  char buf[32];
+  snprintf(buf, sizeof(buf), "%.6g", v);
+  return std::string(buf);
+}
+
+// Replace the value of attrName inside tagStr with newVal.
+// tagStr is a single tag string like '<svg width="8.5in" ...>'.
+static bool ReplaceAttrValInTag(std::string &svg, size_t tagStart, size_t tagEnd,
+                                const char *attrName, const std::string &newVal) {
+  // Search within [tagStart, tagEnd) for attrName="..."
+  std::string search = std::string(attrName) + "=";
+  size_t attrPos = svg.find(search, tagStart);
+  if (attrPos == std::string::npos || attrPos >= tagEnd)
+    return false;
+
+  // Verify word boundary (char before must be whitespace or '<')
+  if (attrPos > tagStart) {
+    char prev = svg[attrPos - 1];
+    if (prev != ' ' && prev != '\t' && prev != '\n' && prev != '\r' && prev != '<')
+      return false;
+  }
+
+  size_t valStart = attrPos + search.length();
+  if (valStart >= tagEnd) return false;
+  // Skip optional whitespace before quote
+  while (valStart < tagEnd && (svg[valStart] == ' ' || svg[valStart] == '\t'))
+    ++valStart;
+  if (valStart >= tagEnd) return false;
+  char quote = svg[valStart];
+  if (quote != '"' && quote != '\'') return false;
+  size_t valEnd = svg.find(quote, valStart + 1);
+  if (valEnd == std::string::npos || valEnd >= tagEnd) return false;
+
+  // Replace value (between quotes, exclusive)
+  svg.replace(valStart + 1, valEnd - valStart - 1, newVal);
+  return true;
+}
+
+// Main cropping function: scans SVG content, computes tight bbox of drawing
+// elements, then rewrites the root <svg> viewBox/width/height.
+// Returns the new width/height in DIP-equivalent (pt) units via outW/outH.
+static void CropSvgWhitespace(std::string &svgContent, float &outW, float &outH) {
+  outW = 0.0f;
+  outH = 0.0f;
+
+  // 1. Find root <svg ...> tag (validate existence)
+  {
+    std::string_view rootTag = GetSvgRootTag(svgContent);
+    if (rootTag.empty()) return;
+  }
+
+  // 2. Parse original viewBox to get page dimensions in pt
+  std::string vbStr = GetSvgRootAttrVal(svgContent, "viewBox");
+  float pageX = 0.0f, pageY = 0.0f, pageW = 0.0f, pageH = 0.0f;
+  if (!vbStr.empty()) {
+    const char *p = vbStr.c_str();
+    char *endp = nullptr;
+    pageX = strtof(p, &endp);
+    if (endp != p) {
+      p = endp;
+      pageY = strtof(p, &endp);
+      if (endp != p) {
+        p = endp;
+        pageW = strtof(p, &endp);
+        if (endp != p) {
+          p = endp;
+          pageH = strtof(p, &endp);
+        }
+      }
+    }
+  }
+  if (pageW <= 0.0f || pageH <= 0.0f)
+    return;
+
+  // 3. Compute content bounding box
+  SvgContentBBox bbox = ComputeSvgContentBBox(svgContent);
+  if (!bbox.valid || bbox.maxX <= bbox.minX || bbox.maxY <= bbox.minY)
+    return;
+
+  // 4. Check if content fills most of the page (>95% in both dimensions)
+  float contentW = bbox.maxX - bbox.minX;
+  float contentH = bbox.maxY - bbox.minY;
+  if (contentW >= pageW * 0.95f && contentH >= pageH * 0.95f &&
+      bbox.minX <= pageX + pageW * 0.025f && bbox.minY <= pageY + pageH * 0.025f)
+    return; // Content already fills page, no crop needed
+
+  // 5. Add 1% padding around content (relative to content size, min 2pt)
+  float padX = (std::max)(contentW * 0.01f, 2.0f);
+  float padY = (std::max)(contentH * 0.01f, 2.0f);
+  float cropX = bbox.minX - padX;
+  float cropY = bbox.minY - padY;
+  float cropW = contentW + 2.0f * padX;
+  float cropH = contentH + 2.0f * padY;
+
+  // Clamp to page bounds
+  if (cropX < pageX) { cropW -= (pageX - cropX); cropX = pageX; }
+  if (cropY < pageY) { cropH -= (pageY - cropY); cropY = pageY; }
+  if (cropX + cropW > pageX + pageW) cropW = pageX + pageW - cropX;
+  if (cropY + cropH > pageY + pageH) cropH = pageY + pageH - cropY;
+  if (cropW <= 0 || cropH <= 0) return;
+
+  // 6. Rewrite viewBox, width, height in the root <svg> tag
+  std::string newVB = FmtFloat(cropX) + " " + FmtFloat(cropY) + " " +
+                      FmtFloat(cropW) + " " + FmtFloat(cropH);
+  std::string newW = FmtFloat(cropW / 72.0f) + "in";
+  std::string newH = FmtFloat(cropH / 72.0f) + "in";
+
+  // Replace each attribute; recalculate tag bounds after each replacement
+  // since string length may change, shifting positions.
+  bool replaced = false;
+  auto replaceAttr = [&](const char *attr, const std::string &newVal) {
+    std::string_view rt = GetSvgRootTag(svgContent);
+    if (rt.empty()) return;
+    size_t ts = (size_t)(rt.data() - svgContent.data());
+    size_t te = ts + rt.length();
+    if (ReplaceAttrValInTag(svgContent, ts, te, attr, newVal))
+      replaced = true;
+  };
+  replaceAttr("viewBox", newVB);
+  replaceAttr("width", newW);
+  replaceAttr("height", newH);
+
+  if (replaced) {
+    outW = cropW;
+    outH = cropH;
+  }
+}
+
+// ----------------------------------------------------------------------------
 // libcdr Decoder (CDR/CMX → SVG → D2D Native SVG Pipeline)
 // ----------------------------------------------------------------------------
 HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
@@ -10496,6 +10956,14 @@ HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
   // Use first page (most CDR documents are single-page)
   // Multi-page: future enhancement could stitch pages vertically.
   std::string svgContent(svgPages[0].cstr());
+
+  // [Crop] librevenge generates viewBox="0 0 pageW pageH" covering the entire
+  // page. When drawing content occupies only a small or off-center region,
+  // the viewer scales the whole page down, producing excessive whitespace.
+  // CropSvgWhitespace scans drawing elements, computes a tight content bbox,
+  // and rewrites the root viewBox/width/height to eliminate blank margins.
+  float cropW = 0.0f, cropH = 0.0f;
+  CropSvgWhitespace(svgContent, cropW, cropH);
 
   // Parse the generated SVG using the same CSS length rules as native SVG.
   // librevenge writes physical root dimensions such as width="8.5in" while
