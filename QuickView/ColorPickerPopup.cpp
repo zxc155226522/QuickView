@@ -78,7 +78,18 @@ void ColorPickerPopup::Show(HWND parent, int screenX, int screenY,
                             float initialR, float initialG, float initialB, float initialA,
                             bool initialIsChecker,
                             ColorCallback onChange, ColorCallback onConfirm) {
-    if (s_instance) Dismiss();
+    // 同步销毁旧实例：调用 onConfirm，清 userdata，reset，DestroyWindow
+    if (s_instance) {
+        if (!s_instance->m_dismissing && s_instance->m_onConfirm) {
+            float r, g, b;
+            HsvToRgb(s_instance->m_h, s_instance->m_s, s_instance->m_v, r, g, b);
+            s_instance->m_onConfirm(r, g, b, s_instance->m_a, s_instance->m_isChecker);
+        }
+        HWND oldHwnd = s_instance->m_hwnd;
+        if (oldHwnd) SetWindowLongPtrW(oldHwnd, GWLP_USERDATA, 0);
+        s_instance.reset();
+        if (oldHwnd) DestroyWindow(oldHwnd);
+    }
 
     EnsureClassRegistered();
 
@@ -114,7 +125,7 @@ void ColorPickerPopup::Show(HWND parent, int screenX, int screenY,
     if (y < wa.top) y = wa.top;
 
     picker->m_hwnd = CreateWindowExW(
-        WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOREDIRECTIONBITMAP,
+        WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP,
         CP_CLASS_NAME, nullptr, WS_POPUP,
         x, y, winSize.cx, winSize.cy,
         parent, nullptr, GetModuleHandle(nullptr), picker.get());
@@ -138,27 +149,18 @@ void ColorPickerPopup::Show(HWND parent, int screenX, int screenY,
     }
 
     picker->Render();
-    ShowWindow(picker->m_hwnd, SW_SHOW);
-    SetForegroundWindow(picker->m_hwnd);
-    SetCapture(picker->m_hwnd);
-    SetTimer(picker->m_hwnd, 1, 100, nullptr);
+    ShowWindow(picker->m_hwnd, SW_SHOWNOACTIVATE);
+    SetTimer(picker->m_hwnd, 1, 50, nullptr);
 
     s_instance = std::move(picker);
 }
 
 void ColorPickerPopup::Dismiss() {
     if (!s_instance) return;
-    HWND appHwnd = s_instance->m_parentAppHwnd;
-    if (s_instance->m_hwnd && GetCapture() == s_instance->m_hwnd) {
-        ReleaseCapture();
-    }
-    if (s_instance->m_onConfirm) {
-        float r, g, b;
-        HsvToRgb(s_instance->m_h, s_instance->m_s, s_instance->m_v, r, g, b);
-        s_instance->m_onConfirm(r, g, b, s_instance->m_a, s_instance->m_isChecker);
-    }
-    s_instance.reset();
-    if (appHwnd) SetFocus(appHwnd);
+    if (s_instance->m_dismissing) return;
+    s_instance->m_dismissing = true;
+    // PostMessage 延迟关闭：WM_CLOSE 在 WndProc 中处理，避免消息处理中析构自身
+    if (s_instance->m_hwnd) PostMessageW(s_instance->m_hwnd, WM_CLOSE, 0, 0);
 }
 
 // ============================================================
@@ -245,6 +247,32 @@ LRESULT CALLBACK ColorPickerPopup::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARA
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
         return 0;
     }
+    // WM_CLOSE: 同步调用 onConfirm，然后销毁窗口
+    // 必须在 WndProc 中处理（而非 HandleMsg），因为 s_instance.reset() 会析构 self
+    if (msg == WM_CLOSE) {
+        auto* self = reinterpret_cast<ColorPickerPopup*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+        if (self && s_instance.get() == self) {
+            if (self->m_onConfirm) {
+                float r, g, b;
+                HsvToRgb(self->m_h, self->m_s, self->m_v, r, g, b);
+                self->m_onConfirm(r, g, b, self->m_a, self->m_isChecker);
+            }
+            HWND appHwnd = self->m_parentAppHwnd;
+            s_instance.reset();
+            if (appHwnd) SetFocus(appHwnd);
+        }
+        DestroyWindow(hwnd);
+        return 0;
+    }
+    // WM_NCDESTROY: 窗口被外部销毁时的安全网
+    if (msg == WM_NCDESTROY) {
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+        if (s_instance && s_instance->m_hwnd == hwnd) {
+            s_instance.reset();
+        }
+        return 0;
+    }
     auto* self = reinterpret_cast<ColorPickerPopup*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
     if (self) return self->HandleMsg(hwnd, msg, wp, lp);
     return DefWindowProcW(hwnd, msg, wp, lp);
@@ -270,23 +298,15 @@ LRESULT ColorPickerPopup::HandleMsg(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         break;
     case WM_TIMER:
         if (wp == 1) {
-            HWND fg = GetForegroundWindow();
-            if (fg && fg != hwnd && fg != m_parentAppHwnd) Dismiss();
+            // 鼠标在窗口外且没有按钮按下 → 关闭
+            POINT pt; GetCursorPos(&pt);
+            RECT rc; GetWindowRect(hwnd, &rc);
+            if (!PtInRect(&rc, pt)) {
+                if (!(GetAsyncKeyState(VK_LBUTTON) & 0x8000)) {
+                    Dismiss();
+                }
+            }
         }
-        return 0;
-    case WM_CAPTURECHANGED:
-        if (reinterpret_cast<HWND>(lp) != hwnd) Dismiss();
-        return 0;
-    case WM_ACTIVATE:
-        if (LOWORD(wp) == WA_INACTIVE) {
-            HWND target = reinterpret_cast<HWND>(lp);
-            if (target != hwnd) PostMessage(hwnd, WM_APP + 99, 0, 0);
-        }
-        return 0;
-    case WM_APP + 99: Dismiss(); return 0;
-    case WM_NCDESTROY:
-        SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
-        m_hwnd = nullptr;
         return 0;
     }
     return DefWindowProcW(hwnd, msg, wp, lp);
@@ -321,6 +341,8 @@ void ColorPickerPopup::OnLButtonDown(int x, int y) {
         Dismiss();
         return;
     }
+    // 局部 SetCapture：拖拽期间保证鼠标消息不丢失
+    if (m_hwnd) SetCapture(m_hwnd);
     OnMouseMove(x, y);
 }
 
@@ -350,6 +372,7 @@ void ColorPickerPopup::OnMouseMove(int x, int y) {
 void ColorPickerPopup::OnLButtonUp() {
     m_dragging = false;
     m_dragTarget = 0;
+    if (m_hwnd && GetCapture() == m_hwnd) ReleaseCapture();
 }
 
 // ============================================================

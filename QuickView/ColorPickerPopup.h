@@ -78,6 +78,7 @@ private:
     bool m_isLight = true;
     bool m_dragging = false;
     int m_dragTarget = 0; // 0=none, 1=SV, 2=hue, 3=alpha
+    bool m_dismissing = false;
 
     // Layout constants (DIPs)
     static constexpr float PADDING = 16.0f;

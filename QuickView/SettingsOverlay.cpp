@@ -3958,8 +3958,8 @@ void SettingsOverlay::Render(ID2D1DeviceContext* pRT, float winW, float winH) {
                 case OptionType::SwatchGrid: {
                      item.interactRect = controlRect;
                      const float s = m_uiScale;
-                     float swatchSize = 28.0f * s;
-                     float gap = 6.0f * s;
+                     float swatchSize = 20.0f * s;
+                     float gap = 4.0f * s;
                      float totalW = 9.0f * swatchSize + 8.0f * gap;
                      float startX = controlRect.left + (controlRect.right - controlRect.left - totalW) * 0.5f;
                      float swatchY = controlRect.top + (rowHeight - swatchSize) * 0.5f;
