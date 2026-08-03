@@ -4698,7 +4698,8 @@ void LoadConfig() {
     
     // Redundant Alphas Removed (Unified to Geek Glass)
     g_config.NavIndicator = GetPrivateProfileIntW(L"View", L"NavIndicator", 0, iniPath.c_str());
-    if (g_config.NavIndicator > 1) g_config.NavIndicator = 1;
+    // Force arrow mode for always-visible navigation arrows
+    g_config.NavIndicator = 0;
     g_config.EnableCrossMonitor = GetPrivateProfileIntW(L"View", L"EnableCrossMonitor", 0, iniPath.c_str()) != 0;
     g_config.RoundedCorners = GetPrivateProfileIntW(L"View", L"RoundedCorners", 1, iniPath.c_str()) != 0;
     g_config.EnableSmoothScaling = GetPrivateProfileIntW(L"View", L"EnableSmoothScaling", 0, iniPath.c_str()) != 0;
@@ -4738,6 +4739,10 @@ void LoadConfig() {
     g_config.MiddleDragIndex = (g_config.MiddleDragAction == MouseAction::WindowDrag) ? 0 : 1;
     g_config.MiddleClickIndex = (g_config.MiddleClickAction == MouseAction::ExitApp) ? 1 : 0;
     g_config.EdgeNavClick = GetPrivateProfileIntW(L"Controls", L"EdgeNavClick", 1, iniPath.c_str()) != 0;
+    if (!g_config.EdgeNavClick) {
+        // Force enable edge nav click for navigation arrows
+        g_config.EdgeNavClick = true;
+    }
     g_config.GalleryTriggerMode = GetPrivateProfileIntW(L"Controls", L"GalleryTriggerMode", 1, iniPath.c_str());
     g_config.GalleryKeepVisibleOnThumbnailClick = GetPrivateProfileIntW(L"Controls", L"GalleryKeepVisibleOnThumbnailClick", 0, iniPath.c_str()) != 0;
     GetPrivateProfileStringW(L"Controls", L"GalleryTriggerAreaHeight", L"20.0", buf, 64, iniPath.c_str());
@@ -5590,12 +5595,9 @@ void SyncDCompState([[maybe_unused]] HWND hwnd, float winW, float winH, bool ani
     } else {
         g_compEngine->SetCheckerboardMode(false);
     }
-    // Compute viewport layout before UpdateBackground (for white frame around image area)
+    // Compute viewport layout
     const ImageViewportLayout viewport = ComputeImageViewportLayout(winW, winH);
-    // Pass viewport rect for white frame effect (skip in overlay mode for desktop transparency)
-    D2D1_RECT_F vpRect = viewport.Rect();
-    const D2D1_RECT_F* vpPtr = IsOverlayModeActive() ? nullptr : &vpRect;
-    g_compEngine->UpdateBackground(winW, winH, bgColor, showGrid, vpPtr);
+    g_compEngine->UpdateBackground(winW, winH, bgColor, showGrid);
 
     g_compEngine->SetImageViewport(viewport.Rect());
 
