@@ -500,7 +500,13 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
             }
         }
     }
-    if (!inEntities) return {};
+    if (!inEntities) {
+        // 调试日志
+        FILE* dbg = nullptr;
+        fopen_s(&dbg, "C:\\Users\\Administrator\\Desktop\\debug_dxf_log.txt", "w");
+        if (dbg) { fprintf(dbg, "ENTITIES not found!\n"); fclose(dbg); }
+        return {};
+    }
 
     // 辅助: Y 翻转
     auto FY = [](double y) { return -y; };
@@ -512,6 +518,12 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
     // 占位 stroke-width，最终替换
     const char* SW_PLACEHOLDER = "__SW__";
 
+    // 调试计数
+    int dbgEntityCount = 0;
+    int dbgSplineOk = 0;
+    int dbgSplineSkip = 0;
+    int dbgFirstSplineInfo = 0;
+
     auto resetEntity = [&]() { entityColor = 7; };
 
     int code;
@@ -519,7 +531,7 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
 
     while (reader.NextPair(code, value)) {
         if (code == 0 && (value == "ENDSEC" || value == "EOF")) break;
-        if (code == 0) { resetEntity(); currentEntityType = value; continue; }
+        if (code == 0) { resetEntity(); currentEntityType = value; dbgEntityCount++; continue; }
 
         // --- LINE ---
         if (currentEntityType == "LINE") {
@@ -678,6 +690,17 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
 
             if (numCtrl > 1 && (int)ctrlX.size() >= numCtrl &&
                 (int)knots.size() >= numKnots && numKnots > 0 && degree >= 1) {
+                dbgSplineOk++;
+                if (dbgFirstSplineInfo < 3) {
+                    FILE* dbg = nullptr;
+                    fopen_s(&dbg, "C:\\Users\\Administrator\\Desktop\\debug_dxf_log.txt", "a");
+                    if (dbg) {
+                        fprintf(dbg, "SPLINE #%d: degree=%d numCtrl=%d ctrlX.size=%zu numKnots=%d knots.size=%zu rational=%d\n",
+                                dbgFirstSplineInfo, degree, numCtrl, ctrlX.size(), numKnots, knots.size(), rational?1:0);
+                        fclose(dbg);
+                    }
+                    dbgFirstSplineInfo++;
+                }
                 double uMin = knots[degree];
                 double uMax = knots[numKnots - degree - 1];
                 if (uMax <= uMin) uMax = uMin + 1.0;
@@ -697,6 +720,18 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
                 svgBody << "\" stroke=\"" << DXFColorToHex(entityColor)
                         << "\" stroke-width=\"" << SW_PLACEHOLDER
                         << "\" fill=\"none\"/>\n";
+            } else {
+                dbgSplineSkip++;
+                if (dbgFirstSplineInfo < 3) {
+                    FILE* dbg = nullptr;
+                    fopen_s(&dbg, "C:\\Users\\Administrator\\Desktop\\debug_dxf_log.txt", "a");
+                    if (dbg) {
+                        fprintf(dbg, "SPLINE SKIPPED #%d: degree=%d numCtrl=%d ctrlX.size=%zu numKnots=%d knots.size=%zu\n",
+                                dbgFirstSplineInfo, degree, numCtrl, ctrlX.size(), numKnots, knots.size());
+                        fclose(dbg);
+                    }
+                    dbgFirstSplineInfo++;
+                }
             }
             if (code == 0) { resetEntity(); currentEntityType = value; }
             continue;
@@ -768,6 +803,24 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
             continue;
         }
         // 未知实体: 外层循环继续读取
+    }
+
+    // 调试日志: 最终统计
+    {
+        FILE* dbg = nullptr;
+        fopen_s(&dbg, "C:\\Users\\Administrator\\Desktop\\debug_dxf_log.txt", "a");
+        if (dbg) {
+            fprintf(dbg, "=== DXF Parse Summary ===\n");
+            fprintf(dbg, "Entities found: %d\n", dbgEntityCount);
+            fprintf(dbg, "SPLINEs OK: %d, Skipped: %d\n", dbgSplineOk, dbgSplineSkip);
+            fprintf(dbg, "bbox.valid: %d\n", bbox.valid ? 1 : 0);
+            if (bbox.valid) {
+                fprintf(dbg, "bbox: minX=%f minY=%f maxX=%f maxY=%f\n",
+                        bbox.minX, bbox.minY, bbox.maxX, bbox.maxY);
+            }
+            fprintf(dbg, "svgBody size: %zu\n", svgBody.str().size());
+            fclose(dbg);
+        }
     }
 
     if (!bbox.valid) return {};
