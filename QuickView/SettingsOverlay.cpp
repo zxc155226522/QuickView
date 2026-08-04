@@ -3396,7 +3396,7 @@ void SettingsOverlay::Render(ID2D1DeviceContext* pRT, float winW, float winH) {
                 
                 // Define overall item.rect for scrolling / basic containment
                 item.rect = D2D1::RectF(contentX, headerRect.top, contentX + contentW, contentY);
-                item.interactRect = {};
+                item.interactRect = item.rect; // Enable hover/click hit testing for badges
                 
                 // Draw limit warning feedback if active
                 if (!item.statusText.empty() && item.statusSetTime > 0) {
