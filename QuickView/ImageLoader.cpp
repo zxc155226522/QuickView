@@ -4428,6 +4428,7 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
       pData->isBlurry = false;
     }
     if (SUCCEEDED(hr) && pData->isValid) {
+      DownscaleThumbDataIfNeeded(pData, targetSize);
       PopulateThumbOriginalInfo(headerInfo, fallbackFileSize, pData);
       return S_OK;
     }
@@ -14621,10 +14622,21 @@ HRESULT CImageLoader::LoadToFrame(
           pdfHr = hr;
         } else {
           DocumentRenderResult renderResult;
-          RECT rc;
-          GetClientRect(GetForegroundWindow(), &rc);
-          int viewportW = (rc.right > 64) ? (rc.right - rc.left) : 1920;
-          int viewportH = (rc.bottom > 64) ? (rc.bottom - rc.top) : 1080;
+          // [Fix] When called from thumbnail worker (targetWidth/Height > 0),
+          // use the requested thumbnail dimensions instead of foreground window
+          // viewport (which is unreliable in background threads and may return
+          // NULL or a foreign window).
+          int viewportW, viewportH;
+          if (targetWidth > 0 && targetHeight > 0) {
+            viewportW = targetWidth;
+            viewportH = targetHeight;
+          } else {
+            RECT rc{};
+            HWND fg = GetForegroundWindow();
+            if (fg) GetClientRect(fg, &rc);
+            viewportW = (rc.right > 64) ? (rc.right - rc.left) : 1920;
+            viewportH = (rc.bottom > 64) ? (rc.bottom - rc.top) : 1080;
+          }
           hr = doc.RenderPage(0, viewportW, viewportH, 1.0f, renderResult);
           if (FAILED(hr) || !renderResult.frame) {
             if (pMetadata)
