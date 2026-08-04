@@ -4203,8 +4203,25 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
 
   // 0. Highest Priority: Windows Shell Thumbnail Cache (Insanely fast for
   // pre-cached heavy RAWs)
-  if (SUCCEEDED(LoadShellThumbnail(filePath, targetSize, pData))) {
-    return S_OK;
+  // [Fix] Skip Shell cache for vector/document formats (CDR/CMX/PLT/DXF/DWG/PDF/AI)
+  // because Windows may return a file-type icon (256x256) that passes the size
+  // check but is not a real thumbnail preview. These formats must always go
+  // through LoadToFrame for proper rasterization.
+  {
+    std::wstring_view thumbExt = QuickView::ExtensionOf(filePath);
+    const bool isVectorDoc =
+        QuickView::ExtEqualsIgnoreCase(thumbExt, L".cdr") ||
+        QuickView::ExtEqualsIgnoreCase(thumbExt, L".cmx") ||
+        QuickView::ExtEqualsIgnoreCase(thumbExt, L".plt") ||
+        QuickView::ExtEqualsIgnoreCase(thumbExt, L".dxf") ||
+        QuickView::ExtEqualsIgnoreCase(thumbExt, L".dwg") ||
+        QuickView::ExtEqualsIgnoreCase(thumbExt, L".pdf") ||
+        QuickView::ExtEqualsIgnoreCase(thumbExt, L".ai");
+    if (!isVectorDoc) {
+      if (SUCCEEDED(LoadShellThumbnail(filePath, targetSize, pData))) {
+        return S_OK;
+      }
+    }
   }
   const ImageHeaderInfo headerInfo = PeekHeader(filePath);
   const uint64_t fallbackFileSize = static_cast<uint64_t>(headerInfo.fileSize);
