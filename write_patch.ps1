@@ -1,0 +1,28 @@
+$lines = @(
+    'diff --git a/src/intern/dwgutil.cpp b/src/intern/dwgutil.cpp'
+    '--- a/src/intern/dwgutil.cpp'
+    '+++ b/src/intern/dwgutil.cpp'
+    '@@ -203,9 +203,10 @@ bool dwgCompressor::decompress18(duint8 *cbuf, duint8 *dbuf, duint64 csize, duin'
+    '             return true; //end of input stream'
+    '         } else { //ll < 0x10'
+    '-            DRW_DBG("WARNING dwgCompressor::decompress, failed, illegal char: "); DRW_DBGH(oc);'
+    '-            DRW_DBG(", Cpos: "); DRW_DBG(compressedPos);'
+    '-            DRW_DBG(", Dpos: "); DRW_DBG(decompPos); DRW_DBG("\n");'
+    '-            return false; //fails, not valid'
+    '+            // R2018+: opcodes 0x00-0x0F are literal-only blocks (no compression copy).'
+    '+            --compressedPos;'
+    '+            litCount = litLength18();'
+    '+            compBytes = 0;'
+    '+            compOffset = 0;'
+    '         }'
+    ' '
+    '         //copy "compressed data", if size allows'
+    '@@ -235,3 +236,3 @@ bool dwgCompressor::decompress18(duint8 *cbuf, duint8 *dbuf, duint64 csize, duin'
+    '     DRW_DBG("WARNING dwgCompressor::decompress, bad out, Cpos: ");DRW_DBG(compressedPos);DRW_DBG(", Dpos: ");DRW_DBG(decompPos);DRW_DBG("\n");'
+    '-    return false;'
+    '+    return (decompPos >= decompSize);'
+    ' }'
+)
+$content = $lines -join "`n"
+[System.IO.File]::WriteAllText("E:\qv_build_tmp\custom-ports\libdxfrw\fix-decompress-fallback.patch", $content + "`n", [System.Text.UTF8Encoding]::new($false))
+Write-Host "Patch written successfully"
