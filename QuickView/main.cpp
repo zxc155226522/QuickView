@@ -52,6 +52,8 @@ static UINT GetSvgSurfaceSizeLimit();
 #include <wincodec.h>
 #include "OSDState.h"
 #include "DebugMetrics.h"
+#include "DocumentRenderController.h"  // [PDF/AI] Multi-page async rendering
+#include "PagedDocument.h"             // [PDF/AI] Paged document state
 #include <psapi.h>  // For GetProcessMemoryInfo
 #pragma comment(lib, "psapi.lib")
 
@@ -158,6 +160,10 @@ void ResetWheelPanMode() {
 }
 void HandleAnimFrameStep(HWND hwnd, bool forward); // [v10.5] fwd decl
 void PerformAnimSeek(HWND hwnd, float targetProgress);
+// [PDF/AI] Multi-page navigation
+void HandlePdfPageStep(HWND hwnd, bool forward);
+void HandlePdfPageJump(HWND hwnd, uint32_t targetPage);
+void HandlePdfPageResult(HWND hwnd);
 void RequestRepaint(QuickView::PaintLayer layer);
 static std::unique_ptr<CRenderEngine> g_renderEngine;
 static std::unique_ptr<CImageLoader> g_imageLoader;
@@ -361,6 +367,10 @@ std::array<HotkeyBinding, static_cast<size_t>(HotkeyAction::Count)> g_hotkeys = 
 RuntimeConfig g_runtime;
 UndoManager g_undoManager;
 SlideshowState g_slideshowState;
+
+// [PDF/AI] Multi-page document controller and state
+std::unique_ptr<QuickView::DocumentRenderController> g_docRenderCtrl;
+QuickView::PagedDocumentState g_pagedDoc;
 static bool RestoreDeletedFile(HWND hwnd, const std::wstring& targetPath) {
     if (targetPath.empty()) return false;
 
@@ -6382,6 +6392,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, [[maybe_unused]] LPWSTR lpCm
     }
     
     [[maybe_unused]] HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+
+    // [PDF/AI] Initialize multi-page document render controller
+    g_docRenderCtrl = std::make_unique<QuickView::DocumentRenderController>();
+
     WNDCLASSEXW wcex = {};
     wcex.cbSize = sizeof(WNDCLASSEXW);
     wcex.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
@@ -7107,6 +7121,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
                 }
             }
         }
+        return 0;
+    }
+    // [PDF/AI] Multi-page document render result
+    case QuickView::DocumentRenderController::ResultMessage: {
+        HandlePdfPageResult(hwnd);
         return 0;
     }
     // Print job finished
@@ -12094,6 +12113,24 @@ void ProcessEngineEvents(HWND hwnd) {
 
                 // Cleanup
                 g_isLoading = false;
+
+                // [PDF/AI] Activate multi-page mode for PDF/AI documents with >1 pages
+                if (!isPreview && g_docRenderCtrl && g_docRenderCtrl->IsAvailable()) {
+                    const uint32_t pages = evt.metadata.pageCount;
+                    if (pages > 1) {
+                        g_pagedDoc.active = true;
+                        g_pagedDoc.currentPage = 0;
+                        g_pagedDoc.totalPages = pages;
+                        g_pagedDoc.pageWidthPoints = 0;  // Will be filled on first page request
+                        g_pagedDoc.pageHeightPoints = 0;
+                        wchar_t pageOsd[64];
+                        swprintf_s(pageOsd, L"第 1 / %u 页", pages);
+                        g_osd.Show(hwnd, pageOsd, false, false,
+                                   D2D1::ColorF(D2D1::ColorF::White),
+                                   OSDPosition::Bottom, 1500);
+                    }
+                }
+
                 // Initial fullscreen/maximized auto-fit can raise the desired backing-surface
                 // size without any user interaction. Upgrade immediately so first-open 100%
                 // views are sharp instead of waiting for the wheel/pinch interaction timer.
@@ -12800,6 +12837,14 @@ void StartNavigation(HWND hwnd, std::wstring path, [[maybe_unused]] bool showOSD
     if (!g_imageEngine || path.empty()) return;
     g_isLoading = true; // [Fix] Start loading state machine
     SetTimer(hwnd, 995, 16, nullptr); // [Fix] ~60 FPS UI Heartbeat for progress bar (runs for ALL loads to avoid WM_PAINT starvation)
+
+    // [PDF/AI] Reset paged document state for new file
+    if (g_pagedDoc.active) {
+        g_pagedDoc.Reset();
+    }
+    if (g_docRenderCtrl) {
+        g_docRenderCtrl->Cancel();
+    }
 
     // [Phase 3] Increment token FIRST (deprecated, kept for backward compatibility)
     uint64_t myToken = ++g_currentNavToken;
@@ -14029,6 +14074,121 @@ void HandleAnimFrameStep(HWND hwnd, bool forward) {
 }
 
 
+// [PDF/AI] Request rendering of a specific page (step forward/backward)
+void HandlePdfPageStep(HWND hwnd, bool forward) {
+    if (!g_docRenderCtrl || !g_docRenderCtrl->IsAvailable()) return;
+    if (!g_pagedDoc.active || g_pagedDoc.totalPages <= 1) return;
+
+    // Determine target page
+    uint32_t targetPage = forward ? g_pagedDoc.currentPage + 1 : g_pagedDoc.currentPage - 1;
+    if (targetPage >= g_pagedDoc.totalPages) return;
+
+    // Build render request
+    QuickView::DocumentRenderRequest req;
+    req.notifyWindow = hwnd;
+    req.path = GetPaneContext(PaneSlot::Primary).path;
+    req.pageIndex = targetPage;
+
+    RECT rc{};
+    GetClientRect(hwnd, &rc);
+    req.viewportWidth = (rc.right > 64) ? (rc.right - rc.left) : 1920;
+    req.viewportHeight = (rc.bottom > 64) ? (rc.bottom - rc.top) : 1080;
+    req.zoom = 1.0f;
+
+    g_pagedDoc.requestId = g_docRenderCtrl->Request(std::move(req));
+
+    // Show loading OSD
+    wchar_t buf[64];
+    swprintf_s(buf, L"加载第 %u / %u 页…", targetPage + 1, g_pagedDoc.totalPages);
+    g_osd.Show(hwnd, buf, false, false, D2D1::ColorF(D2D1::ColorF::White),
+               OSDPosition::Bottom, 2000);
+}
+
+// [PDF/AI] Jump to a specific page (for Home/End keys)
+void HandlePdfPageJump(HWND hwnd, uint32_t targetPage) {
+    if (!g_docRenderCtrl || !g_docRenderCtrl->IsAvailable()) return;
+    if (!g_pagedDoc.active || g_pagedDoc.totalPages <= 1) return;
+    if (targetPage >= g_pagedDoc.totalPages || targetPage == g_pagedDoc.currentPage) return;
+
+    QuickView::DocumentRenderRequest req;
+    req.notifyWindow = hwnd;
+    req.path = GetPaneContext(PaneSlot::Primary).path;
+    req.pageIndex = targetPage;
+
+    RECT rc{};
+    GetClientRect(hwnd, &rc);
+    req.viewportWidth = (rc.right > 64) ? (rc.right - rc.left) : 1920;
+    req.viewportHeight = (rc.bottom > 64) ? (rc.bottom - rc.top) : 1080;
+    req.zoom = 1.0f;
+
+    g_pagedDoc.requestId = g_docRenderCtrl->Request(std::move(req));
+
+    wchar_t buf[64];
+    swprintf_s(buf, L"加载第 %u / %u 页…", targetPage + 1, g_pagedDoc.totalPages);
+    g_osd.Show(hwnd, buf, false, false, D2D1::ColorF(D2D1::ColorF::White),
+               OSDPosition::Bottom, 2000);
+}
+
+// [PDF/AI] Process async page render result (called from WM_APP+24 handler)
+void HandlePdfPageResult(HWND hwnd) {
+    if (!g_docRenderCtrl) return;
+
+    QuickView::DocumentRenderResult result;
+    if (!g_docRenderCtrl->TakeLatestResult(result)) return;
+
+    // Validate result
+    if (result.status != S_OK || !result.frame || !result.frame->pixels) {
+        g_osd.Show(hwnd, L"页面渲染失败", true);
+        return;
+    }
+
+    // Update paged state
+    g_pagedDoc.currentPage = result.pageIndex;
+    if (result.pageCount > 0) g_pagedDoc.totalPages = result.pageCount;
+    g_pagedDoc.pageWidthPoints = result.pageWidthPoints;
+    g_pagedDoc.pageHeightPoints = result.pageHeightPoints;
+    g_pagedDoc.renderScale = result.renderScale;
+
+    // Upload to GPU
+    ComPtr<ID2D1Bitmap> newBitmap;
+    if (FAILED(g_renderEngine->UploadRawFrameToGPU(*result.frame, &newBitmap)) || !newBitmap) {
+        g_osd.Show(hwnd, L"页面上传 GPU 失败", true);
+        return;
+    }
+
+    // Update resources
+    auto& pane = GetPaneContext(PaneSlot::Primary);
+    pane.resource.Reset();
+    pane.resource.bitmap = newBitmap;
+
+    // Update metadata for new page dimensions
+    pane.metadata.Width = (UINT)result.frame->width;
+    pane.metadata.Height = (UINT)result.frame->height;
+    pane.metadata.DpiX = result.frame->dpiX;
+    pane.metadata.DpiY = result.frame->dpiY;
+
+    // Reset view for new page (different pages may have different dimensions)
+    pane.view.Reset();
+    pane.view.ExifOrientation = 1;
+
+    // Render to DComp
+    RenderImageToDComp(hwnd, pane.resource, true);
+    if (g_compEngine && g_compEngine->IsInitialized()) {
+        RECT rc; GetClientRect(hwnd, &rc);
+        SyncDCompState(hwnd, (float)rc.right, (float)rc.bottom, false);
+        g_compEngine->Commit();
+    }
+
+    // Show page OSD
+    wchar_t buf[64];
+    swprintf_s(buf, L"第 %u / %u 页", result.pageIndex + 1, g_pagedDoc.totalPages);
+    g_osd.Show(hwnd, buf, false, false, D2D1::ColorF(D2D1::ColorF::White),
+               OSDPosition::Bottom, 1500);
+
+    RequestRepaint(PaintLayer::Image | PaintLayer::Dynamic | PaintLayer::Static);
+}
+
+
 void PerformAnimSeek(HWND hwnd, float targetProgress) {
     if (!GetPaneContext(PaneSlot::Primary).resource.animator) return;
     uint32_t total = GetPaneContext(PaneSlot::Primary).resource.animator->GetTotalFrames();
@@ -14574,6 +14734,15 @@ bool HandleHotkeyAction(HWND hwnd, HotkeyAction action) {
 
     switch (action) {
     case HotkeyAction::NavNext:
+        // [PDF/AI] Multi-page navigation: step to next page, or fall through
+        // to file navigation when at the last page.
+        if (g_pagedDoc.active && g_pagedDoc.totalPages > 1) {
+            if (g_pagedDoc.currentPage + 1 < g_pagedDoc.totalPages) {
+                HandlePdfPageStep(hwnd, true);
+                return true;
+            }
+            // At last page: fall through to normal file navigation
+        }
         if (alt && GetPaneContext(PaneSlot::Primary).resource.animator) {
             HandleAnimFrameStep(hwnd, true);
         } else if (CheckUnsavedChanges(hwnd)) {
@@ -14582,6 +14751,15 @@ bool HandleHotkeyAction(HWND hwnd, HotkeyAction action) {
         return true;
 
     case HotkeyAction::NavPrev:
+        // [PDF/AI] Multi-page navigation: step to previous page, or fall
+        // through to file navigation when at the first page.
+        if (g_pagedDoc.active && g_pagedDoc.totalPages > 1) {
+            if (g_pagedDoc.currentPage > 0) {
+                HandlePdfPageStep(hwnd, false);
+                return true;
+            }
+            // At first page: fall through to normal file navigation
+        }
         if (alt && GetPaneContext(PaneSlot::Primary).resource.animator) {
             HandleAnimFrameStep(hwnd, false);
         } else if (CheckUnsavedChanges(hwnd)) {
@@ -14590,10 +14768,21 @@ bool HandleHotkeyAction(HWND hwnd, HotkeyAction action) {
         return true;
 
     case HotkeyAction::NavFirst:
+        // [PDF/AI] Jump to first page in paged mode
+        if (g_pagedDoc.active && g_pagedDoc.totalPages > 1 && g_pagedDoc.currentPage > 0) {
+            HandlePdfPageJump(hwnd, 0);
+            return true;
+        }
         if (CheckUnsavedChanges(hwnd)) NavigateEdge(hwnd, false);
         return true;
 
     case HotkeyAction::NavLast:
+        // [PDF/AI] Jump to last page in paged mode
+        if (g_pagedDoc.active && g_pagedDoc.totalPages > 1 &&
+            g_pagedDoc.currentPage + 1 < g_pagedDoc.totalPages) {
+            HandlePdfPageJump(hwnd, g_pagedDoc.totalPages - 1);
+            return true;
+        }
         if (CheckUnsavedChanges(hwnd)) NavigateEdge(hwnd, true);
         return true;
 

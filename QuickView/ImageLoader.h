@@ -92,6 +92,9 @@ public:
     // logic
     bool IsRawFullDecode = false;
 
+    // [PDF/AI] Total page count for multi-page documents (0 = single page or N/A)
+    uint32_t pageCount = 0;
+
     // Histogram (256 bins)
     std::vector<uint32_t> HistR;
     std::vector<uint32_t> HistG;

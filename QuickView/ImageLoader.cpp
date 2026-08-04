@@ -14740,6 +14740,7 @@ HRESULT CImageLoader::LoadToFrame(
               pMetadata->FormatDetails = L"Document (MuPDF)";
               pMetadata->Width = (UINT)outFrame->width;
               pMetadata->Height = (UINT)outFrame->height;
+              pMetadata->pageCount = doc.PageCount();
             }
             pdfHr = S_OK;
           }
