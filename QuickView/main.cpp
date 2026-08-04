@@ -4099,6 +4099,9 @@ bool IsLightThemeActive() {
     }
 }
 
+// [Fix] Forward declaration: ResolveCanvasColor is defined later but needed by ApplyWindowTheme
+static D2D1_COLOR_F ResolveCanvasColor();
+
 void ApplyWindowTheme(HWND hwnd) {
     if (!hwnd) return;
 

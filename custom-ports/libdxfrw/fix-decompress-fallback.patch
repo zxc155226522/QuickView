@@ -1,7 +1,7 @@
 diff --git a/src/intern/dwgutil.cpp b/src/intern/dwgutil.cpp
 --- a/src/intern/dwgutil.cpp
 +++ b/src/intern/dwgutil.cpp
-@@ -199,16 +199,25 @@ bool dwgCompressor::decompress18(duint8 *cbuf, duint8 *dbuf, duint64 csize, duin
+@@ -203,9 +203,10 @@ bool dwgCompressor::decompress18(duint8 *cbuf, duint8 *dbuf, duint64 csize, duin
              return true; //end of input stream
          } else { //ll < 0x10
 -            DRW_DBG("WARNING dwgCompressor::decompress, failed, illegal char: "); DRW_DBGH(oc);
@@ -16,20 +16,7 @@ diff --git a/src/intern/dwgutil.cpp b/src/intern/dwgutil.cpp
          }
  
          //copy "compressed data", if size allows
-+        if (decompSize < decompPos + compBytes)
-+            compBytes = decompSize - decompPos;
-         duint32 j {decompPos - compOffset - 1};
-         for (duint32 i = 0; i < compBytes && buffersGood(); i++) {
-             decompSet( decompByte( j++));
-         }
- 
-         //copy "uncompressed data", if size allows
-+        if (decompSize < decompPos + litCount)
-+            litCount = decompSize - decompPos;
-         for (duint32 i=0; i < litCount && buffersGood(); i++) {
-             decompSet( compressedByte());
-         }
-@@ -218,3 +227,3 @@ bool dwgCompressor::decompress18(duint8 *cbuf, duint8 *dbuf, duint64 csize, duin
+@@ -235,3 +236,3 @@ bool dwgCompressor::decompress18(duint8 *cbuf, duint8 *dbuf, duint64 csize, duin
      DRW_DBG("WARNING dwgCompressor::decompress, bad out, Cpos: ");DRW_DBG(compressedPos);DRW_DBG(", Dpos: ");DRW_DBG(decompPos);DRW_DBG("\n");
 -    return false;
 +    return (decompPos >= decompSize);
