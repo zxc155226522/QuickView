@@ -172,6 +172,9 @@ HRESULT MuPdfDocument::RenderPage(uint32_t pageIndex,
             fz_scale(renderScale, renderScale),
             fz_device_bgr(m_context),
             1);
+        // [Fix] Fill with opaque white so PDF/AI thumbnails have a solid
+        // background instead of transparent (which causes fragmented appearance).
+        fz_clear_pixmap_with_value(m_context, pixmap, 0xFF);
     }
     fz_catch(m_context) {
         result.status = E_FAIL;

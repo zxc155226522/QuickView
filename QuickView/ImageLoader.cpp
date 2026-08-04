@@ -4150,7 +4150,9 @@ static HRESULT RasterizeSvgThumbnail(const std::vector<uint8_t> &xmlData,
 
   d2dContext5->SetTarget(targetBitmap.Get());
   d2dContext5->BeginDraw();
-  d2dContext5->Clear(D2D1::ColorF(0, 0, 0, 0));
+  // [Fix] Use opaque white background instead of transparent, so thumbnail
+  // content doesn't appear fragmented when displayed in gallery.
+  d2dContext5->Clear(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f));
   d2dContext5->SetTransform(
       D2D1::Matrix3x2F::Scale((float)outW / safeW, (float)outH / safeH));
   d2dContext5->DrawSvgDocument(svgDoc.Get());
