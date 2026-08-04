@@ -1,4 +1,4 @@
-$lines = @(
+﻿$lines = @(
     'diff --git a/src/intern/dwgutil.cpp b/src/intern/dwgutil.cpp'
     '--- a/src/intern/dwgutil.cpp'
     '+++ b/src/intern/dwgutil.cpp'
