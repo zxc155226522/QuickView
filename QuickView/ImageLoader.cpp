@@ -1429,6 +1429,17 @@ static std::wstring DetectFormatFromContent(LPCWSTR filePath) {
       return L"JXR";
     if (QuickView::ExtEqualsIgnoreCase(ext, L".hif"))
       return L"HEIC";
+    // Vector / Document formats (no reliable magic bytes, extension-only)
+    if (QuickView::ExtEqualsIgnoreCase(ext, L".cdr"))
+      return L"CDR";
+    if (QuickView::ExtEqualsIgnoreCase(ext, L".cmx"))
+      return L"CMX";
+    if (QuickView::ExtEqualsIgnoreCase(ext, L".plt"))
+      return L"PLT";
+    if (QuickView::ExtEqualsIgnoreCase(ext, L".dxf"))
+      return L"DXF";
+    if (QuickView::ExtEqualsIgnoreCase(ext, L".dwg"))
+      return L"DWG";
   }
 
   return fmt;
@@ -4360,6 +4371,41 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
   }
 
   if (format == L"SVG") {
+    using namespace QuickView;
+    std::unique_ptr<RawImageFrame> pFrame(new (std::nothrow) RawImageFrame());
+    if (!pFrame)
+      return E_OUTOFMEMORY;
+
+    HRESULT hr = LoadToFrame(filePath, pFrame.get(), nullptr, targetSize,
+                             targetSize, &pData->loaderName, {}, {});
+    if (SUCCEEDED(hr) && pFrame->IsSvg() && pFrame->svg) {
+      hr = RasterizeSvgThumbnail(pFrame->svg->xmlData, pFrame->svg->viewBoxW,
+                                 pFrame->svg->viewBoxH, targetSize, pData);
+    } else if (SUCCEEDED(hr) && pFrame->pixels && pFrame->width > 0 &&
+               pFrame->height > 0) {
+      pData->width = pFrame->width;
+      pData->height = pFrame->height;
+      pData->stride = pFrame->stride;
+      pData->pixels.resize(static_cast<size_t>(pFrame->stride) *
+                           pFrame->height);
+      memcpy(pData->pixels.data(), pFrame->pixels, pData->pixels.size());
+      pData->isValid = true;
+      pData->isBlurry = false;
+    }
+    if (SUCCEEDED(hr) && pData->isValid) {
+      PopulateThumbOriginalInfo(headerInfo, fallbackFileSize, pData);
+      return S_OK;
+    }
+  }
+
+  // Vector / Document formats: CDR/CMX/PLT/DXF/DWG (→SVG) and PDF/AI (→raster)
+  // These share the LoadToFrame pathway, producing either SVG XML or pixels.
+  if (format == L"CDR" || format == L"CMX" || format == L"PLT" ||
+      format == L"DXF" || format == L"DWG" || format == L"PDF" ||
+      pathLower.ends_with(L".cdr") || pathLower.ends_with(L".cmx") ||
+      pathLower.ends_with(L".plt") || pathLower.ends_with(L".dxf") ||
+      pathLower.ends_with(L".dwg") || pathLower.ends_with(L".pdf") ||
+      pathLower.ends_with(L".ai")) {
     using namespace QuickView;
     std::unique_ptr<RawImageFrame> pFrame(new (std::nothrow) RawImageFrame());
     if (!pFrame)
