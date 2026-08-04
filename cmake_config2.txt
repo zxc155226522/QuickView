@@ -1,0 +1,1960 @@
+Preset CMake variables:
+
+  CMAKE_BUILD_TYPE="Release"
+  CMAKE_CXX_COMPILER="clang-cl"
+  CMAKE_C_COMPILER="clang-cl"
+  CMAKE_EXPORT_COMPILE_COMMANDS="ON"
+  CMAKE_LINKER="E:/qv_build_tmp/cmake/lld-link-wrapper.bat"
+  CMAKE_MSVC_RUNTIME_LIBRARY="MultiThreaded"
+  CMAKE_RC_COMPILER="llvm-rc"
+  CMAKE_TOOLCHAIN_FILE="E:/qv_build_tmp/cmake/QuickViewToolchain.cmake"
+  ENABLE_ASAN="OFF"
+  ENABLE_LTO="ON"
+  VCPKG_MANIFEST_INSTALL="ON"
+  VCPKG_MANIFEST_MODE="ON"
+  VCPKG_OVERLAY_PORTS="E:/qv_build_tmp/custom-ports"
+  VCPKG_OVERLAY_TRIPLETS="E:/qv_build_tmp/custom-triplet"
+  VCPKG_TARGET_TRIPLET="x64-windows-static-clang"
+
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Program Files/LLVM/bin/nasm.exe
+-- Running vcpkg install
+Detecting compiler hash for triplet x64-windows...
+-- Using %HTTP(S)_PROXY% in environment variables.
+Compiler found: C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe
+Detecting compiler hash for triplet x64-windows-static-clang...
+Compiler found: C:/Program Files/LLVM/bin/clang-cl.exe
+The following packages are already installed:
+  * boost-assert:x64-windows-static-clang@1.91.0
+  * boost-cmake:x64-windows-static-clang@1.91.0
+  * boost-concept-check:x64-windows-static-clang@1.91.0
+  * boost-config:x64-windows-static-clang@1.91.0
+  * boost-container-hash:x64-windows-static-clang@1.91.0
+  * boost-core:x64-windows-static-clang@1.91.0
+  * boost-describe:x64-windows-static-clang@1.91.0
+  * boost-headers:x64-windows-static-clang@1.91.0
+  * boost-mp11:x64-windows-static-clang@1.91.0
+  * boost-predef:x64-windows-static-clang@1.91.0
+  * boost-preprocessor:x64-windows-static-clang@1.91.0
+  * boost-throw-exception:x64-windows-static-clang@1.91.0
+  * boost-tuple:x64-windows-static-clang@1.91.0
+  * boost-type-traits:x64-windows-static-clang@1.91.0
+  * boost-uninstall:x64-windows-static-clang@1.91.0
+  * boost-unordered:x64-windows-static-clang@1.91.0
+  * vcpkg-boost:x64-windows@2025-03-29
+  * vcpkg-cmake:x64-windows@2024-04-23
+  * vcpkg-cmake-config:x64-windows@2024-05-23
+  * vcpkg-cmake-get-vars:x64-windows@2025-05-29
+  * vcpkg-tool-meson:x64-windows@1.9.0#8
+The following packages will be built and installed:
+    boost-algorithm:x64-windows-static-clang@1.91.0
+  * boost-align:x64-windows-static-clang@1.91.0
+  * boost-any:x64-windows-static-clang@1.91.0
+  * boost-array:x64-windows-static-clang@1.91.0
+  * boost-atomic:x64-windows-static-clang@1.91.0
+  * boost-bind:x64-windows-static-clang@1.91.0
+  * boost-chrono:x64-windows-static-clang@1.91.0
+  * boost-compat:x64-windows-static-clang@1.91.0
+  * boost-container:x64-windows-static-clang@1.91.0
+  * boost-conversion:x64-windows-static-clang@1.91.0
+  * boost-date-time:x64-windows-static-clang@1.91.0
+  * boost-detail:x64-windows-static-clang@1.91.0
+  * boost-endian:x64-windows-static-clang@1.91.0
+  * boost-exception:x64-windows-static-clang@1.91.0
+  * boost-function:x64-windows-static-clang@1.91.0
+  * boost-function-types:x64-windows-static-clang@1.91.0
+  * boost-functional:x64-windows-static-clang@1.91.0
+  * boost-fusion:x64-windows-static-clang@1.91.0
+  * boost-integer:x64-windows-static-clang@1.91.0
+  * boost-intrusive:x64-windows-static-clang@1.91.0
+  * boost-io:x64-windows-static-clang@1.91.0
+  * boost-iterator:x64-windows-static-clang@1.91.0
+  * boost-lexical-cast:x64-windows-static-clang@1.91.0
+  * boost-move:x64-windows-static-clang@1.91.0
+  * boost-mpl:x64-windows-static-clang@1.91.0
+  * boost-multi-index:x64-windows-static-clang@1.91.0
+  * boost-numeric-conversion:x64-windows-static-clang@1.91.0
+    boost-optional:x64-windows-static-clang@1.91.0
+  * boost-phoenix:x64-windows-static-clang@1.91.0
+  * boost-pool:x64-windows-static-clang@1.91.0
+    boost-property-tree:x64-windows-static-clang@1.91.0
+  * boost-proto:x64-windows-static-clang@1.91.0
+  * boost-range:x64-windows-static-clang@1.91.0
+  * boost-ratio:x64-windows-static-clang@1.91.0
+  * boost-regex:x64-windows-static-clang@1.91.0
+  * boost-serialization:x64-windows-static-clang@1.91.0
+  * boost-smart-ptr:x64-windows-static-clang@1.91.0
+    boost-spirit:x64-windows-static-clang@1.91.0
+  * boost-static-assert:x64-windows-static-clang@1.91.0
+  * boost-system:x64-windows-static-clang@1.91.0
+  * boost-thread:x64-windows-static-clang@1.91.0
+  * boost-tokenizer:x64-windows-static-clang@1.91.0
+  * boost-type-index:x64-windows-static-clang@1.91.0
+  * boost-typeof:x64-windows-static-clang@1.91.0
+  * boost-utility:x64-windows-static-clang@1.91.0
+  * boost-variant:x64-windows-static-clang@1.91.0
+  * boost-variant2:x64-windows-static-clang@1.91.0
+  * boost-winapi:x64-windows-static-clang@1.91.0
+  * brotli:x64-windows-static-clang@1.2.0
+  * bzip2[core,tool]:x64-windows-static-clang@1.0.8#6
+  * dav1d:x64-windows-static-clang@1.5.3 -- E:/qv_build_tmp/custom-ports\dav1d
+  * freetype[brotli,bzip2,core,png,zlib]:x64-windows-static-clang@2.14.3 -- E:/qv_build_tmp/custom-ports\freetype
+    highway:x64-windows-static-clang@1.3.0#1 -- E:/qv_build_tmp/custom-ports\highway
+  * jbig2dec:x64-windows-static-clang@0.20
+  * lcms:x64-windows-static-clang@2.19.1#1
+    libavif[core,dav1d]:x64-windows-static-clang@1.4.1 -- E:/qv_build_tmp/custom-ports\libavif
+    libdxfrw:x64-windows-static-clang@2025-09-25
+    libjpeg-turbo:x64-windows-static-clang@3.2.0
+    libjxl:x64-windows-static-clang@0.12.0 -- E:/qv_build_tmp/custom-ports\libjxl
+    libmupdf:x64-windows-static-clang@1.27.2 -- E:/qv_build_tmp/custom-ports\libmupdf
+  * libpng:x64-windows-static-clang@1.6.53 -- E:/qv_build_tmp/custom-ports\libpng
+    libraw:x64-windows-static-clang@0.22.1 -- E:/qv_build_tmp/custom-ports\libraw
+    libwebp[core,libwebpmux,simd,unicode]:x64-windows-static-clang@1.6.0#2 -- E:/qv_build_tmp/custom-ports\libwebp
+  * libyuv:x64-windows-static-clang@1916 -- E:/qv_build_tmp/custom-ports\libyuv
+  * openjpeg:x64-windows-static-clang@2.5.4
+    zlib:x64-windows-static-clang@2.3.3#1 -- E:/qv_build_tmp/custom-ports\zlib
+Additional packages (*) will be modified to complete this operation.
+Restored 0 package(s) from C:\Users\Administrator\AppData\Local\vcpkg\archives in 1.42 ms. Use --debug to see more details.
+Installing 1/66 boost-regex:x64-windows-static-clang@1.91.0...
+boost-regex:x64-windows-static-clang@1.91.0 package ABI: 81da9d299dd3ebfb85497a9f1612e61eba141f5afab2eb9dbc8f8d99f4a3ad95
+Building boost-regex:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-regex-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-regex/src/ost-1.91.0-fe71600084.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-regex-boost-1.91.0.tar.gz
+-- Applying patch compat.diff
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-regex/src/ost-1.91.0-fe71600084.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-regex_x64-windows-static-clang/share/boost-regex/copyright
+-- Performing post-build validation
+Starting submission of boost-regex:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-regex:x64-windows-static-clang: 9.8 s
+Installing 2/66 boost-io:x64-windows-static-clang@1.91.0...
+boost-io:x64-windows-static-clang@1.91.0 package ABI: 65ac7f4445af937abbdfa5e2439307c391973b3f50456a3bf3305cff118f7f57
+Building boost-io:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-io-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-io/src/ost-1.91.0-0b7a4ccc28.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-io-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-io/src/ost-1.91.0-0b7a4ccc28.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-io_x64-windows-static-clang/share/boost-io/copyright
+-- Performing post-build validation
+Starting submission of boost-io:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-io:x64-windows-static-clang: 6.8 s
+Completed submission of boost-regex:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 1.3 s
+Installing 3/66 boost-utility:x64-windows-static-clang@1.91.0...
+boost-utility:x64-windows-static-clang@1.91.0 package ABI: 83fe8f62a98f7135cec08c98e76327687ec87328f5b0ab5d5aef0954ebf5efe4
+Building boost-utility:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-utility-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-utility/src/ost-1.91.0-c3b4e911df.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-utility-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-utility/src/ost-1.91.0-c3b4e911df.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-utility_x64-windows-static-clang/share/boost-utility/copyright
+-- Performing post-build validation
+Starting submission of boost-utility:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-utility:x64-windows-static-clang: 6.4 s
+Completed submission of boost-io:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 36.6 ms
+Installing 4/66 boost-optional:x64-windows-static-clang@1.91.0...
+boost-optional:x64-windows-static-clang@1.91.0 package ABI: d5c8a73680f1ef70b37cc5b8fab3bc5491a210bc576ac4b5524ac3a42cb03ff3
+Building boost-optional:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-optional-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-optional/src/ost-1.91.0-d47f3af4cc.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-optional-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-optional/src/ost-1.91.0-d47f3af4cc.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-optional_x64-windows-static-clang/share/boost-optional/copyright
+-- Performing post-build validation
+Starting submission of boost-optional:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-optional:x64-windows-static-clang: 6.3 s
+Completed submission of boost-utility:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 40.4 ms
+Installing 5/66 boost-mpl:x64-windows-static-clang@1.91.0...
+boost-mpl:x64-windows-static-clang@1.91.0 package ABI: e16c22e7261f96f03088225fb9553e6c22b2f21e6530199c20d2ce22ba6c817d
+Building boost-mpl:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-mpl-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-mpl/src/ost-1.91.0-256b9a879b.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-mpl-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-mpl/src/ost-1.91.0-256b9a879b.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-mpl_x64-windows-static-clang/share/boost-mpl/copyright
+-- Performing post-build validation
+Starting submission of boost-mpl:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-mpl:x64-windows-static-clang: 12 s
+Completed submission of boost-optional:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 150 ms
+Installing 6/66 boost-typeof:x64-windows-static-clang@1.91.0...
+boost-typeof:x64-windows-static-clang@1.91.0 package ABI: 3387f42de85c119fbc0f93832f89878e260b5d0ca4a2bb9d752965024b498999
+Building boost-typeof:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-typeof-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-typeof/src/ost-1.91.0-6d76ad91f9.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-typeof-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-typeof/src/ost-1.91.0-6d76ad91f9.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-typeof_x64-windows-static-clang/share/boost-typeof/copyright
+-- Performing post-build validation
+Starting submission of boost-typeof:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-typeof:x64-windows-static-clang: 6.8 s
+Completed submission of boost-mpl:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 132 ms
+Installing 7/66 boost-detail:x64-windows-static-clang@1.91.0...
+boost-detail:x64-windows-static-clang@1.91.0 package ABI: 13e3064562b7e550a1d55cd58628e76f9a72f90880f5822c0680fd5ab5416371
+Building boost-detail:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-detail-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-detail/src/ost-1.91.0-0f9364aa70.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-detail-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-detail/src/ost-1.91.0-0f9364aa70.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-detail_x64-windows-static-clang/share/boost-detail/copyright
+-- Performing post-build validation
+Starting submission of boost-detail:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-detail:x64-windows-static-clang: 5.8 s
+Completed submission of boost-typeof:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 39 ms
+Installing 8/66 boost-function-types:x64-windows-static-clang@1.91.0...
+boost-function-types:x64-windows-static-clang@1.91.0 package ABI: 87a98fe49a6812e46621ce508f032066a0bd8753137af277700fc91a2444a0c1
+Building boost-function-types:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-function_types-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-function-types/src/ost-1.91.0-2e8e63c95e.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-function_types-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-function-types/src/ost-1.91.0-2e8e63c95e.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-function-types_x64-windows-static-clang/share/boost-function-types/copyright
+-- Performing post-build validation
+Starting submission of boost-function-types:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-function-types:x64-windows-static-clang: 6 s
+Completed submission of boost-detail:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 38.4 ms
+Installing 9/66 boost-bind:x64-windows-static-clang@1.91.0...
+boost-bind:x64-windows-static-clang@1.91.0 package ABI: 3e9112f3c614426f5f3d2c1e1976446610726ea63c360f40fa0e99798c53101b
+Building boost-bind:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-bind-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-bind/src/ost-1.91.0-d4c6d85483.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-bind-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-bind/src/ost-1.91.0-d4c6d85483.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-bind_x64-windows-static-clang/share/boost-bind/copyright
+-- Performing post-build validation
+Starting submission of boost-bind:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-bind:x64-windows-static-clang: 6.8 s
+Completed submission of boost-function-types:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 47.8 ms
+Installing 10/66 boost-function:x64-windows-static-clang@1.91.0...
+boost-function:x64-windows-static-clang@1.91.0 package ABI: 363b50af62d552bc2a3df1392a53022eac7ace02255c036d29b4d20bce197848
+Building boost-function:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-function-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-function/src/ost-1.91.0-a7c708588f.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-function-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-function/src/ost-1.91.0-a7c708588f.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-function_x64-windows-static-clang/share/boost-function/copyright
+-- Performing post-build validation
+Starting submission of boost-function:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-function:x64-windows-static-clang: 6.5 s
+Completed submission of boost-bind:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 36.7 ms
+Installing 11/66 boost-functional:x64-windows-static-clang@1.91.0...
+boost-functional:x64-windows-static-clang@1.91.0 package ABI: 4de3ff05bad3805ff92760b7cbeeb9c4d8682a1cabf8b88ee2856ac1946e2895
+Building boost-functional:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-functional-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-functional/src/ost-1.91.0-20b5c99694.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-functional-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-functional/src/ost-1.91.0-20b5c99694.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-functional_x64-windows-static-clang/share/boost-functional/copyright
+-- Performing post-build validation
+Starting submission of boost-functional:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-functional:x64-windows-static-clang: 5.9 s
+Completed submission of boost-function:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 76.3 ms
+Installing 12/66 boost-fusion:x64-windows-static-clang@1.91.0...
+boost-fusion:x64-windows-static-clang@1.91.0 package ABI: f507ac11eb9f2b61e4bf6cf9d7df122aa251b7ad8aa8150eddf11eb9d4251762
+Building boost-fusion:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-fusion-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-fusion/src/ost-1.91.0-df08a2e34b.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-fusion-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-fusion/src/ost-1.91.0-df08a2e34b.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-fusion_x64-windows-static-clang/share/boost-fusion/copyright
+-- Performing post-build validation
+Starting submission of boost-fusion:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-fusion:x64-windows-static-clang: 12 s
+Completed submission of boost-functional:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 37.1 ms
+Installing 13/66 boost-iterator:x64-windows-static-clang@1.91.0...
+boost-iterator:x64-windows-static-clang@1.91.0 package ABI: 64a6fde0e5c03b2c62bdeea596900c1331fd2224566e281d64a0825c021d0c9a
+Building boost-iterator:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-iterator-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-iterator/src/ost-1.91.0-34640f34e8.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-iterator-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-iterator/src/ost-1.91.0-34640f34e8.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-iterator_x64-windows-static-clang/share/boost-iterator/copyright
+-- Performing post-build validation
+Starting submission of boost-iterator:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-iterator:x64-windows-static-clang: 6.8 s
+Completed submission of boost-fusion:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 209 ms
+Installing 14/66 boost-smart-ptr:x64-windows-static-clang@1.91.0...
+boost-smart-ptr:x64-windows-static-clang@1.91.0 package ABI: ae28956273cf46dc36062d579053d821873324834b4c11935abf8c36186cd4ad
+Building boost-smart-ptr:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-smart_ptr-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-smart-ptr/src/ost-1.91.0-78dc9273c8.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-smart_ptr-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-smart-ptr/src/ost-1.91.0-78dc9273c8.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-smart-ptr_x64-windows-static-clang/share/boost-smart-ptr/copyright
+-- Performing post-build validation
+Starting submission of boost-smart-ptr:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-smart-ptr:x64-windows-static-clang: 6.2 s
+Completed submission of boost-iterator:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 40.4 ms
+Installing 15/66 boost-conversion:x64-windows-static-clang@1.91.0...
+boost-conversion:x64-windows-static-clang@1.91.0 package ABI: a27b674a41e974418b3de2af3823fae9dbc15ea9e4d63d575702b130796409c4
+Building boost-conversion:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-conversion-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-conversion/src/ost-1.91.0-d5fffecf38.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-conversion-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-conversion/src/ost-1.91.0-d5fffecf38.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-conversion_x64-windows-static-clang/share/boost-conversion/copyright
+-- Performing post-build validation
+Starting submission of boost-conversion:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-conversion:x64-windows-static-clang: 6.3 s
+Completed submission of boost-smart-ptr:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 41.6 ms
+Installing 16/66 boost-array:x64-windows-static-clang@1.91.0...
+boost-array:x64-windows-static-clang@1.91.0 package ABI: 999201bb84e14dc2591f614e4ed6a3530055278944a2cd7f6e8e04df990cd48c
+Building boost-array:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-array-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-array/src/ost-1.91.0-303ff0eb6a.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-array-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-array/src/ost-1.91.0-303ff0eb6a.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-array_x64-windows-static-clang/share/boost-array/copyright
+-- Performing post-build validation
+Starting submission of boost-array:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-array:x64-windows-static-clang: 5.7 s
+Completed submission of boost-conversion:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 39.8 ms
+Installing 17/66 boost-range:x64-windows-static-clang@1.91.0...
+boost-range:x64-windows-static-clang@1.91.0 package ABI: 2f8ba76cef1bed96ffbb69dc9d3c8e56463fb43a194591099f10dc663e9091c5
+Building boost-range:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-range-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-range/src/ost-1.91.0-599394f3f5.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-range-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-range/src/ost-1.91.0-599394f3f5.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-range_x64-windows-static-clang/share/boost-range/copyright
+-- Performing post-build validation
+Starting submission of boost-range:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-range:x64-windows-static-clang: 7.2 s
+Completed submission of boost-array:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 270 ms
+Installing 18/66 boost-exception:x64-windows-static-clang@1.91.0...
+boost-exception:x64-windows-static-clang@1.91.0 package ABI: 4b17a13886ecb00e3f5d8bf45ffbaac6cee4c48cfae713910c9b0d845d6a86d6
+Building boost-exception:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-exception-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-exception/src/ost-1.91.0-d1a4bfcdd0.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-exception-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-exception/src/ost-1.91.0-d1a4bfcdd0.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-exception_x64-windows-static-clang/share/boost-exception/copyright
+-- Performing post-build validation
+Starting submission of boost-exception:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-exception:x64-windows-static-clang: 5.8 s
+Completed submission of boost-range:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 50.6 ms
+Installing 19/66 boost-algorithm:x64-windows-static-clang@1.91.0...
+boost-algorithm:x64-windows-static-clang@1.91.0 package ABI: 0931133cfd2cee065a0d070d14de0121bb67a8216bce86874a6369b7b6f63b02
+Building boost-algorithm:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-algorithm-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-algorithm/src/ost-1.91.0-59781f854a.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-algorithm-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-algorithm/src/ost-1.91.0-59781f854a.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-algorithm_x64-windows-static-clang/share/boost-algorithm/copyright
+-- Performing post-build validation
+Starting submission of boost-algorithm:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-algorithm:x64-windows-static-clang: 6.5 s
+Completed submission of boost-exception:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 39.7 ms
+Installing 20/66 boost-variant2:x64-windows-static-clang@1.91.0...
+boost-variant2:x64-windows-static-clang@1.91.0 package ABI: 4bf4d705183a3cca9cad7b69718521bf164601287d7f8f914ad9cf3eac5c4088
+Building boost-variant2:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-variant2-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-variant2/src/ost-1.91.0-4c2d2d39ff.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-variant2-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-variant2/src/ost-1.91.0-4c2d2d39ff.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-variant2_x64-windows-static-clang/share/boost-variant2/copyright
+-- Performing post-build validation
+Starting submission of boost-variant2:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-variant2:x64-windows-static-clang: 5.6 s
+Completed submission of boost-algorithm:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 46.7 ms
+Installing 21/66 boost-type-index:x64-windows-static-clang@1.91.0...
+boost-type-index:x64-windows-static-clang@1.91.0 package ABI: 15234f09185d9e6c3127772b09fa65a66770427885623dfd7ed34c83166551ca
+Building boost-type-index:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-type_index-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-type-index/src/ost-1.91.0-2173ecaeee.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-type_index-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-type-index/src/ost-1.91.0-2173ecaeee.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-type-index_x64-windows-static-clang/share/boost-type-index/copyright
+-- Performing post-build validation
+Starting submission of boost-type-index:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-type-index:x64-windows-static-clang: 5.5 s
+Completed submission of boost-variant2:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 44.8 ms
+Installing 22/66 boost-static-assert:x64-windows-static-clang@1.91.0...
+boost-static-assert:x64-windows-static-clang@1.91.0 package ABI: 4130789c5e5b89d4a0f26058e242072c3c6287d53c41cc43dccc4ee62a27ccc8
+Building boost-static-assert:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-static_assert-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-static-assert/src/ost-1.91.0-26f710949d.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-static_assert-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-static-assert/src/ost-1.91.0-26f710949d.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-static-assert_x64-windows-static-clang/share/boost-static-assert/copyright
+-- Performing post-build validation
+Starting submission of boost-static-assert:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-static-assert:x64-windows-static-clang: 6 s
+Completed submission of boost-type-index:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 37.1 ms
+Installing 23/66 boost-integer:x64-windows-static-clang@1.91.0...
+boost-integer:x64-windows-static-clang@1.91.0 package ABI: 5276c332c36e9c6d5ea59427172379e28f7b7fb874d34414cda13d94c8a469aa
+Building boost-integer:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-integer-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-integer/src/ost-1.91.0-650e6e380d.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-integer-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-integer/src/ost-1.91.0-650e6e380d.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-integer_x64-windows-static-clang/share/boost-integer/copyright
+-- Performing post-build validation
+Starting submission of boost-integer:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-integer:x64-windows-static-clang: 5.5 s
+Completed submission of boost-static-assert:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 42.8 ms
+Installing 24/66 boost-variant:x64-windows-static-clang@1.91.0...
+boost-variant:x64-windows-static-clang@1.91.0 package ABI: 315384062475c479e7f2932cfafd0354b0fd15ee5b80ca39496ec9263396f128
+Building boost-variant:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-variant-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-variant/src/ost-1.91.0-f0d1784e8a.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-variant-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-variant/src/ost-1.91.0-f0d1784e8a.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-variant_x64-windows-static-clang/share/boost-variant/copyright
+-- Performing post-build validation
+Starting submission of boost-variant:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-variant:x64-windows-static-clang: 7.5 s
+Completed submission of boost-integer:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 36.6 ms
+Installing 25/66 boost-winapi:x64-windows-static-clang@1.91.0...
+boost-winapi:x64-windows-static-clang@1.91.0 package ABI: 1256b7320bb546bac35ea1ab5b42ab8ad1e95d43100ebe89ded8894510a74759
+Building boost-winapi:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-winapi-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-winapi/src/ost-1.91.0-1930f2e233.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-winapi-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-winapi/src/ost-1.91.0-1930f2e233.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-winapi_x64-windows-static-clang/share/boost-winapi/copyright
+-- Performing post-build validation
+Starting submission of boost-winapi:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-winapi:x64-windows-static-clang: 6.8 s
+Completed submission of boost-variant:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 42.1 ms
+Installing 26/66 boost-compat:x64-windows-static-clang@1.91.0...
+boost-compat:x64-windows-static-clang@1.91.0 package ABI: c68c0034f3269bcc539ae23b9e7d39a6dd3e8e03abb1c28a46e842c7b413a01c
+Building boost-compat:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-compat-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-compat/src/ost-1.91.0-7c0d84b250.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-compat-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-compat/src/ost-1.91.0-7c0d84b250.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-compat_x64-windows-static-clang/share/boost-compat/copyright
+-- Performing post-build validation
+Starting submission of boost-compat:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-compat:x64-windows-static-clang: 6.2 s
+Completed submission of boost-winapi:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 106 ms
+Installing 27/66 boost-system:x64-windows-static-clang@1.91.0...
+boost-system:x64-windows-static-clang@1.91.0 package ABI: e125f117344f95347cbee817cebd388be5d71fa4ef6716d787370e33498879ff
+Building boost-system:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+CMake Warning at scripts/cmake/vcpkg_buildpath_length_warning.cmake:4 (message):
+  boost-system's buildsystem uses very long paths and may fail on your
+  system.
+
+  We recommend moving vcpkg to a short path such as 'C:\src\vcpkg' or using
+  the subst command.
+Call Stack (most recent call first):
+  buildtrees/versioning_/versions/boost-system/8a72aec6bf39ad1fb0505a6aa5ece0f6c03da369/portfile.cmake:3 (vcpkg_buildpath_length_warning)
+  scripts/ports.cmake:215 (include)
+
+
+-- Using cached boostorg-system-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-system/src/ost-1.91.0-8ae221950f.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-system-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-system/src/ost-1.91.0-8ae221950f.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-system_x64-windows-static-clang/share/boost-system/copyright
+-- Performing post-build validation
+Starting submission of boost-system:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-system:x64-windows-static-clang: 6.1 s
+Completed submission of boost-compat:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 65.2 ms
+Installing 28/66 boost-move:x64-windows-static-clang@1.91.0...
+boost-move:x64-windows-static-clang@1.91.0 package ABI: 828e8174b7e5f8d56bbb82df7d1f8cacf2ac115ba5327d97e87d0b449e115467
+Building boost-move:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-move-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-move/src/ost-1.91.0-ffda78865d.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-move-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-move/src/ost-1.91.0-ffda78865d.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-move_x64-windows-static-clang/share/boost-move/copyright
+-- Performing post-build validation
+Starting submission of boost-move:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-move:x64-windows-static-clang: 6.9 s
+Completed submission of boost-system:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 41.2 ms
+Installing 29/66 boost-tokenizer:x64-windows-static-clang@1.91.0...
+boost-tokenizer:x64-windows-static-clang@1.91.0 package ABI: 404a033af9de4170f169f989fe49699a2f3e25766299835b024c5960b0aee339
+Building boost-tokenizer:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-tokenizer-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-tokenizer/src/ost-1.91.0-d277eb1121.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-tokenizer-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-tokenizer/src/ost-1.91.0-d277eb1121.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-tokenizer_x64-windows-static-clang/share/boost-tokenizer/copyright
+-- Performing post-build validation
+Starting submission of boost-tokenizer:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-tokenizer:x64-windows-static-clang: 6.2 s
+Completed submission of boost-move:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 43.9 ms
+Installing 30/66 boost-numeric-conversion:x64-windows-static-clang@1.91.0...
+boost-numeric-conversion:x64-windows-static-clang@1.91.0 package ABI: 4a9798055d6ead3ea315b68736725b19fc494fa2ff01fb8ea4bccf4a1bdcbf06
+Building boost-numeric-conversion:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-numeric_conversion-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-numeric-conversion/src/ost-1.91.0-a915a7a76f.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-numeric_conversion-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-numeric-conversion/src/ost-1.91.0-a915a7a76f.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-numeric-conversion_x64-windows-static-clang/share/boost-numeric-conversion/copyright
+-- Performing post-build validation
+Starting submission of boost-numeric-conversion:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-numeric-conversion:x64-windows-static-clang: 6.4 s
+Completed submission of boost-tokenizer:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 38.1 ms
+Installing 31/66 boost-intrusive:x64-windows-static-clang@1.91.0...
+boost-intrusive:x64-windows-static-clang@1.91.0 package ABI: 6a0f6930dcd194f2e2c8a5b21558c8c81fc0a156baf4a4f3fea81870e8044946
+Building boost-intrusive:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-intrusive-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-intrusive/src/ost-1.91.0-466e81d1d2.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-intrusive-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-intrusive/src/ost-1.91.0-466e81d1d2.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-intrusive_x64-windows-static-clang/share/boost-intrusive/copyright
+-- Performing post-build validation
+Starting submission of boost-intrusive:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-intrusive:x64-windows-static-clang: 7.2 s
+Completed submission of boost-numeric-conversion:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 39.7 ms
+Installing 32/66 boost-container:x64-windows-static-clang@1.91.0...
+boost-container:x64-windows-static-clang@1.91.0 package ABI: 64dcf177fdcd6ccfad19f6f5c80d0bf2774d68b80400416da43888a0a2fea2ff
+Building boost-container:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-container-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-container/src/ost-1.91.0-34ef7e044f.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-container-boost-1.91.0.tar.gz
+-- Applying patch posix-threads.diff
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-container/src/ost-1.91.0-34ef7e044f.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-dbg
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-container_x64-windows-static-clang/share/boost-container/copyright
+-- Performing post-build validation
+Starting submission of boost-container:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-container:x64-windows-static-clang: 11 s
+Completed submission of boost-intrusive:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 914 ms
+Installing 33/66 boost-lexical-cast:x64-windows-static-clang@1.91.0...
+boost-lexical-cast:x64-windows-static-clang@1.91.0 package ABI: a7e208526f896f3636f454ace40b38873607e7db26aad28d3ffb56686c0af04c
+Building boost-lexical-cast:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-lexical_cast-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-lexical-cast/src/ost-1.91.0-162cf2d8ef.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-lexical_cast-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-lexical-cast/src/ost-1.91.0-162cf2d8ef.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-lexical-cast_x64-windows-static-clang/share/boost-lexical-cast/copyright
+-- Performing post-build validation
+Starting submission of boost-lexical-cast:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-lexical-cast:x64-windows-static-clang: 7.5 s
+Completed submission of boost-container:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 354 ms
+Installing 34/66 boost-date-time:x64-windows-static-clang@1.91.0...
+boost-date-time:x64-windows-static-clang@1.91.0 package ABI: dbac188a573da3386c297fc98eda2637e42a4c4493be5d9dbe23d203c4d57bea
+Building boost-date-time:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-date_time-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-date-time/src/ost-1.91.0-5120a9efa5.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-date_time-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-date-time/src/ost-1.91.0-5120a9efa5.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-dbg
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-date-time_x64-windows-static-clang/share/boost-date-time/copyright
+-- Performing post-build validation
+Starting submission of boost-date-time:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-date-time:x64-windows-static-clang: 8.6 s
+Completed submission of boost-lexical-cast:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 40.5 ms
+Installing 35/66 boost-ratio:x64-windows-static-clang@1.91.0...
+boost-ratio:x64-windows-static-clang@1.91.0 package ABI: cad875c69730878b4bf28fc4546cc18a0034208aa3ed44c633aa1dde81cac7a5
+Building boost-ratio:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-ratio-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-ratio/src/ost-1.91.0-2e24d0e9d4.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-ratio-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-ratio/src/ost-1.91.0-2e24d0e9d4.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-ratio_x64-windows-static-clang/share/boost-ratio/copyright
+-- Performing post-build validation
+Starting submission of boost-ratio:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-ratio:x64-windows-static-clang: 5.4 s
+Completed submission of boost-date-time:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 54 ms
+Installing 36/66 boost-chrono:x64-windows-static-clang@1.91.0...
+boost-chrono:x64-windows-static-clang@1.91.0 package ABI: d6be462da43c5c5f8930ccba5317d99cdca9c74b49d47c4a9e21d520dc951b0c
+Building boost-chrono:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-chrono-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-chrono/src/ost-1.91.0-904e55bfcb.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-chrono-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-chrono/src/ost-1.91.0-904e55bfcb.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-dbg
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-chrono_x64-windows-static-clang/share/boost-chrono/copyright
+-- Performing post-build validation
+Starting submission of boost-chrono:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-chrono:x64-windows-static-clang: 11 s
+Completed submission of boost-ratio:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 36.6 ms
+Installing 37/66 boost-align:x64-windows-static-clang@1.91.0...
+boost-align:x64-windows-static-clang@1.91.0 package ABI: b7ce091d44f85bcf36d6ccf7b9c2696c7db6b628e4d325dfb059a8e4866c81dd
+Building boost-align:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-align-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-align/src/ost-1.91.0-dfd5a2db2c.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-align-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-align/src/ost-1.91.0-dfd5a2db2c.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-align_x64-windows-static-clang/share/boost-align/copyright
+-- Performing post-build validation
+Starting submission of boost-align:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-align:x64-windows-static-clang: 6.7 s
+Completed submission of boost-chrono:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 129 ms
+Installing 38/66 boost-atomic:x64-windows-static-clang@1.91.0...
+boost-atomic:x64-windows-static-clang@1.91.0 package ABI: fe5f5ab8087f0f508a74b77144eaa3ffc00473bf949a0374344e85ed632f1d76
+Building boost-atomic:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-atomic-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-atomic/src/ost-1.91.0-4cbd744999.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-atomic-boost-1.91.0.tar.gz
+-- Applying patch fix-include.patch
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-atomic/src/ost-1.91.0-4cbd744999.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-dbg
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-atomic_x64-windows-static-clang/share/boost-atomic/copyright
+-- Performing post-build validation
+Starting submission of boost-atomic:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-atomic:x64-windows-static-clang: 11 s
+Completed submission of boost-align:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 39.7 ms
+Installing 39/66 boost-thread:x64-windows-static-clang@1.91.0...
+boost-thread:x64-windows-static-clang@1.91.0 package ABI: ab474c08a20a618e949de41b83400ee1e788fb925ba33bc2e9fdd2100dbb74d9
+Building boost-thread:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-thread-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-thread/src/ost-1.91.0-70eaa2e033.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-thread-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-thread/src/ost-1.91.0-70eaa2e033.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-dbg
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-thread_x64-windows-static-clang/share/boost-thread/copyright
+-- Performing post-build validation
+Starting submission of boost-thread:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-thread:x64-windows-static-clang: 16 s
+Completed submission of boost-atomic:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 202 ms
+Installing 40/66 boost-proto:x64-windows-static-clang@1.91.0...
+boost-proto:x64-windows-static-clang@1.91.0 package ABI: 4edd1ed79f28aa8f2971c1f853d23e604efb66fc1a6efb34330cfe6c6aa7aee8
+Building boost-proto:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-proto-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-proto/src/ost-1.91.0-e5117ea899.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-proto-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-proto/src/ost-1.91.0-e5117ea899.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-proto_x64-windows-static-clang/share/boost-proto/copyright
+-- Performing post-build validation
+Starting submission of boost-proto:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-proto:x64-windows-static-clang: 7.4 s
+Completed submission of boost-thread:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 385 ms
+Installing 41/66 boost-pool:x64-windows-static-clang@1.91.0...
+boost-pool:x64-windows-static-clang@1.91.0 package ABI: 77e07a70dba89017f1db0e502ff5be0f3deebb54d949fe60aa3ec5f67588d38b
+Building boost-pool:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-pool-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-pool/src/ost-1.91.0-d713415078.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-pool-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-pool/src/ost-1.91.0-d713415078.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-pool_x64-windows-static-clang/share/boost-pool/copyright
+-- Performing post-build validation
+Starting submission of boost-pool:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-pool:x64-windows-static-clang: 6.8 s
+Completed submission of boost-proto:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 69.4 ms
+Installing 42/66 boost-phoenix:x64-windows-static-clang@1.91.0...
+boost-phoenix:x64-windows-static-clang@1.91.0 package ABI: 65024b0a96ce8c43be9fa6b94ba49c2fddf1d8da90c35c9b261f04881712e55b
+Building boost-phoenix:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-phoenix-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-phoenix/src/ost-1.91.0-bd2d4a1dbc.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-phoenix-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-phoenix/src/ost-1.91.0-bd2d4a1dbc.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-phoenix_x64-windows-static-clang/share/boost-phoenix/copyright
+-- Performing post-build validation
+Starting submission of boost-phoenix:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-phoenix:x64-windows-static-clang: 8.2 s
+Completed submission of boost-pool:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 40.4 ms
+Installing 43/66 boost-endian:x64-windows-static-clang@1.91.0...
+boost-endian:x64-windows-static-clang@1.91.0 package ABI: 273df5379ab89a5338dacdfa43c19a4b94cd7d250a843be21f7793eab0be1568
+Building boost-endian:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-endian-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-endian/src/ost-1.91.0-267efcfed2.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-endian-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-endian/src/ost-1.91.0-267efcfed2.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-endian_x64-windows-static-clang/share/boost-endian/copyright
+-- Performing post-build validation
+Starting submission of boost-endian:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-endian:x64-windows-static-clang: 5.6 s
+Completed submission of boost-phoenix:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 207 ms
+Installing 44/66 boost-spirit:x64-windows-static-clang@1.91.0...
+boost-spirit:x64-windows-static-clang@1.91.0 package ABI: 36ccb813dce2b5e6521fc45ffcd7db58b458f581b0871a2aa023807c5109d9e2
+Building boost-spirit:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-spirit-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-spirit/src/ost-1.91.0-7e2bd2b52b.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-spirit-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-spirit/src/ost-1.91.0-7e2bd2b52b.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-spirit_x64-windows-static-clang/share/boost-spirit/copyright
+-- Performing post-build validation
+Starting submission of boost-spirit:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-spirit:x64-windows-static-clang: 16 s
+Completed submission of boost-endian:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 1.4 s
+Installing 45/66 boost-serialization:x64-windows-static-clang@1.91.0...
+boost-serialization:x64-windows-static-clang@1.91.0 package ABI: e1f87038b9220bf82e17b6c3ef17c5181e9eb945cb5c8d6c9aad8199495a218e
+Building boost-serialization:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-serialization-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-serialization/src/ost-1.91.0-2aa2a6d99d.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-serialization-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-serialization/src/ost-1.91.0-2aa2a6d99d.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-dbg
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-serialization_x64-windows-static-clang/share/boost-serialization/copyright
+-- Performing post-build validation
+Starting submission of boost-serialization:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-serialization:x64-windows-static-clang: 23 s
+Completed submission of boost-spirit:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 143 ms
+Installing 46/66 boost-multi-index:x64-windows-static-clang@1.91.0...
+boost-multi-index:x64-windows-static-clang@1.91.0 package ABI: c75a46fd5a035222db27a755517488d8e0abed402a7e3588c0ff8fdbc90552c7
+Building boost-multi-index:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-multi_index-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-multi-index/src/ost-1.91.0-94f6d6fe88.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-multi_index-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-multi-index/src/ost-1.91.0-94f6d6fe88.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-multi-index_x64-windows-static-clang/share/boost-multi-index/copyright
+-- Performing post-build validation
+Starting submission of boost-multi-index:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-multi-index:x64-windows-static-clang: 6.3 s
+Completed submission of boost-serialization:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 1.7 s
+Installing 47/66 boost-any:x64-windows-static-clang@1.91.0...
+boost-any:x64-windows-static-clang@1.91.0 package ABI: 6cf74d595684b8cfb95cb61a8ec9a189334a251ae3122ce618bfd67ad48b99ad
+Building boost-any:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-any-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-any/src/ost-1.91.0-be3b053791.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-any-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-any/src/ost-1.91.0-be3b053791.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-any_x64-windows-static-clang/share/boost-any/copyright
+-- Performing post-build validation
+Starting submission of boost-any:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-any:x64-windows-static-clang: 5.7 s
+Completed submission of boost-multi-index:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 50.4 ms
+Installing 48/66 boost-property-tree:x64-windows-static-clang@1.91.0...
+boost-property-tree:x64-windows-static-clang@1.91.0 package ABI: 91cbe67771bec734aa28c1ebb815a4969dd5c411b0176a3fad5b68b7b0fe095e
+Building boost-property-tree:x64-windows-static-clang@1.91.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached boostorg-property_tree-boost-1.91.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-property-tree/src/ost-1.91.0-10fd083870.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/boostorg-property_tree-boost-1.91.0.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/boost-property-tree/src/ost-1.91.0-10fd083870.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/boost-property-tree_x64-windows-static-clang/share/boost-property-tree/copyright
+-- Performing post-build validation
+Starting submission of boost-property-tree:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in the background
+Elapsed time to handle boost-property-tree:x64-windows-static-clang: 7.9 s
+Completed submission of boost-any:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 41.1 ms
+Installing 49/66 highway:x64-windows-static-clang@1.3.0#1...
+highway:x64-windows-static-clang@1.3.0#1 package ABI: 0cdd831812a50da49f31420d8fd3e193dc90b533014cef3e0723908c89cd1b49
+Building highway:x64-windows-static-clang@1.3.0#1...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+E:/qv_build_tmp/custom-ports\highway: info: installing overlay port from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached google-highway-1.3.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/highway/src/1.3.0-8cea15313a.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/google-highway-1.3.0.tar.gz
+-- Applying patch 2695.patch
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/highway/src/1.3.0-8cea15313a.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-dbg
+-- Building x64-windows-static-clang-rel
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/highway_x64-windows-static-clang/lib/pkgconfig/libhwy.pc
+-- Using cached msys2-mingw-w64-x86_64-pkgconf-1~2.5.1-1-any.pkg.tar.zst
+-- Using cached msys2-msys2-runtime-3.6.5-1-x86_64.pkg.tar.zst
+-- Using msys root at E:/qv_build_tmp/third_party/vcpkg/downloads/tools/msys2/3e71d1f8e22ab23f
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/highway_x64-windows-static-clang/debug/lib/pkgconfig/libhwy.pc
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/highway_x64-windows-static-clang/share/highway/copyright
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/highway_x64-windows-static-clang/share/highway/usage
+-- Performing post-build validation
+Starting submission of highway:x64-windows-static-clang@1.3.0#1 to 1 binary cache(s) in the background
+Elapsed time to handle highway:x64-windows-static-clang: 19 s
+Completed submission of boost-property-tree:x64-windows-static-clang@1.91.0 to 1 binary cache(s) in 49.9 ms
+Installing 50/66 dav1d:x64-windows-static-clang@1.5.3...
+dav1d:x64-windows-static-clang@1.5.3 package ABI: 67e9c85ebca2fadffe30540ae0ebd45dc316a8f21b1d0865c7b6b500bc1cd485
+Building dav1d:x64-windows-static-clang@1.5.3...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+E:/qv_build_tmp/custom-ports\dav1d: info: installing overlay port from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Found Python version '3.14.2 at E:/qv_build_tmp/third_party/vcpkg/downloads/tools/python/python-3.14.2-x64-1/python.exe'
+-- Using meson: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/meson-1.9.0-862431/meson.py
+-- Using cached videolan-dav1d-1.5.3.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/dav1d/src/1.5.3-f15718dea2.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/videolan-dav1d-1.5.3.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/dav1d/src/1.5.3-f15718dea2.clean
+-- Using cached msys2-mingw-w64-x86_64-pkgconf-1~2.5.1-1-any.pkg.tar.zst
+-- Using cached msys2-msys2-runtime-3.6.5-1-x86_64.pkg.tar.zst
+-- Using msys root at E:/qv_build_tmp/third_party/vcpkg/downloads/tools/msys2/3e71d1f8e22ab23f
+-- Configuring x64-windows-static-clang-dbg
+-- Getting CMake variables for x64-windows-static-clang
+-- Loading CMake variables from E:/qv_build_tmp/third_party/vcpkg/buildtrees/dav1d/cmake-get-vars_C_CXX-x64-windows-static-clang.cmake.log
+-- Configuring x64-windows-static-clang-dbg done
+-- Configuring x64-windows-static-clang-rel
+-- Configuring x64-windows-static-clang-rel done
+-- Package x64-windows-static-clang-dbg
+-- Package x64-windows-static-clang-rel
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/dav1d_x64-windows-static-clang/lib/pkgconfig/dav1d.pc
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/dav1d_x64-windows-static-clang/debug/lib/pkgconfig/dav1d.pc
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/dav1d_x64-windows-static-clang/share/dav1d/usage
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/dav1d_x64-windows-static-clang/share/dav1d/copyright
+-- Performing post-build validation
+Starting submission of dav1d:x64-windows-static-clang@1.5.3 to 1 binary cache(s) in the background
+Elapsed time to handle dav1d:x64-windows-static-clang: 23 s
+Completed submission of highway:x64-windows-static-clang@1.3.0#1 to 1 binary cache(s) in 175 ms
+Installing 51/66 libjpeg-turbo:x64-windows-static-clang@3.2.0...
+libjpeg-turbo:x64-windows-static-clang@3.2.0 package ABI: baf3ec32bbfdd3d28bdaacce3189e5880ee79d67399cdc4c07445efcedd9eb64
+Building libjpeg-turbo:x64-windows-static-clang@3.2.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached libjpeg-turbo-libjpeg-turbo-3.2.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/libjpeg-turbo/src/3.2.0-3cdbbb0a83.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/libjpeg-turbo-libjpeg-turbo-3.2.0.tar.gz
+-- Applying patch add-options-for-docs-headers.patch
+-- Applying patch workaround_cmake_system_processor.patch
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/libjpeg-turbo/src/3.2.0-3cdbbb0a83.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-dbg
+-- Building x64-windows-static-clang-rel
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/libjpeg-turbo_x64-windows-static-clang/lib/pkgconfig/libjpeg.pc
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/libjpeg-turbo_x64-windows-static-clang/lib/pkgconfig/libturbojpeg.pc
+-- Using cached msys2-mingw-w64-x86_64-pkgconf-1~2.5.1-1-any.pkg.tar.zst
+-- Using cached msys2-msys2-runtime-3.6.5-1-x86_64.pkg.tar.zst
+-- Using msys root at E:/qv_build_tmp/third_party/vcpkg/downloads/tools/msys2/3e71d1f8e22ab23f
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/libjpeg-turbo_x64-windows-static-clang/debug/lib/pkgconfig/libjpeg.pc
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/libjpeg-turbo_x64-windows-static-clang/debug/lib/pkgconfig/libturbojpeg.pc
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/libjpeg-turbo_x64-windows-static-clang/share/libjpeg-turbo/copyright
+-- Performing post-build validation
+Starting submission of libjpeg-turbo:x64-windows-static-clang@3.2.0 to 1 binary cache(s) in the background
+Elapsed time to handle libjpeg-turbo:x64-windows-static-clang: 33 s
+Completed submission of dav1d:x64-windows-static-clang@1.5.3 to 1 binary cache(s) in 366 ms
+Installing 52/66 libyuv:x64-windows-static-clang@1916...
+libyuv:x64-windows-static-clang@1916 package ABI: 286243e21e531b57563b984396f383bf7704bab597dec34186b1be40db0b8f5e
+Building libyuv:x64-windows-static-clang@1916...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+E:/qv_build_tmp/custom-ports\libyuv: info: installing overlay port from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached E:/qv_build_tmp/third_party/vcpkg/downloads/libyuv-d98915a654d3564e4802a0004add46221c4e4348.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/libyuv/src/221c4e4348-2a3f1cdb20.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/libyuv-d98915a654d3564e4802a0004add46221c4e4348.tar.gz
+-- Applying patch cmake.diff
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/libyuv/src/221c4e4348-2a3f1cdb20.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-dbg
+-- Building x64-windows-static-clang-rel
+-- Getting CMake variables for x64-windows-static-clang
+-- Loading CMake variables from E:/qv_build_tmp/third_party/vcpkg/buildtrees/libyuv/cmake-get-vars_C_CXX-x64-windows-static-clang.cmake.log
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/libyuv_x64-windows-static-clang/share/libyuv/copyright
+-- Performing post-build validation
+Starting submission of libyuv:x64-windows-static-clang@1916 to 1 binary cache(s) in the background
+Elapsed time to handle libyuv:x64-windows-static-clang: 18 s
+Completed submission of libjpeg-turbo:x64-windows-static-clang@3.2.0 to 1 binary cache(s) in 607 ms
+Installing 53/66 libavif[core,dav1d]:x64-windows-static-clang@1.4.1...
+libavif[core,dav1d]:x64-windows-static-clang@1.4.1 package ABI: f3d27a4d3b03f6a4cab17b6163de07109927717b9e2f2fc2fea0400b92c1d3cb
+Building libavif[core,dav1d]:x64-windows-static-clang@1.4.1...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+E:/qv_build_tmp/custom-ports\libavif: info: installing overlay port from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached AOMediaCodec-libavif-v1.4.1.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/libavif/src/v1.4.1-d58e5334ac.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/AOMediaCodec-libavif-v1.4.1.tar.gz
+-- Applying patch dependencies.diff
+-- Applying patch disable-source-utf8.patch
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/libavif/src/v1.4.1-d58e5334ac.clean
+-- Using cached msys2-mingw-w64-x86_64-pkgconf-1~2.5.1-1-any.pkg.tar.zst
+-- Using cached msys2-msys2-runtime-3.6.5-1-x86_64.pkg.tar.zst
+-- Using msys root at E:/qv_build_tmp/third_party/vcpkg/downloads/tools/msys2/3e71d1f8e22ab23f
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-dbg
+-- Building x64-windows-static-clang-rel
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/libavif_x64-windows-static-clang/lib/pkgconfig/libavif.pc
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/libavif_x64-windows-static-clang/debug/lib/pkgconfig/libavif.pc
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/libavif_x64-windows-static-clang/share/libavif/copyright
+-- Performing post-build validation
+Starting submission of libavif[core,dav1d]:x64-windows-static-clang@1.4.1 to 1 binary cache(s) in the background
+Elapsed time to handle libavif:x64-windows-static-clang: 12 s
+Completed submission of libyuv:x64-windows-static-clang@1916 to 1 binary cache(s) in 246 ms
+Installing 54/66 libdxfrw:x64-windows-static-clang@2025-09-25...
+libdxfrw:x64-windows-static-clang@2025-09-25 package ABI: bf286120c709fa6529f70cc0610e5bd98d59ce08dfebb0f3d3598848fec2eeb1
+Building libdxfrw:x64-windows-static-clang@2025-09-25...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+Downloading https://github.com/LibreCAD/libdxfrw/archive/92d7466ed9146badcd4fb44c82d1dd8302b3c7db.tar.gz -> LibreCAD-libdxfrw-92d7466ed9146badcd4fb44c82d1dd8302b3c7db.tar.gz
+Successfully downloaded LibreCAD-libdxfrw-92d7466ed9146badcd4fb44c82d1dd8302b3c7db.tar.gz
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/LibreCAD-libdxfrw-92d7466ed9146badcd4fb44c82d1dd8302b3c7db.tar.gz
+-- Applying patch remove-werror.patch
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/libdxfrw/src/8302b3c7db-591c8404e2.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-dbg
+-- Building x64-windows-static-clang-rel
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/libdxfrw_x64-windows-static-clang/lib/pkgconfig/libdxfrw.pc
+-- Using cached msys2-mingw-w64-x86_64-pkgconf-1~2.5.1-1-any.pkg.tar.zst
+-- Using cached msys2-msys2-runtime-3.6.5-1-x86_64.pkg.tar.zst
+-- Using msys root at E:/qv_build_tmp/third_party/vcpkg/downloads/tools/msys2/3e71d1f8e22ab23f
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/libdxfrw_x64-windows-static-clang/debug/lib/pkgconfig/libdxfrw.pc
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/libdxfrw_x64-windows-static-clang/share/libdxfrw/copyright
+-- Performing post-build validation
+Starting submission of libdxfrw:x64-windows-static-clang@2025-09-25 to 1 binary cache(s) in the background
+Elapsed time to handle libdxfrw:x64-windows-static-clang: 19 s
+Completed submission of libavif[core,dav1d]:x64-windows-static-clang@1.4.1 to 1 binary cache(s) in 167 ms
+Installing 55/66 lcms:x64-windows-static-clang@2.19.1#1...
+lcms:x64-windows-static-clang@2.19.1#1 package ABI: 0d0ae7891fd8080daf8b9cc5f5e181ff5280ff83cf6c4d01ba905fc883da8ecc
+Building lcms:x64-windows-static-clang@2.19.1#1...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Found Python version '3.14.2 at E:/qv_build_tmp/third_party/vcpkg/downloads/tools/python/python-3.14.2-x64-1/python.exe'
+-- Using meson: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/meson-1.9.0-862431/meson.py
+-- Using cached mm2-Little-CMS-lcms2.19.1.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/lcms/src/lcms2.19.1-42adadbfc9.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/mm2-Little-CMS-lcms2.19.1.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/lcms/src/lcms2.19.1-42adadbfc9.clean
+-- Using cached msys2-mingw-w64-x86_64-pkgconf-1~2.5.1-1-any.pkg.tar.zst
+-- Using cached msys2-msys2-runtime-3.6.5-1-x86_64.pkg.tar.zst
+-- Using msys root at E:/qv_build_tmp/third_party/vcpkg/downloads/tools/msys2/3e71d1f8e22ab23f
+-- Configuring x64-windows-static-clang-dbg
+-- Getting CMake variables for x64-windows-static-clang
+-- Loading CMake variables from E:/qv_build_tmp/third_party/vcpkg/buildtrees/lcms/cmake-get-vars_C_CXX-x64-windows-static-clang.cmake.log
+-- Configuring x64-windows-static-clang-dbg done
+-- Configuring x64-windows-static-clang-rel
+-- Configuring x64-windows-static-clang-rel done
+-- Package x64-windows-static-clang-dbg
+-- Package x64-windows-static-clang-rel
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/lcms_x64-windows-static-clang/lib/pkgconfig/lcms2.pc
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/lcms_x64-windows-static-clang/debug/lib/pkgconfig/lcms2.pc
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/lcms_x64-windows-static-clang/share/lcms/lcms-config.cmake
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/lcms_x64-windows-static-clang/share/lcms2/lcms2-config.cmake
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/lcms_x64-windows-static-clang/share/lcms/usage
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/lcms_x64-windows-static-clang/share/lcms/copyright
+-- Performing post-build validation
+Starting submission of lcms:x64-windows-static-clang@2.19.1#1 to 1 binary cache(s) in the background
+Elapsed time to handle lcms:x64-windows-static-clang: 29 s
+Completed submission of libdxfrw:x64-windows-static-clang@2025-09-25 to 1 binary cache(s) in 2.4 s
+Installing 56/66 brotli:x64-windows-static-clang@1.2.0...
+brotli:x64-windows-static-clang@1.2.0 package ABI: 4ee7171decf4236240d6bd9da3c66a315ba1ba4727eb1e159a4cee9915155179
+Building brotli:x64-windows-static-clang@1.2.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached google-brotli-v1.2.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/brotli/src/v1.2.0-7af7ca71ad.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/google-brotli-v1.2.0.tar.gz
+-- Applying patch install.patch
+-- Applying patch pkgconfig.patch
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/brotli/src/v1.2.0-7af7ca71ad.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-dbg
+-- Building x64-windows-static-clang-rel
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/brotli_x64-windows-static-clang/lib/pkgconfig/libbrotlicommon.pc
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/brotli_x64-windows-static-clang/lib/pkgconfig/libbrotlidec.pc
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/brotli_x64-windows-static-clang/lib/pkgconfig/libbrotlienc.pc
+-- Using cached msys2-mingw-w64-x86_64-pkgconf-1~2.5.1-1-any.pkg.tar.zst
+-- Using cached msys2-msys2-runtime-3.6.5-1-x86_64.pkg.tar.zst
+-- Using msys root at E:/qv_build_tmp/third_party/vcpkg/downloads/tools/msys2/3e71d1f8e22ab23f
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/brotli_x64-windows-static-clang/debug/lib/pkgconfig/libbrotlicommon.pc
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/brotli_x64-windows-static-clang/debug/lib/pkgconfig/libbrotlidec.pc
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/brotli_x64-windows-static-clang/debug/lib/pkgconfig/libbrotlienc.pc
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/brotli_x64-windows-static-clang/share/brotli/usage
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/brotli_x64-windows-static-clang/share/brotli/copyright
+-- Performing post-build validation
+Starting submission of brotli:x64-windows-static-clang@1.2.0 to 1 binary cache(s) in the background
+Elapsed time to handle brotli:x64-windows-static-clang: 19 s
+Completed submission of lcms:x64-windows-static-clang@2.19.1#1 to 1 binary cache(s) in 281 ms
+Installing 57/66 libjxl:x64-windows-static-clang@0.12.0...
+libjxl:x64-windows-static-clang@0.12.0 package ABI: 0611206469d429217c498cfac2e962b158215b168d6145057bf34034b4e01d1a
+Building libjxl:x64-windows-static-clang@0.12.0...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+E:/qv_build_tmp/custom-ports\libjxl: info: installing overlay port from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached libjxl-libjxl-v0.12.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/libjxl/src/v0.12.0-90efa02d8d.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/libjxl-libjxl-v0.12.0.tar.gz
+-- Applying patch fix-dependencies.patch
+-- Applying patch msvc-remove-libm.patch
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/libjxl/src/v0.12.0-90efa02d8d.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-dbg
+-- Building x64-windows-static-clang-rel
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/libjxl_x64-windows-static-clang/lib/pkgconfig/libjxl.pc
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/libjxl_x64-windows-static-clang/lib/pkgconfig/libjxl_cms.pc
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/libjxl_x64-windows-static-clang/lib/pkgconfig/libjxl_threads.pc
+-- Using cached msys2-mingw-w64-x86_64-pkgconf-1~2.5.1-1-any.pkg.tar.zst
+-- Using cached msys2-msys2-runtime-3.6.5-1-x86_64.pkg.tar.zst
+-- Using msys root at E:/qv_build_tmp/third_party/vcpkg/downloads/tools/msys2/3e71d1f8e22ab23f
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/libjxl_x64-windows-static-clang/debug/lib/pkgconfig/libjxl.pc
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/libjxl_x64-windows-static-clang/debug/lib/pkgconfig/libjxl_cms.pc
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/libjxl_x64-windows-static-clang/debug/lib/pkgconfig/libjxl_threads.pc
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/libjxl_x64-windows-static-clang/share/libjxl/copyright
+-- Performing post-build validation
+Starting submission of libjxl:x64-windows-static-clang@0.12.0 to 1 binary cache(s) in the background
+Elapsed time to handle libjxl:x64-windows-static-clang: 1.5 min
+Completed submission of brotli:x64-windows-static-clang@1.2.0 to 1 binary cache(s) in 389 ms
+Installing 58/66 zlib:x64-windows-static-clang@2.3.3#1...
+zlib:x64-windows-static-clang@2.3.3#1 package ABI: 53ccd91b784755f6ccf05bf44fe91fc1c9a7e836d5b786374dc776970f604ed0
+Building zlib:x64-windows-static-clang@2.3.3#1...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+E:/qv_build_tmp/custom-ports\zlib: info: installing overlay port from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached zlib-ng-zlib-ng-2.3.3.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/zlib/src/2.3.3-ee2120c460.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/zlib-ng-zlib-ng-2.3.3.tar.gz
+-- Applying patch fix-clang-cl-neon.patch
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/zlib/src/2.3.3-ee2120c460.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-dbg
+-- Building x64-windows-static-clang-rel
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/zlib_x64-windows-static-clang/lib/pkgconfig/zlib.pc
+-- Using cached msys2-mingw-w64-x86_64-pkgconf-1~2.5.1-1-any.pkg.tar.zst
+-- Using cached msys2-msys2-runtime-3.6.5-1-x86_64.pkg.tar.zst
+-- Using msys root at E:/qv_build_tmp/third_party/vcpkg/downloads/tools/msys2/3e71d1f8e22ab23f
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/zlib_x64-windows-static-clang/debug/lib/pkgconfig/zlib.pc
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/zlib_x64-windows-static-clang/share/zlib/copyright
+-- Performing post-build validation
+Starting submission of zlib:x64-windows-static-clang@2.3.3#1 to 1 binary cache(s) in the background
+Elapsed time to handle zlib:x64-windows-static-clang: 33 s
+Completed submission of libjxl:x64-windows-static-clang@0.12.0 to 1 binary cache(s) in 10 s
+Installing 59/66 openjpeg:x64-windows-static-clang@2.5.4...
+openjpeg:x64-windows-static-clang@2.5.4 package ABI: dccd9b6e625aaa26a89f87085da69e1929a474b9fe6b08b7a72cf60a1a49327d
+Building openjpeg:x64-windows-static-clang@2.5.4...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached uclouvain-openjpeg-v2.5.4.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/openjpeg/src/v2.5.4-eb11fd487f.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/uclouvain-openjpeg-v2.5.4.tar.gz
+-- Applying patch pkgconfig.diff
+-- Applying patch third-party.diff
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/openjpeg/src/v2.5.4-eb11fd487f.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-dbg
+-- Building x64-windows-static-clang-rel
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/openjpeg_x64-windows-static-clang/lib/pkgconfig/libopenjp2.pc
+-- Using cached msys2-mingw-w64-x86_64-pkgconf-1~2.5.1-1-any.pkg.tar.zst
+-- Using cached msys2-msys2-runtime-3.6.5-1-x86_64.pkg.tar.zst
+-- Using msys root at E:/qv_build_tmp/third_party/vcpkg/downloads/tools/msys2/3e71d1f8e22ab23f
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/openjpeg_x64-windows-static-clang/debug/lib/pkgconfig/libopenjp2.pc
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/openjpeg_x64-windows-static-clang/share/openjpeg/usage
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/openjpeg_x64-windows-static-clang/share/openjpeg/copyright
+-- Performing post-build validation
+Starting submission of openjpeg:x64-windows-static-clang@2.5.4 to 1 binary cache(s) in the background
+Elapsed time to handle openjpeg:x64-windows-static-clang: 26 s
+Completed submission of zlib:x64-windows-static-clang@2.3.3#1 to 1 binary cache(s) in 181 ms
+Installing 60/66 jbig2dec:x64-windows-static-clang@0.20...
+jbig2dec:x64-windows-static-clang@0.20 package ABI: 886745dd7714f1a8fa4a1d85ab221eee00867e84ed4eacab8efff6f7660ba309
+Building jbig2dec:x64-windows-static-clang@0.20...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached ArtifexSoftware-jbig2dec-0.20.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/jbig2dec/src/0.20-c5ba3578d1.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/ArtifexSoftware-jbig2dec-0.20.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/jbig2dec/src/0.20-c5ba3578d1.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-dbg
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/jbig2dec_x64-windows-static-clang/share/jbig2dec/copyright
+-- Performing post-build validation
+Starting submission of jbig2dec:x64-windows-static-clang@0.20 to 1 binary cache(s) in the background
+Elapsed time to handle jbig2dec:x64-windows-static-clang: 5.2 s
+Completed submission of openjpeg:x64-windows-static-clang@2.5.4 to 1 binary cache(s) in 257 ms
+Installing 61/66 libpng:x64-windows-static-clang@1.6.53...
+libpng:x64-windows-static-clang@1.6.53 package ABI: 72918a8c06084e05ba8dbc22162d1c65ea6857e8e212320d33b2ebdb61c5c856
+Building libpng:x64-windows-static-clang@1.6.53...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+E:/qv_build_tmp/custom-ports\libpng: info: installing overlay port from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached pnggroup-libpng-v1.6.53.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/libpng/src/v1.6.53-f6c4c552b6.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/pnggroup-libpng-v1.6.53.tar.gz
+-- Applying patch cmake.patch
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/libpng/src/v1.6.53-f6c4c552b6.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-dbg
+-- Building x64-windows-static-clang-rel
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/libpng_x64-windows-static-clang/share/png/vcpkg-cmake-wrapper.cmake
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/libpng_x64-windows-static-clang/share/libpng/libpng-config.cmake
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/libpng_x64-windows-static-clang/lib/pkgconfig/libpng16.pc
+-- Using cached msys2-mingw-w64-x86_64-pkgconf-1~2.5.1-1-any.pkg.tar.zst
+-- Using cached msys2-msys2-runtime-3.6.5-1-x86_64.pkg.tar.zst
+-- Using msys root at E:/qv_build_tmp/third_party/vcpkg/downloads/tools/msys2/3e71d1f8e22ab23f
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/libpng_x64-windows-static-clang/debug/lib/pkgconfig/libpng16.pc
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/libpng_x64-windows-static-clang/debug/lib/pkgconfig/libpng.pc
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/libpng_x64-windows-static-clang/lib/pkgconfig/libpng.pc
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/libpng_x64-windows-static-clang/share/libpng/usage
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/libpng_x64-windows-static-clang/share/libpng/copyright
+-- Performing post-build validation
+Starting submission of libpng:x64-windows-static-clang@1.6.53 to 1 binary cache(s) in the background
+Elapsed time to handle libpng:x64-windows-static-clang: 9.2 s
+Completed submission of jbig2dec:x64-windows-static-clang@0.20 to 1 binary cache(s) in 89.5 ms
+Installing 62/66 bzip2[core,tool]:x64-windows-static-clang@1.0.8#6...
+bzip2[core,tool]:x64-windows-static-clang@1.0.8#6 package ABI: 191a964972fbd6c50c0a5a0a0850ad9fa0fbbd5b9a35de24aa1e178212a589fa
+Building bzip2[core,tool]:x64-windows-static-clang@1.0.8#6...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached bzip2-1.0.8.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/bzip2/src/bzip2-1-336d4794a3.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/bzip2-1.0.8.tar.gz
+-- Applying patch fix-import-export-macros.patch
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/bzip2/src/bzip2-1-336d4794a3.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-dbg
+-- Building x64-windows-static-clang-rel
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/bzip2_x64-windows-static-clang/lib/pkgconfig/bzip2.pc
+-- Using cached msys2-mingw-w64-x86_64-pkgconf-1~2.5.1-1-any.pkg.tar.zst
+-- Using cached msys2-msys2-runtime-3.6.5-1-x86_64.pkg.tar.zst
+-- Using msys root at E:/qv_build_tmp/third_party/vcpkg/downloads/tools/msys2/3e71d1f8e22ab23f
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/bzip2_x64-windows-static-clang/debug/lib/pkgconfig/bzip2.pc
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/bzip2_x64-windows-static-clang/share/bzip2/copyright
+-- Performing post-build validation
+Starting submission of bzip2[core,tool]:x64-windows-static-clang@1.0.8#6 to 1 binary cache(s) in the background
+Elapsed time to handle bzip2:x64-windows-static-clang: 7.3 s
+Completed submission of libpng:x64-windows-static-clang@1.6.53 to 1 binary cache(s) in 159 ms
+Installing 63/66 freetype[brotli,bzip2,core,png,zlib]:x64-windows-static-clang@2.14.3...
+freetype[brotli,bzip2,core,png,zlib]:x64-windows-static-clang@2.14.3 package ABI: 9ca79273e39f266d2f50dadef7352a3a4f3fb6466e8052d1f6e5cf03f2cd4b9a
+Building freetype[brotli,bzip2,core,png,zlib]:x64-windows-static-clang@2.14.3...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+E:/qv_build_tmp/custom-ports\freetype: info: installing overlay port from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached freetype-freetype-VER-2-14-3.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/freetype/src/VER-2-14-3-46d5ca34ec.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/freetype-freetype-VER-2-14-3.tar.gz
+-- Applying patch 0003-Fix-UWP.patch
+-- Applying patch brotli-static.patch
+-- Applying patch bzip2.patch
+-- Applying patch fix-exports.patch
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/freetype/src/VER-2-14-3-46d5ca34ec.clean
+CMake Warning at scripts/cmake/vcpkg_replace_string.cmake:17 (message):
+  vcpkg_replace_string made no changes.
+Call Stack (most recent call first):
+  E:/qv_build_tmp/custom-ports/freetype/portfile.cmake:27 (vcpkg_replace_string)
+  scripts/ports.cmake:215 (include)
+
+
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-dbg
+-- Building x64-windows-static-clang-rel
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/freetype_x64-windows-static-clang/lib/pkgconfig/freetype2.pc
+-- Using cached msys2-mingw-w64-x86_64-pkgconf-1~2.5.1-1-any.pkg.tar.zst
+-- Using cached msys2-msys2-runtime-3.6.5-1-x86_64.pkg.tar.zst
+-- Using msys root at E:/qv_build_tmp/third_party/vcpkg/downloads/tools/msys2/3e71d1f8e22ab23f
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/freetype_x64-windows-static-clang/debug/lib/pkgconfig/freetype2.pc
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/freetype_x64-windows-static-clang/share/freetype/usage
+-- Performing post-build validation
+Starting submission of freetype[brotli,bzip2,core,png,zlib]:x64-windows-static-clang@2.14.3 to 1 binary cache(s) in the background
+Elapsed time to handle freetype:x64-windows-static-clang: 13 s
+Completed submission of bzip2[core,tool]:x64-windows-static-clang@1.0.8#6 to 1 binary cache(s) in 620 ms
+Installing 64/66 libmupdf:x64-windows-static-clang@1.27.2...
+libmupdf:x64-windows-static-clang@1.27.2 package ABI: 99a98bda68c6865f2a9e07997cbf2230dc639d5ff5fb93dc260f14d3fe118c4c
+Building libmupdf:x64-windows-static-clang@1.27.2...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+E:/qv_build_tmp/custom-ports\libmupdf: info: installing overlay port from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached ArtifexSoftware-mupdf-1.27.2.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/libmupdf/src/1.27.2-9b14de3cf6.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/ArtifexSoftware-mupdf-1.27.2.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/libmupdf/src/1.27.2-9b14de3cf6.clean
+-- Using cached mujs-1.3.6.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/libmupdf/src/mujs-1-aed3e493c0.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/mujs-1.3.6.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/libmupdf/src/mujs-1-aed3e493c0.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-dbg
+-- Building x64-windows-static-clang-rel
+-- Performing post-build validation
+Starting submission of libmupdf:x64-windows-static-clang@1.27.2 to 1 binary cache(s) in the background
+Elapsed time to handle libmupdf:x64-windows-static-clang: 31 s
+Completed submission of freetype[brotli,bzip2,core,png,zlib]:x64-windows-static-clang@2.14.3 to 1 binary cache(s) in 558 ms
+Installing 65/66 libraw:x64-windows-static-clang@0.22.1...
+libraw:x64-windows-static-clang@0.22.1 package ABI: 741207ab89ce314813e123884aa144cf1b7acd6ff2a40b4acc379082d9c1a7ea
+Building libraw:x64-windows-static-clang@0.22.1...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+E:/qv_build_tmp/custom-ports\libraw: info: installing overlay port from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached LibRaw-LibRaw-0.22.1.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/libraw/src/0.22.1-4be5bfc012.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/LibRaw-LibRaw-0.22.1.tar.gz
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/libraw/src/0.22.1-4be5bfc012.clean
+-- Using cached LibRaw-LibRaw-cmake-eb98e4325aef2ce85d2eb031c2ff18640ca616d3.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/libraw/src/640ca616d3-14475697d7.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/LibRaw-LibRaw-cmake-eb98e4325aef2ce85d2eb031c2ff18640ca616d3.tar.gz
+-- Applying patch dependencies.patch
+-- Applying patch fix-install.patch
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/libraw/src/640ca616d3-14475697d7.clean
+-- Configuring x64-windows-static-clang
+CMake Warning at E:/qv_build_tmp/out/build/Release-LTO/vcpkg_installed/x64-windows/share/vcpkg-cmake/vcpkg_cmake_configure.cmake:344 (message):
+  The following variables are not used in CMakeLists.txt:
+
+      CMAKE_REQUIRE_FIND_PACKAGE_Jasper
+
+  Please recheck them and remove the unnecessary options from the
+  `vcpkg_cmake_configure` call.
+
+  If these options should still be passed for whatever reason, please use the
+  `MAYBE_UNUSED_VARIABLES` argument.
+Call Stack (most recent call first):
+  E:/qv_build_tmp/custom-ports/libraw/portfile.cmake:33 (vcpkg_cmake_configure)
+  scripts/ports.cmake:215 (include)
+
+
+-- Building x64-windows-static-clang-dbg
+-- Building x64-windows-static-clang-rel
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/libraw_x64-windows-static-clang/lib/pkgconfig/libraw.pc
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/libraw_x64-windows-static-clang/lib/pkgconfig/libraw_r.pc
+-- Using cached msys2-mingw-w64-x86_64-pkgconf-1~2.5.1-1-any.pkg.tar.zst
+-- Using cached msys2-msys2-runtime-3.6.5-1-x86_64.pkg.tar.zst
+-- Using msys root at E:/qv_build_tmp/third_party/vcpkg/downloads/tools/msys2/3e71d1f8e22ab23f
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/libraw_x64-windows-static-clang/debug/lib/pkgconfig/libraw.pc
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/libraw_x64-windows-static-clang/debug/lib/pkgconfig/libraw_r.pc
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/libraw_x64-windows-static-clang/share/libraw/usage
+-- Performing post-build validation
+Starting submission of libraw:x64-windows-static-clang@0.22.1 to 1 binary cache(s) in the background
+Elapsed time to handle libraw:x64-windows-static-clang: 60 s
+Completed submission of libmupdf:x64-windows-static-clang@1.27.2 to 1 binary cache(s) in 4.6 s
+Installing 66/66 libwebp[core,libwebpmux,simd,unicode]:x64-windows-static-clang@1.6.0#2...
+libwebp[core,libwebpmux,simd,unicode]:x64-windows-static-clang@1.6.0#2 package ABI: 333bdcf435a1834cff78dda717a3fcca9022257fc6ff2604cc43e5879809561e
+Building libwebp[core,libwebpmux,simd,unicode]:x64-windows-static-clang@1.6.0#2...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+E:/qv_build_tmp/custom-ports\libwebp: info: installing overlay port from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached webmproject-libwebp-v1.6.0.tar.gz
+-- Cleaning sources at E:/qv_build_tmp/third_party/vcpkg/buildtrees/libwebp/src/v1.6.0-735cad4d36.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/webmproject-libwebp-v1.6.0.tar.gz
+-- Applying patch 0002-cmake-config.patch
+-- Applying patch 0003-simd.patch
+-- Applying patch 0008-sdl.patch
+-- Applying patch 0009-cpufeatures-android.patch
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/libwebp/src/v1.6.0-735cad4d36.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-dbg
+-- Building x64-windows-static-clang-rel
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/libwebp_x64-windows-static-clang/lib/pkgconfig/libsharpyuv.pc
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/libwebp_x64-windows-static-clang/lib/pkgconfig/libwebp.pc
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/libwebp_x64-windows-static-clang/lib/pkgconfig/libwebpdecoder.pc
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/libwebp_x64-windows-static-clang/lib/pkgconfig/libwebpdemux.pc
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/libwebp_x64-windows-static-clang/lib/pkgconfig/libwebpmux.pc
+-- Using cached msys2-mingw-w64-x86_64-pkgconf-1~2.5.1-1-any.pkg.tar.zst
+-- Using cached msys2-msys2-runtime-3.6.5-1-x86_64.pkg.tar.zst
+-- Using msys root at E:/qv_build_tmp/third_party/vcpkg/downloads/tools/msys2/3e71d1f8e22ab23f
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/libwebp_x64-windows-static-clang/debug/lib/pkgconfig/libsharpyuv.pc
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/libwebp_x64-windows-static-clang/debug/lib/pkgconfig/libwebp.pc
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/libwebp_x64-windows-static-clang/debug/lib/pkgconfig/libwebpdecoder.pc
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/libwebp_x64-windows-static-clang/debug/lib/pkgconfig/libwebpdemux.pc
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/libwebp_x64-windows-static-clang/debug/lib/pkgconfig/libwebpmux.pc
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/libwebp_x64-windows-static-clang/share/libwebp/usage
+-- Performing post-build validation
+Starting submission of libwebp[core,libwebpmux,simd,unicode]:x64-windows-static-clang@1.6.0#2 to 1 binary cache(s) in the background
+Elapsed time to handle libwebp:x64-windows-static-clang: 38 s
+Installed contents are licensed to you by owners. Microsoft is not responsible for, nor does it grant any licenses to, third-party packages.
+Some packages did not declare an SPDX license. Check the `copyright` file for each package for more information about their licensing.
+Packages installed in this vcpkg installation declare the following licenses:
+(FTL OR GPL-2.0-or-later)
+(LGPL-2.1-only OR CDDL-1.0)
+AGPL-3.0-only
+Apache-2.0
+BSD-2-Clause
+BSD-3-Clause
+BSL-1.0
+GPL-2.0-only
+MIT
+Zlib
+bzip2-1.0.6
+libpng-2.0
+The package boost-optional is compatible with built-in CMake targets of FindBoost.cmake:
+
+    find_package(Boost REQUIRED COMPONENTS optional)
+    target_link_libraries(main PRIVATE Boost::optional)
+
+or the generated cmake configs via:
+
+    find_package( REQUIRED CONFIG)
+    target_link_libraries(main PRIVATE Boost::optional)
+
+The package boost-algorithm is compatible with built-in CMake targets of FindBoost.cmake:
+
+    find_package(Boost REQUIRED COMPONENTS algorithm)
+    target_link_libraries(main PRIVATE Boost::algorithm)
+
+or the generated cmake configs via:
+
+    find_package( REQUIRED CONFIG)
+    target_link_libraries(main PRIVATE Boost::algorithm)
+
+The package boost-spirit is compatible with built-in CMake targets of FindBoost.cmake:
+
+    find_package(Boost REQUIRED COMPONENTS spirit)
+    target_link_libraries(main PRIVATE Boost::spirit)
+
+or the generated cmake configs via:
+
+    find_package( REQUIRED CONFIG)
+    target_link_libraries(main PRIVATE Boost::spirit)
+
+The package boost-property-tree is compatible with built-in CMake targets of FindBoost.cmake:
+
+    find_package(Boost REQUIRED COMPONENTS property_tree)
+    target_link_libraries(main PRIVATE Boost::property_tree)
+
+or the generated cmake configs via:
+
+    find_package( REQUIRED CONFIG)
+    target_link_libraries(main PRIVATE Boost::property_tree)
+
+highway provides CMake targets:
+
+    find_package(hwy CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE hwy::hwy)
+
+libjpeg-turbo is compatible with built-in implementation-agnostic CMake targets:
+
+    find_package(JPEG REQUIRED)
+    target_link_libraries(main PRIVATE JPEG::JPEG)
+
+libjpeg-turbo provides CMake targets for the TurboJPEG C API:
+
+    find_package(libjpeg-turbo CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE $<IF:$<TARGET_EXISTS:libjpeg-turbo::turbojpeg>,libjpeg-turbo::turbojpeg,libjpeg-turbo::turbojpeg-static>)
+
+libavif provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(libavif CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE avif)
+
+libavif provides pkg-config modules:
+
+  # Library for encoding and decoding .avif files
+  libavif
+
+libdxfrw provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(libdxfrw CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE libdxfrw::libdxfrw)
+
+libdxfrw provides pkg-config modules:
+
+  # c++ library to read/write dxf files in binary and ascii form
+  libdxfrw
+
+libjxl provides pkg-config modules:
+
+  # Loads and saves JPEG XL files
+  libjxl
+
+  # CMS support library for libjxl
+  libjxl_cms
+
+  # JPEG XL multi-thread runner using std::threads.
+  libjxl_threads
+
+zlib provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(zlib CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE ZLIB::ZLIB)
+
+zlib provides pkg-config modules:
+
+  # zlib-ng compression library
+  zlib
+
+libmupdf provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(unofficial-libmupdf CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE unofficial::libmupdf::libmupdf)
+
+libraw provides CMake targets:
+
+    find_package(libraw CONFIG REQUIRED)
+    # non-thread-safe
+    target_link_libraries(main PRIVATE libraw::raw)
+    # thread-safe
+    target_link_libraries(main PRIVATE libraw::raw_r)
+
+libwebp provides CMake targets:
+
+    find_package(WebP CONFIG REQUIRED)
+    # basic usage
+    target_link_libraries(main PRIVATE WebP::webp WebP::webpdecoder WebP::webpdemux)
+    # for manipulating the WebP graphics format container (port feature libwebpmux)
+    target_link_libraries(main PRIVATE WebP::libwebpmux)
+    # for sharp RGB to YUV conversion
+    target_link_libraries(main PRIVATE WebP::sharpyuv)
+
+Completed submission of libraw:x64-windows-static-clang@0.22.1 to 1 binary cache(s) in 771 ms
+Waiting for 1 remaining binary cache submissions...
+Completed submission of libwebp[core,libwebpmux,simd,unicode]:x64-windows-static-clang@1.6.0#2 to 1 binary cache(s) in 486 ms (1/1)
+All requested installations completed successfully in: 14 min
+-- Running vcpkg install - done
+-- unrar-mini: Google Highway SIMD enabled.
+-- Build Matrix: Enabling Full LTO (Release-LTO Mode)
+-- Configuring done (1081.0s)
+CMake Error at CMakeLists.txt:307 (target_link_libraries):
+  Target "QuickView" links to:
+
+    libdxfrw::dxfrw
+
+  but the target was not found.  Possible reasons include:
+
+    * There is a typo in the target name.
+    * A find_package call is missing for an IMPORTED target.
+    * An ALIAS target is missing.
+
+
+
+-- Generating done (0.1s)
+CMake Generate step failed.  Build files cannot be regenerated correctly.

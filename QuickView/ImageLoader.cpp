@@ -10119,6 +10119,12 @@ HRESULT CImageLoader::GetImageInfoFast(LPCWSTR filePath, ImageInfo *pInfo) {
       pInfo->height = 512;
       return S_OK;
     }
+    if (QuickView::ExtEqualsIgnoreCase(cdrExt, L".dwg")) {
+      pInfo->format = L"DWG";
+      pInfo->width = 512;
+      pInfo->height = 512;
+      return S_OK;
+    }
   }
 
   // Check content (XML/SVG) or extension
@@ -11287,7 +11293,7 @@ HRESULT CImageLoader::LoadPLT(LPCWSTR filePath,
 }
 
 // ============================================================================
-// DXF (AutoCAD) → SVG via VectorLoader → RawImageFrame(SVG_XML)
+// DXF (AutoCAD) → SVG via libdxfrw → RawImageFrame(SVG_XML)
 // ============================================================================
 HRESULT CImageLoader::LoadDXF(LPCWSTR filePath,
                               QuickView::RawImageFrame *outFrame,
@@ -11347,6 +11353,71 @@ HRESULT CImageLoader::LoadDXF(LPCWSTR filePath,
     pMetadata->Height = (UINT)svgH;
   }
   outFrame->formatDetails = L"DXF";
+
+  return S_OK;
+}
+
+// ============================================================================
+// DWG (AutoCAD) → SVG via libdxfrw → RawImageFrame(SVG_XML)
+// ============================================================================
+HRESULT CImageLoader::LoadDWG(LPCWSTR filePath,
+                              QuickView::RawImageFrame *outFrame,
+                              std::wstring *pLoaderName,
+                              CImageLoader::ImageMetadata *pMetadata,
+                              CancelPredicate checkCancel) {
+  std::vector<uint8_t> fileData;
+  if (!ReadFileToVector(filePath, fileData) || fileData.empty()) {
+    if (pMetadata)
+      pMetadata->Format = L"DWG (File Read Error)";
+    return E_FAIL;
+  }
+
+  if (checkCancel && checkCancel())
+    return E_ABORT;
+
+  std::string svgContent = QuickView::LoadDWGtoSVG(fileData.data(), fileData.size());
+  if (svgContent.empty()) {
+    if (pMetadata)
+      pMetadata->Format = L"DWG (Parse Failed)";
+    return E_FAIL;
+  }
+
+  // Parse viewBox dimensions from generated SVG
+  float svgW = 0.0f, svgH = 0.0f;
+  const std::string wStr = GetSvgRootAttrVal(svgContent, "width");
+  const std::string hStr = GetSvgRootAttrVal(svgContent, "height");
+  const bool hasWidth = TryParseSvgLengthToDip(wStr, &svgW);
+  const bool hasHeight = TryParseSvgLengthToDip(hStr, &svgH);
+
+  if (!hasWidth || !hasHeight || svgW <= 0.0f || svgH <= 0.0f) {
+    const std::string viewBox = GetSvgRootAttrVal(svgContent, "viewBox");
+    TryParseSvgViewBoxSize(viewBox, &svgW, &svgH);
+  }
+
+  if (svgW <= 0) svgW = 512;
+  if (svgH <= 0) svgH = 512;
+
+  outFrame->format = PixelFormat::SVG_XML;
+  outFrame->width = (int)std::lround(svgW);
+  outFrame->height = (int)std::lround(svgH);
+  outFrame->stride = 0;
+  outFrame->pixels = nullptr;
+
+  outFrame->svg = std::make_unique<RawImageFrame::SvgData>();
+  outFrame->svg->xmlData.assign(svgContent.begin(), svgContent.end());
+  outFrame->svg->viewBoxW = svgW;
+  outFrame->svg->viewBoxH = svgH;
+
+  if (pLoaderName)
+    *pLoaderName = L"VectorLoader (DWG)";
+  if (pMetadata) {
+    pMetadata->LoaderName = L"VectorLoader (DWG)";
+    pMetadata->Format = L"DWG";
+    pMetadata->FormatDetails = L"Vector (AutoCAD)";
+    pMetadata->Width = (UINT)svgW;
+    pMetadata->Height = (UINT)svgH;
+  }
+  outFrame->formatDetails = L"DWG";
 
   return S_OK;
 }
@@ -14453,10 +14524,10 @@ HRESULT CImageLoader::LoadToFrame(
     }
 
     // ========================================================================
-    // PLT/DXF Path (VectorLoader → SVG XML → D2D Native SVG)
+    // PLT/DXF/DWG Path (VectorLoader → SVG XML → D2D Native SVG)
     // ========================================================================
-    // PLT (HPGL plotter format) and DXF (AutoCAD Drawing Exchange Format)
-    // are vector formats parsed by hand-written decoders in VectorLoader.
+    // PLT (HPGL plotter format): hand-written parser
+    // DXF/DWG (AutoCAD): parsed by libdxfrw (DRW_Interface callback)
     // They generate SVG XML strings reusing the same RawImageFrame(SVG_XML)
     // pipeline as native SVG files.
     // ========================================================================
@@ -14465,6 +14536,9 @@ HRESULT CImageLoader::LoadToFrame(
     }
     if (QuickView::ExtEqualsIgnoreCase(ext, L".dxf")) {
       return LoadDXF(filePath, outFrame, pLoaderName, pMetadata, checkCancel);
+    }
+    if (QuickView::ExtEqualsIgnoreCase(ext, L".dwg")) {
+      return LoadDWG(filePath, outFrame, pLoaderName, pMetadata, checkCancel);
     }
 
     // ========================================================================

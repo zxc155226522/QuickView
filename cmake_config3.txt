@@ -1,0 +1,249 @@
+Preset CMake variables:
+
+  CMAKE_BUILD_TYPE="Release"
+  CMAKE_CXX_COMPILER="clang-cl"
+  CMAKE_C_COMPILER="clang-cl"
+  CMAKE_EXPORT_COMPILE_COMMANDS="ON"
+  CMAKE_LINKER="E:/qv_build_tmp/cmake/lld-link-wrapper.bat"
+  CMAKE_MSVC_RUNTIME_LIBRARY="MultiThreaded"
+  CMAKE_RC_COMPILER="llvm-rc"
+  CMAKE_TOOLCHAIN_FILE="E:/qv_build_tmp/cmake/QuickViewToolchain.cmake"
+  ENABLE_ASAN="OFF"
+  ENABLE_LTO="ON"
+  VCPKG_MANIFEST_INSTALL="ON"
+  VCPKG_MANIFEST_MODE="ON"
+  VCPKG_OVERLAY_PORTS="E:/qv_build_tmp/custom-ports"
+  VCPKG_OVERLAY_TRIPLETS="E:/qv_build_tmp/custom-triplet"
+  VCPKG_TARGET_TRIPLET="x64-windows-static-clang"
+
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Program Files/LLVM/bin/nasm.exe
+-- Running vcpkg install
+Detecting compiler hash for triplet x64-windows...
+-- Using %HTTP(S)_PROXY% in environment variables.
+Compiler found: C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe
+Detecting compiler hash for triplet x64-windows-static-clang...
+Compiler found: C:/Program Files/LLVM/bin/clang-cl.exe
+The following packages are already installed:
+    boost-algorithm:x64-windows-static-clang@1.91.0
+  * boost-align:x64-windows-static-clang@1.91.0
+  * boost-any:x64-windows-static-clang@1.91.0
+  * boost-array:x64-windows-static-clang@1.91.0
+  * boost-assert:x64-windows-static-clang@1.91.0
+  * boost-atomic:x64-windows-static-clang@1.91.0
+  * boost-bind:x64-windows-static-clang@1.91.0
+  * boost-chrono:x64-windows-static-clang@1.91.0
+  * boost-cmake:x64-windows-static-clang@1.91.0
+  * boost-compat:x64-windows-static-clang@1.91.0
+  * boost-concept-check:x64-windows-static-clang@1.91.0
+  * boost-config:x64-windows-static-clang@1.91.0
+  * boost-container:x64-windows-static-clang@1.91.0
+  * boost-container-hash:x64-windows-static-clang@1.91.0
+  * boost-conversion:x64-windows-static-clang@1.91.0
+  * boost-core:x64-windows-static-clang@1.91.0
+  * boost-date-time:x64-windows-static-clang@1.91.0
+  * boost-describe:x64-windows-static-clang@1.91.0
+  * boost-detail:x64-windows-static-clang@1.91.0
+  * boost-endian:x64-windows-static-clang@1.91.0
+  * boost-exception:x64-windows-static-clang@1.91.0
+  * boost-function:x64-windows-static-clang@1.91.0
+  * boost-function-types:x64-windows-static-clang@1.91.0
+  * boost-functional:x64-windows-static-clang@1.91.0
+  * boost-fusion:x64-windows-static-clang@1.91.0
+  * boost-headers:x64-windows-static-clang@1.91.0
+  * boost-integer:x64-windows-static-clang@1.91.0
+  * boost-intrusive:x64-windows-static-clang@1.91.0
+  * boost-io:x64-windows-static-clang@1.91.0
+  * boost-iterator:x64-windows-static-clang@1.91.0
+  * boost-lexical-cast:x64-windows-static-clang@1.91.0
+  * boost-move:x64-windows-static-clang@1.91.0
+  * boost-mp11:x64-windows-static-clang@1.91.0
+  * boost-mpl:x64-windows-static-clang@1.91.0
+  * boost-multi-index:x64-windows-static-clang@1.91.0
+  * boost-numeric-conversion:x64-windows-static-clang@1.91.0
+    boost-optional:x64-windows-static-clang@1.91.0
+  * boost-phoenix:x64-windows-static-clang@1.91.0
+  * boost-pool:x64-windows-static-clang@1.91.0
+  * boost-predef:x64-windows-static-clang@1.91.0
+  * boost-preprocessor:x64-windows-static-clang@1.91.0
+    boost-property-tree:x64-windows-static-clang@1.91.0
+  * boost-proto:x64-windows-static-clang@1.91.0
+  * boost-range:x64-windows-static-clang@1.91.0
+  * boost-ratio:x64-windows-static-clang@1.91.0
+  * boost-regex:x64-windows-static-clang@1.91.0
+  * boost-serialization:x64-windows-static-clang@1.91.0
+  * boost-smart-ptr:x64-windows-static-clang@1.91.0
+    boost-spirit:x64-windows-static-clang@1.91.0
+  * boost-static-assert:x64-windows-static-clang@1.91.0
+  * boost-system:x64-windows-static-clang@1.91.0
+  * boost-thread:x64-windows-static-clang@1.91.0
+  * boost-throw-exception:x64-windows-static-clang@1.91.0
+  * boost-tokenizer:x64-windows-static-clang@1.91.0
+  * boost-tuple:x64-windows-static-clang@1.91.0
+  * boost-type-index:x64-windows-static-clang@1.91.0
+  * boost-type-traits:x64-windows-static-clang@1.91.0
+  * boost-typeof:x64-windows-static-clang@1.91.0
+  * boost-uninstall:x64-windows-static-clang@1.91.0
+  * boost-unordered:x64-windows-static-clang@1.91.0
+  * boost-utility:x64-windows-static-clang@1.91.0
+  * boost-variant:x64-windows-static-clang@1.91.0
+  * boost-variant2:x64-windows-static-clang@1.91.0
+  * boost-winapi:x64-windows-static-clang@1.91.0
+  * brotli:x64-windows-static-clang@1.2.0
+  * bzip2[core,tool]:x64-windows-static-clang@1.0.8#6
+  * dav1d:x64-windows-static-clang@1.5.3
+  * freetype[core,zlib,png,bzip2,brotli]:x64-windows-static-clang@2.14.3
+    highway:x64-windows-static-clang@1.3.0#1
+  * jbig2dec:x64-windows-static-clang@0.20
+  * lcms:x64-windows-static-clang@2.19.1#1
+    libavif[core,dav1d]:x64-windows-static-clang@1.4.1
+    libdxfrw:x64-windows-static-clang@2025-09-25
+    libjpeg-turbo:x64-windows-static-clang@3.2.0
+    libjxl:x64-windows-static-clang@0.12.0
+    libmupdf:x64-windows-static-clang@1.27.2
+  * libpng:x64-windows-static-clang@1.6.53
+    libraw:x64-windows-static-clang@0.22.1
+    libwebp[core,unicode,simd,libwebpmux]:x64-windows-static-clang@1.6.0#2
+  * libyuv:x64-windows-static-clang@1916
+  * openjpeg:x64-windows-static-clang@2.5.4
+  * vcpkg-boost:x64-windows@2025-03-29
+  * vcpkg-cmake:x64-windows@2024-04-23
+  * vcpkg-cmake-config:x64-windows@2024-05-23
+  * vcpkg-cmake-get-vars:x64-windows@2025-05-29
+  * vcpkg-tool-meson:x64-windows@1.9.0#8
+    zlib:x64-windows-static-clang@2.3.3#1
+The package boost-optional is compatible with built-in CMake targets of FindBoost.cmake:
+
+    find_package(Boost REQUIRED COMPONENTS optional)
+    target_link_libraries(main PRIVATE Boost::optional)
+
+or the generated cmake configs via:
+
+    find_package( REQUIRED CONFIG)
+    target_link_libraries(main PRIVATE Boost::optional)
+
+The package boost-algorithm is compatible with built-in CMake targets of FindBoost.cmake:
+
+    find_package(Boost REQUIRED COMPONENTS algorithm)
+    target_link_libraries(main PRIVATE Boost::algorithm)
+
+or the generated cmake configs via:
+
+    find_package( REQUIRED CONFIG)
+    target_link_libraries(main PRIVATE Boost::algorithm)
+
+The package boost-spirit is compatible with built-in CMake targets of FindBoost.cmake:
+
+    find_package(Boost REQUIRED COMPONENTS spirit)
+    target_link_libraries(main PRIVATE Boost::spirit)
+
+or the generated cmake configs via:
+
+    find_package( REQUIRED CONFIG)
+    target_link_libraries(main PRIVATE Boost::spirit)
+
+The package boost-property-tree is compatible with built-in CMake targets of FindBoost.cmake:
+
+    find_package(Boost REQUIRED COMPONENTS property_tree)
+    target_link_libraries(main PRIVATE Boost::property_tree)
+
+or the generated cmake configs via:
+
+    find_package( REQUIRED CONFIG)
+    target_link_libraries(main PRIVATE Boost::property_tree)
+
+highway provides CMake targets:
+
+    find_package(hwy CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE hwy::hwy)
+
+libjpeg-turbo is compatible with built-in implementation-agnostic CMake targets:
+
+    find_package(JPEG REQUIRED)
+    target_link_libraries(main PRIVATE JPEG::JPEG)
+
+libjpeg-turbo provides CMake targets for the TurboJPEG C API:
+
+    find_package(libjpeg-turbo CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE $<IF:$<TARGET_EXISTS:libjpeg-turbo::turbojpeg>,libjpeg-turbo::turbojpeg,libjpeg-turbo::turbojpeg-static>)
+
+libavif provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(libavif CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE avif)
+
+libavif provides pkg-config modules:
+
+  # Library for encoding and decoding .avif files
+  libavif
+
+libdxfrw provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(libdxfrw CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE libdxfrw::libdxfrw)
+
+libdxfrw provides pkg-config modules:
+
+  # c++ library to read/write dxf files in binary and ascii form
+  libdxfrw
+
+libjxl provides pkg-config modules:
+
+  # Loads and saves JPEG XL files
+  libjxl
+
+  # CMS support library for libjxl
+  libjxl_cms
+
+  # JPEG XL multi-thread runner using std::threads.
+  libjxl_threads
+
+zlib provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(zlib CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE ZLIB::ZLIB)
+
+zlib provides pkg-config modules:
+
+  # zlib-ng compression library
+  zlib
+
+libmupdf provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(unofficial-libmupdf CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE unofficial::libmupdf::libmupdf)
+
+libraw provides CMake targets:
+
+    find_package(libraw CONFIG REQUIRED)
+    # non-thread-safe
+    target_link_libraries(main PRIVATE libraw::raw)
+    # thread-safe
+    target_link_libraries(main PRIVATE libraw::raw_r)
+
+libwebp provides CMake targets:
+
+    find_package(WebP CONFIG REQUIRED)
+    # basic usage
+    target_link_libraries(main PRIVATE WebP::webp WebP::webpdecoder WebP::webpdemux)
+    # for manipulating the WebP graphics format container (port feature libwebpmux)
+    target_link_libraries(main PRIVATE WebP::libwebpmux)
+    # for sharp RGB to YUV conversion
+    target_link_libraries(main PRIVATE WebP::sharpyuv)
+
+All requested installations completed successfully in: 1.51 ms
+-- Running vcpkg install - done
+-- unrar-mini: Google Highway SIMD enabled.
+-- Build Matrix: Enabling Full LTO (Release-LTO Mode)
+-- Configuring done (216.6s)
+-- Generating done (0.1s)
+-- Build files have been written to: E:/qv_build_tmp/out/build/Release-LTO

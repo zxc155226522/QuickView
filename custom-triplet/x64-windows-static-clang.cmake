@@ -45,7 +45,7 @@ set(VCPKG_C_FLAGS_RELEASE "/O2 /Oi /Ob2 ${COMPILER_LTO_FLAGS} /DNDEBUG -DHWY_BAS
 set(VCPKG_CXX_FLAGS_RELEASE "/O2 /Oi /Ob2 ${COMPILER_LTO_FLAGS} /DNDEBUG -DHWY_BASELINE_TARGETS=0x800 -DHWY_DISABLED_TARGETS=0x7080")
 
 # LibRaw and boost compiled libs require exceptions and RTTI. Disable for others to save size.
-if(NOT PORT STREQUAL "libraw" AND NOT PORT MATCHES "^boost-")
+if(NOT PORT STREQUAL "libraw" AND NOT PORT MATCHES "^boost-" AND NOT PORT STREQUAL "libdxfrw")
     string(APPEND VCPKG_C_FLAGS_RELEASE " /GR- /EHs-c-")
     string(APPEND VCPKG_CXX_FLAGS_RELEASE " /GR- /EHs-c-")
 endif()

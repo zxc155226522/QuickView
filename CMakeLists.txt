@@ -288,6 +288,9 @@ find_package(ZLIB REQUIRED)
 # libmupdf (MuPDF - PDF/AI rendering)
 find_package(unofficial-libmupdf CONFIG REQUIRED)
 
+# libdxfrw (DXF/DWG vector format support)
+find_package(libdxfrw CONFIG REQUIRED)
+
 # Create targets for Brotli and Dav1d
 add_library(brotli::common STATIC IMPORTED)
 set_property(TARGET brotli::common PROPERTY IMPORTED_LOCATION_RELEASE "${BROTLI_COMMON_LIB_RELEASE}")
@@ -321,6 +324,7 @@ target_link_libraries(QuickView PRIVATE
     librevenge
     libcdr
     unofficial::libmupdf::libmupdf
+    libdxfrw::libdxfrw
     # Windows system libraries
     imm32.lib
     dwrite.lib

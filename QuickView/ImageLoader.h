@@ -520,8 +520,14 @@ private:
                   CImageLoader::ImageMetadata *pMetadata = nullptr,
                   CancelPredicate checkCancel = {});
 
-  // DXF (AutoCAD) → SVG via VectorLoader
+  // DXF (AutoCAD) → SVG via VectorLoader (libdxfrw)
   HRESULT LoadDXF(LPCWSTR filePath, QuickView::RawImageFrame *outFrame,
+                  std::wstring *pLoaderName = nullptr,
+                  CImageLoader::ImageMetadata *pMetadata = nullptr,
+                  CancelPredicate checkCancel = {});
+
+  // DWG (AutoCAD) → SVG via VectorLoader (libdxfrw)
+  HRESULT LoadDWG(LPCWSTR filePath, QuickView::RawImageFrame *outFrame,
                   std::wstring *pLoaderName = nullptr,
                   CImageLoader::ImageMetadata *pMetadata = nullptr,
                   CancelPredicate checkCancel = {});
