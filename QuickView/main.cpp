@@ -4127,6 +4127,18 @@ void ApplyWindowTheme(HWND hwnd) {
         DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, &backdropType, sizeof(backdropType));
     }
 
+    // [Fix] Dynamic DWM frame extension: when canvas is fully opaque, disable frame extension
+    // to prevent DWM system background bleeding through DComp surface on WS_EX_NOREDIRECTIONBITMAP windows.
+    // When canvas has alpha < 1.0, keep {0,0,0,1} for drop shadow.
+    {
+        D2D1_COLOR_F canvasColor = ResolveCanvasColor();
+        bool canvasOpaque = (canvasColor.a >= 0.999f) && !IsOverlayModeActive() &&
+                            !(g_slideshowState.IsActive && g_config.SlideshowImmersiveMode == 1) &&
+                            (g_config.CanvasColor != 4);
+        MARGINS margins = canvasOpaque ? MARGINS{0, 0, 0, 0} : MARGINS{0, 0, 0, 1};
+        DwmExtendFrameIntoClientArea(hwnd, &margins);
+    }
+
 #ifndef DWMWA_BORDER_COLOR
 #define DWMWA_BORDER_COLOR 34
 #endif
@@ -5555,8 +5567,10 @@ static D2D1_COLOR_F ResolveCanvasColor() {
                     case 2: return D2D1::ColorF(0.50f, 0.50f, 0.50f);
                 }
             } else if (idx >= 3 && idx < 9) {
+                float a = g_config.SwatchColors[idx][3];
+                if (a >= 0.999f) a = 1.0f; // [Fix] Alpha precision: clamp near-1.0 to exactly 1.0
                 return D2D1::ColorF(g_config.SwatchColors[idx][0], g_config.SwatchColors[idx][1],
-                                   g_config.SwatchColors[idx][2], g_config.SwatchColors[idx][3]);
+                                   g_config.SwatchColors[idx][2], a);
             }
             return D2D1::ColorF(1.0f, 1.0f, 1.0f); // Default white
         }
