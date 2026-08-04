@@ -1,0 +1,172 @@
+Preset CMake variables:
+
+  CMAKE_BUILD_TYPE="Release"
+  CMAKE_CXX_COMPILER="clang-cl"
+  CMAKE_C_COMPILER="clang-cl"
+  CMAKE_EXPORT_COMPILE_COMMANDS="ON"
+  CMAKE_LINKER="E:/qv_build_tmp/cmake/lld-link-wrapper.bat"
+  CMAKE_MSVC_RUNTIME_LIBRARY="MultiThreaded"
+  CMAKE_RC_COMPILER="llvm-rc"
+  CMAKE_TOOLCHAIN_FILE="E:/qv_build_tmp/cmake/QuickViewToolchain.cmake"
+  ENABLE_ASAN="OFF"
+  ENABLE_LTO="ON"
+  VCPKG_MANIFEST_INSTALL="ON"
+  VCPKG_MANIFEST_MODE="ON"
+  VCPKG_OVERLAY_PORTS="E:/qv_build_tmp/custom-ports"
+  VCPKG_OVERLAY_TRIPLETS="E:/qv_build_tmp/custom-triplet"
+  VCPKG_TARGET_TRIPLET="x64-windows-static-clang"
+
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Program Files/LLVM/bin/nasm.exe
+-- Running vcpkg install
+Detecting compiler hash for triplet x64-windows...
+-- Automatically setting %HTTP(S)_PROXY% environment variables to "127.0.0.1:7890".
+Compiler found: C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe
+Detecting compiler hash for triplet x64-windows-static-clang...
+Compiler found: C:/Program Files/LLVM/bin/clang-cl.exe
+The following packages are already installed:
+    boost-algorithm:x64-windows-static-clang@1.91.0
+  * boost-align:x64-windows-static-clang@1.91.0
+  * boost-any:x64-windows-static-clang@1.91.0
+  * boost-array:x64-windows-static-clang@1.91.0
+  * boost-assert:x64-windows-static-clang@1.91.0
+  * boost-atomic:x64-windows-static-clang@1.91.0
+  * boost-bind:x64-windows-static-clang@1.91.0
+  * boost-chrono:x64-windows-static-clang@1.91.0
+  * boost-cmake:x64-windows-static-clang@1.91.0
+  * boost-compat:x64-windows-static-clang@1.91.0
+  * boost-concept-check:x64-windows-static-clang@1.91.0
+  * boost-config:x64-windows-static-clang@1.91.0
+  * boost-container:x64-windows-static-clang@1.91.0
+  * boost-container-hash:x64-windows-static-clang@1.91.0
+  * boost-conversion:x64-windows-static-clang@1.91.0
+  * boost-core:x64-windows-static-clang@1.91.0
+  * boost-date-time:x64-windows-static-clang@1.91.0
+  * boost-describe:x64-windows-static-clang@1.91.0
+  * boost-detail:x64-windows-static-clang@1.91.0
+  * boost-endian:x64-windows-static-clang@1.91.0
+  * boost-exception:x64-windows-static-clang@1.91.0
+  * boost-function:x64-windows-static-clang@1.91.0
+  * boost-function-types:x64-windows-static-clang@1.91.0
+  * boost-functional:x64-windows-static-clang@1.91.0
+  * boost-fusion:x64-windows-static-clang@1.91.0
+  * boost-headers:x64-windows-static-clang@1.91.0
+  * boost-integer:x64-windows-static-clang@1.91.0
+  * boost-intrusive:x64-windows-static-clang@1.91.0
+  * boost-io:x64-windows-static-clang@1.91.0
+  * boost-iterator:x64-windows-static-clang@1.91.0
+  * boost-lexical-cast:x64-windows-static-clang@1.91.0
+  * boost-move:x64-windows-static-clang@1.91.0
+  * boost-mp11:x64-windows-static-clang@1.91.0
+  * boost-mpl:x64-windows-static-clang@1.91.0
+  * boost-multi-index:x64-windows-static-clang@1.91.0
+  * boost-numeric-conversion:x64-windows-static-clang@1.91.0
+    boost-optional:x64-windows-static-clang@1.91.0
+  * boost-phoenix:x64-windows-static-clang@1.91.0
+  * boost-pool:x64-windows-static-clang@1.91.0
+  * boost-predef:x64-windows-static-clang@1.91.0
+  * boost-preprocessor:x64-windows-static-clang@1.91.0
+    boost-property-tree:x64-windows-static-clang@1.91.0
+  * boost-proto:x64-windows-static-clang@1.91.0
+  * boost-range:x64-windows-static-clang@1.91.0
+  * boost-ratio:x64-windows-static-clang@1.91.0
+  * boost-regex:x64-windows-static-clang@1.91.0
+  * boost-serialization:x64-windows-static-clang@1.91.0
+  * boost-smart-ptr:x64-windows-static-clang@1.91.0
+    boost-spirit:x64-windows-static-clang@1.91.0
+  * boost-static-assert:x64-windows-static-clang@1.91.0
+  * boost-system:x64-windows-static-clang@1.91.0
+  * boost-thread:x64-windows-static-clang@1.91.0
+  * boost-throw-exception:x64-windows-static-clang@1.91.0
+  * boost-tokenizer:x64-windows-static-clang@1.91.0
+  * boost-tuple:x64-windows-static-clang@1.91.0
+  * boost-type-index:x64-windows-static-clang@1.91.0
+  * boost-type-traits:x64-windows-static-clang@1.91.0
+  * boost-typeof:x64-windows-static-clang@1.91.0
+  * boost-uninstall:x64-windows-static-clang@1.91.0
+  * boost-unordered:x64-windows-static-clang@1.91.0
+  * boost-utility:x64-windows-static-clang@1.91.0
+  * boost-variant:x64-windows-static-clang@1.91.0
+  * boost-variant2:x64-windows-static-clang@1.91.0
+  * boost-winapi:x64-windows-static-clang@1.91.0
+  * dav1d:x64-windows-static-clang@1.5.3
+    highway:x64-windows-static-clang@1.3.0#1
+    libavif[core,dav1d]:x64-windows-static-clang@1.4.1
+    libjpeg-turbo:x64-windows-static-clang@3.2.0
+  * libyuv:x64-windows-static-clang@1916
+  * vcpkg-boost:x64-windows@2025-03-29
+  * vcpkg-cmake:x64-windows@2024-04-23
+  * vcpkg-cmake-config:x64-windows@2024-05-23
+  * vcpkg-cmake-get-vars:x64-windows@2025-05-29
+  * vcpkg-tool-meson:x64-windows@1.9.0#8
+The following packages will be built and installed:
+  * brotli:x64-windows-static-clang@1.2.0
+  * bzip2[core,tool]:x64-windows-static-clang@1.0.8#6
+  * freetype[brotli,bzip2,core,png,zlib]:x64-windows-static-clang@2.14.3 -- E:/qv_build_tmp/custom-ports\freetype
+  * jbig2dec:x64-windows-static-clang@0.20
+  * lcms:x64-windows-static-clang@2.19.1#1
+    libdxfrw:x64-windows-static-clang@2025-09-25 -- E:/qv_build_tmp/custom-ports\libdxfrw
+    libjxl:x64-windows-static-clang@0.12.0 -- E:/qv_build_tmp/custom-ports\libjxl
+    libmupdf:x64-windows-static-clang@1.27.2 -- E:/qv_build_tmp/custom-ports\libmupdf
+  * libpng:x64-windows-static-clang@1.6.53 -- E:/qv_build_tmp/custom-ports\libpng
+    libraw:x64-windows-static-clang@0.22.1 -- E:/qv_build_tmp/custom-ports\libraw
+    libwebp[core,libwebpmux,simd,unicode]:x64-windows-static-clang@1.6.0#2 -- E:/qv_build_tmp/custom-ports\libwebp
+  * openjpeg:x64-windows-static-clang@2.5.4
+    zlib:x64-windows-static-clang@2.3.3#1 -- E:/qv_build_tmp/custom-ports\zlib
+Additional packages (*) will be modified to complete this operation.
+Restored 12 package(s) from C:\Users\Administrator\AppData\Local\vcpkg\archives in 1.3 s. Use --debug to see more details.
+Installing 1/13 libdxfrw:x64-windows-static-clang@2025-09-25...
+libdxfrw:x64-windows-static-clang@2025-09-25 package ABI: b0d582d24cd303191ebc4f9d96a2f1b8ce10d96d1de7502d0a5498e8d63c5135
+Building libdxfrw:x64-windows-static-clang@2025-09-25...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+E:/qv_build_tmp/custom-ports\libdxfrw: info: installing overlay port from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached LibreCAD-libdxfrw-92d7466ed9146badcd4fb44c82d1dd8302b3c7db.tar.gz
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/LibreCAD-libdxfrw-92d7466ed9146badcd4fb44c82d1dd8302b3c7db.tar.gz
+-- Applying patch remove-werror.patch
+-- Applying patch fix-decompress-fallback.patch
+CMake Error at scripts/cmake/z_vcpkg_apply_patches.cmake:34 (message):
+  Applying patch failed: error: corrupt patch at
+  E:/qv_build_tmp/custom-ports/libdxfrw/fix-decompress-fallback.patch:25
+
+Call Stack (most recent call first):
+  scripts/cmake/vcpkg_extract_source_archive.cmake:147 (z_vcpkg_apply_patches)
+  scripts/cmake/vcpkg_extract_source_archive_ex.cmake:8 (vcpkg_extract_source_archive)
+  scripts/cmake/vcpkg_from_github.cmake:127 (vcpkg_extract_source_archive_ex)
+  E:/qv_build_tmp/custom-ports/libdxfrw/portfile.cmake:1 (vcpkg_from_github)
+  scripts/ports.cmake:215 (include)
+
+
+error: building libdxfrw:x64-windows-static-clang failed with: BUILD_FAILED
+See https://learn.microsoft.com/vcpkg/troubleshoot/build-failures?WT.mc_id=vcpkg_inproduct_cli for more information.
+Elapsed time to handle libdxfrw:x64-windows-static-clang: 2.2 s
+Please ensure you're using the latest port files with `git pull` and `vcpkg update`.
+Then check for known issues at:
+  https://github.com/microsoft/vcpkg/issues?q=is%3Aissue+is%3Aopen+in%3Atitle+libdxfrw
+You can submit a new issue at:
+  https://github.com/microsoft/vcpkg/issues/new?title=%5Blibdxfrw%5D%20build%20error%20on%20x64-windows-static-clang&body=Copy%20issue%20body%20from%20E%3A%2Fqv_build_tmp%2Fout%2Fbuild%2FRelease-LTO%2Fvcpkg_installed%2Fvcpkg%2Fissue_body.md
+
+-- Running vcpkg install - failed
+CMake Error at third_party/vcpkg/scripts/buildsystems/vcpkg.cmake:984 (message):
+  vcpkg install failed.  See logs for more information:
+  E:\qv_build_tmp\out\build\Release-LTO\vcpkg-manifest-install.log
+Call Stack (most recent call first):
+  cmake/QuickViewToolchain.cmake:13 (include)
+  C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/CMakeDetermineSystem.cmake:146 (include)
+  CMakeLists.txt:8 (project)
+
+
+CMake Error: CMake was unable to find a build program corresponding to "Ninja".  CMAKE_MAKE_PROGRAM is not set.  You probably need to select a different build tool.
+CMake Error: CMake was unable to find a build program corresponding to "Ninja".  CMAKE_MAKE_PROGRAM is not set.  You probably need to select a different build tool.
+-- Configuring incomplete, errors occurred!

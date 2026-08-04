@@ -1,0 +1,275 @@
+[0/1] Re-running CMake...
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Program Files/LLVM/bin/nasm.exe
+-- Running vcpkg install
+Detecting compiler hash for triplet x64-windows...
+-- Automatically setting %HTTP(S)_PROXY% environment variables to "127.0.0.1:7890".
+Compiler found: C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe
+Detecting compiler hash for triplet x64-windows-static-clang...
+Compiler found: C:/Program Files/LLVM/bin/clang-cl.exe
+The following packages are already installed:
+    boost-algorithm:x64-windows-static-clang@1.91.0
+  * boost-align:x64-windows-static-clang@1.91.0
+  * boost-any:x64-windows-static-clang@1.91.0
+  * boost-array:x64-windows-static-clang@1.91.0
+  * boost-assert:x64-windows-static-clang@1.91.0
+  * boost-atomic:x64-windows-static-clang@1.91.0
+  * boost-bind:x64-windows-static-clang@1.91.0
+  * boost-chrono:x64-windows-static-clang@1.91.0
+  * boost-cmake:x64-windows-static-clang@1.91.0
+  * boost-compat:x64-windows-static-clang@1.91.0
+  * boost-concept-check:x64-windows-static-clang@1.91.0
+  * boost-config:x64-windows-static-clang@1.91.0
+  * boost-container:x64-windows-static-clang@1.91.0
+  * boost-container-hash:x64-windows-static-clang@1.91.0
+  * boost-conversion:x64-windows-static-clang@1.91.0
+  * boost-core:x64-windows-static-clang@1.91.0
+  * boost-date-time:x64-windows-static-clang@1.91.0
+  * boost-describe:x64-windows-static-clang@1.91.0
+  * boost-detail:x64-windows-static-clang@1.91.0
+  * boost-endian:x64-windows-static-clang@1.91.0
+  * boost-exception:x64-windows-static-clang@1.91.0
+  * boost-function:x64-windows-static-clang@1.91.0
+  * boost-function-types:x64-windows-static-clang@1.91.0
+  * boost-functional:x64-windows-static-clang@1.91.0
+  * boost-fusion:x64-windows-static-clang@1.91.0
+  * boost-headers:x64-windows-static-clang@1.91.0
+  * boost-integer:x64-windows-static-clang@1.91.0
+  * boost-intrusive:x64-windows-static-clang@1.91.0
+  * boost-io:x64-windows-static-clang@1.91.0
+  * boost-iterator:x64-windows-static-clang@1.91.0
+  * boost-lexical-cast:x64-windows-static-clang@1.91.0
+  * boost-move:x64-windows-static-clang@1.91.0
+  * boost-mp11:x64-windows-static-clang@1.91.0
+  * boost-mpl:x64-windows-static-clang@1.91.0
+  * boost-multi-index:x64-windows-static-clang@1.91.0
+  * boost-numeric-conversion:x64-windows-static-clang@1.91.0
+    boost-optional:x64-windows-static-clang@1.91.0
+  * boost-phoenix:x64-windows-static-clang@1.91.0
+  * boost-pool:x64-windows-static-clang@1.91.0
+  * boost-predef:x64-windows-static-clang@1.91.0
+  * boost-preprocessor:x64-windows-static-clang@1.91.0
+    boost-property-tree:x64-windows-static-clang@1.91.0
+  * boost-proto:x64-windows-static-clang@1.91.0
+  * boost-range:x64-windows-static-clang@1.91.0
+  * boost-ratio:x64-windows-static-clang@1.91.0
+  * boost-regex:x64-windows-static-clang@1.91.0
+  * boost-serialization:x64-windows-static-clang@1.91.0
+  * boost-smart-ptr:x64-windows-static-clang@1.91.0
+    boost-spirit:x64-windows-static-clang@1.91.0
+  * boost-static-assert:x64-windows-static-clang@1.91.0
+  * boost-system:x64-windows-static-clang@1.91.0
+  * boost-thread:x64-windows-static-clang@1.91.0
+  * boost-throw-exception:x64-windows-static-clang@1.91.0
+  * boost-tokenizer:x64-windows-static-clang@1.91.0
+  * boost-tuple:x64-windows-static-clang@1.91.0
+  * boost-type-index:x64-windows-static-clang@1.91.0
+  * boost-type-traits:x64-windows-static-clang@1.91.0
+  * boost-typeof:x64-windows-static-clang@1.91.0
+  * boost-uninstall:x64-windows-static-clang@1.91.0
+  * boost-unordered:x64-windows-static-clang@1.91.0
+  * boost-utility:x64-windows-static-clang@1.91.0
+  * boost-variant:x64-windows-static-clang@1.91.0
+  * boost-variant2:x64-windows-static-clang@1.91.0
+  * boost-winapi:x64-windows-static-clang@1.91.0
+  * brotli:x64-windows-static-clang@1.2.0
+  * bzip2[core,tool]:x64-windows-static-clang@1.0.8#6
+  * dav1d:x64-windows-static-clang@1.5.3
+  * freetype[core,zlib,png,bzip2,brotli]:x64-windows-static-clang@2.14.3
+    highway:x64-windows-static-clang@1.3.0#1
+  * jbig2dec:x64-windows-static-clang@0.20
+  * lcms:x64-windows-static-clang@2.19.1#1
+    libavif[core,dav1d]:x64-windows-static-clang@1.4.1
+    libdxfrw:x64-windows-static-clang@2025-09-25
+    libjpeg-turbo:x64-windows-static-clang@3.2.0
+    libjxl:x64-windows-static-clang@0.12.0
+    libmupdf:x64-windows-static-clang@1.27.2
+  * libpng:x64-windows-static-clang@1.6.53
+    libraw:x64-windows-static-clang@0.22.1
+    libwebp[core,unicode,simd,libwebpmux]:x64-windows-static-clang@1.6.0#2
+  * libyuv:x64-windows-static-clang@1916
+  * openjpeg:x64-windows-static-clang@2.5.4
+  * vcpkg-boost:x64-windows@2025-03-29
+  * vcpkg-cmake:x64-windows@2024-04-23
+  * vcpkg-cmake-config:x64-windows@2024-05-23
+  * vcpkg-cmake-get-vars:x64-windows@2025-05-29
+  * vcpkg-tool-meson:x64-windows@1.9.0#8
+    zlib:x64-windows-static-clang@2.3.3#1
+The package boost-optional is compatible with built-in CMake targets of FindBoost.cmake:
+
+    find_package(Boost REQUIRED COMPONENTS optional)
+    target_link_libraries(main PRIVATE Boost::optional)
+
+or the generated cmake configs via:
+
+    find_package( REQUIRED CONFIG)
+    target_link_libraries(main PRIVATE Boost::optional)
+
+The package boost-algorithm is compatible with built-in CMake targets of FindBoost.cmake:
+
+    find_package(Boost REQUIRED COMPONENTS algorithm)
+    target_link_libraries(main PRIVATE Boost::algorithm)
+
+or the generated cmake configs via:
+
+    find_package( REQUIRED CONFIG)
+    target_link_libraries(main PRIVATE Boost::algorithm)
+
+The package boost-spirit is compatible with built-in CMake targets of FindBoost.cmake:
+
+    find_package(Boost REQUIRED COMPONENTS spirit)
+    target_link_libraries(main PRIVATE Boost::spirit)
+
+or the generated cmake configs via:
+
+    find_package( REQUIRED CONFIG)
+    target_link_libraries(main PRIVATE Boost::spirit)
+
+The package boost-property-tree is compatible with built-in CMake targets of FindBoost.cmake:
+
+    find_package(Boost REQUIRED COMPONENTS property_tree)
+    target_link_libraries(main PRIVATE Boost::property_tree)
+
+or the generated cmake configs via:
+
+    find_package( REQUIRED CONFIG)
+    target_link_libraries(main PRIVATE Boost::property_tree)
+
+highway provides CMake targets:
+
+    find_package(hwy CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE hwy::hwy)
+
+libjpeg-turbo is compatible with built-in implementation-agnostic CMake targets:
+
+    find_package(JPEG REQUIRED)
+    target_link_libraries(main PRIVATE JPEG::JPEG)
+
+libjpeg-turbo provides CMake targets for the TurboJPEG C API:
+
+    find_package(libjpeg-turbo CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE $<IF:$<TARGET_EXISTS:libjpeg-turbo::turbojpeg>,libjpeg-turbo::turbojpeg,libjpeg-turbo::turbojpeg-static>)
+
+libavif provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(libavif CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE avif)
+
+libavif provides pkg-config modules:
+
+  # Library for encoding and decoding .avif files
+  libavif
+
+libdxfrw provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(libdxfrw CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE libdxfrw::libdxfrw)
+
+libdxfrw provides pkg-config modules:
+
+  # c++ library to read/write dxf files in binary and ascii form
+  libdxfrw
+
+libjxl provides pkg-config modules:
+
+  # Loads and saves JPEG XL files
+  libjxl
+
+  # CMS support library for libjxl
+  libjxl_cms
+
+  # JPEG XL multi-thread runner using std::threads.
+  libjxl_threads
+
+zlib provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(zlib CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE ZLIB::ZLIB)
+
+zlib provides pkg-config modules:
+
+  # zlib-ng compression library
+  zlib
+
+libmupdf provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(unofficial-libmupdf CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE unofficial::libmupdf::libmupdf)
+
+libraw provides CMake targets:
+
+    find_package(libraw CONFIG REQUIRED)
+    # non-thread-safe
+    target_link_libraries(main PRIVATE libraw::raw)
+    # thread-safe
+    target_link_libraries(main PRIVATE libraw::raw_r)
+
+libwebp provides CMake targets:
+
+    find_package(WebP CONFIG REQUIRED)
+    # basic usage
+    target_link_libraries(main PRIVATE WebP::webp WebP::webpdecoder WebP::webpdemux)
+    # for manipulating the WebP graphics format container (port feature libwebpmux)
+    target_link_libraries(main PRIVATE WebP::libwebpmux)
+    # for sharp RGB to YUV conversion
+    target_link_libraries(main PRIVATE WebP::sharpyuv)
+
+All requested installations completed successfully in: 1.62 ms
+-- Running vcpkg install - done
+-- unrar-mini: Google Highway SIMD enabled.
+-- Build Matrix: Enabling Full LTO (Release-LTO Mode)
+-- Configuring done (224.4s)
+-- Generating done (0.1s)
+-- Build files have been written to: E:/qv_build_tmp/out/build/Release-LTO
+[1/16] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGMemoryStream.cpp.obj
+[2/16] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGStringVector.cpp.obj
+[3/16] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGPropertyListVector.cpp.obj
+[4/16] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGStreamImplementation.cpp.obj
+[5/16] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGString.cpp.obj
+[6/16] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGProperty.cpp.obj
+[7/16] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGZipStream.cpp.obj
+[8/16] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGBinaryData.cpp.obj
+[9/16] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGOLEStream.cpp.obj
+[10/16] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGDirectoryStream.cpp.obj
+[11/16] Building CXX object CMakeFiles\QuickView.dir\QuickView\VectorLoader.cpp.obj
+[12/16] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGSVGDrawingGenerator.cpp.obj
+[13/16] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGPropertyList.cpp.obj
+[14/16] Linking CXX static library third_party\librevenge\librevenge.lib
+[15/16] Linking CXX executable QuickView.exe
+FAILED: [code=4294967295] QuickView.exe 
+C:\Windows\system32\cmd.exe /C "cd . && "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E vs_link_exe --msvc-ver=1933 --intdir=CMakeFiles\QuickView.dir --rc=llvm-rc --mt=C:\PROGRA~1\LLVM\bin\llvm-mt.exe --manifests  -- E:\qv_build_tmp\cmake\lld-link-wrapper.bat /nologo @CMakeFiles\QuickView.rsp  /out:QuickView.exe /implib:QuickView.lib /pdb:QuickView.pdb /version:0.0 /machine:x64 /MANIFEST:NO /INCREMENTAL:NO /subsystem:windows /SUBSYSTEM:WINDOWS /machine:x64  /DEBUG /OPT:REF /OPT:ICF /opt:lldlto=3 /MAP:E:/qv_build_tmp/out/build/Release-LTO/QuickView.map && C:\Windows\system32\cmd.exe /C "cd /D E:\qv_build_tmp\out\build\Release-LTO && E:\qv_build_tmp\third_party\vcpkg\vcpkg.exe z-applocal --target-binary=E:/qv_build_tmp/out/build/Release-LTO/QuickView.exe --installed-bin-dir=E:/qv_build_tmp/out/build/Release-LTO/vcpkg_installed/x64-windows-static-clang/bin""
+LINK: command "E:\qv_build_tmp\cmake\lld-link-wrapper.bat /nologo @CMakeFiles\QuickView.rsp /out:QuickView.exe /implib:QuickView.lib /pdb:QuickView.pdb /version:0.0 /machine:x64 /MANIFEST:NO /INCREMENTAL:NO /subsystem:windows /SUBSYSTEM:WINDOWS /machine:x64 /DEBUG /OPT:REF /OPT:ICF /opt:lldlto=3 /MAP:E:/qv_build_tmp/out/build/Release-LTO/QuickView.map" failed (exit code 1) with the following output:
+[QuickViewLinker] LIB Before = "" 
+[QuickViewLinker] Target arch is x64, calling vcvarsall.bat x64... 
+[QuickViewLinker] LIB After = "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\lib\x64;C:\Program Files (x86)\Windows Kits\NETFXSDK\4.8\lib\um\x64;D:\Windows Kits\10\lib\10.0.26100.0\ucrt\x64;D:\Windows Kits\10\\lib\10.0.26100.0\\um\x64" 
+lld-link: error: linking module flags 'Virtual Function Elim': IDs have conflicting values: 'i32 0' from CMakeFiles\QuickView.dir\QuickView\VectorLoader.cpp.obj, and 'i32 1' from ld-temp.o
+lld-link: error: <root>: undefined symbol: public: static class std::locale::id std::num_put<char, class std::ostreambuf_iterator<char, struct std::char_traits<char>>>::id
+lld-link: error: <root>: undefined symbol: public: static class std::locale::id std::numpunct<char>::id
+lld-link: error: <root>: undefined symbol: public: static class std::locale::id std::num_put<char, class std::ostreambuf_iterator<char, struct std::char_traits<char>>>::id
+lld-link: error: <root>: undefined symbol: public: static class std::locale::id std::numpunct<char>::id
+lld-link: error: <root>: undefined symbol: _tlgDefineProvider_annotation__Tlgg_hQuickViewProviderProv
+lld-link: error: <root>: undefined symbol: public: static class std::locale::id std::num_put<char, class std::ostreambuf_iterator<char, struct std::char_traits<char>>>::id
+lld-link: error: <root>: undefined symbol: public: static class std::locale::id std::numpunct<char>::id
+lld-link: error: <root>: undefined symbol: public: static class std::locale::id std::num_put<char, class std::ostreambuf_iterator<char, struct std::char_traits<char>>>::id
+lld-link: error: <root>: undefined symbol: public: static class std::locale::id std::numpunct<char>::id
+lld-link: error: <root>: undefined symbol: public: static class std::locale::id std::num_put<char, class std::ostreambuf_iterator<char, struct std::char_traits<char>>>::id
+lld-link: error: <root>: undefined symbol: public: static class std::locale::id std::numpunct<char>::id
+lld-link: error: <root>: undefined symbol: public: static class std::locale::id std::num_put<char, class std::ostreambuf_iterator<char, struct std::char_traits<char>>>::id
+lld-link: error: <root>: undefined symbol: public: static class std::locale::id std::numpunct<char>::id
+lld-link: error: <root>: undefined symbol: public: static class std::locale::id std::codecvt<char, char, struct _Mbstatet>::id
+lld-link: error: <root>: undefined symbol: public: static class std::locale::id std::codecvt<char, char, struct _Mbstatet>::id
+lld-link: error: <root>: undefined symbol: public: static class std::locale::id std::num_put<char, class std::ostreambuf_iterator<char, struct std::char_traits<char>>>::id
+lld-link: error: <root>: undefined symbol: public: static class std::locale::id std::numpunct<char>::id
+lld-link: error: <root>: undefined symbol: public: static class std::locale::id std::num_put<char, class std::ostreambuf_iterator<char, struct std::char_traits<char>>>::id
+lld-link: error: <root>: undefined symbol: public: static class std::locale::id std::numpunct<char>::id
+lld-link: error: too many errors emitted, stopping now (use /errorlimit:0 to see all errors)
+ninja: build stopped: subcommand failed.

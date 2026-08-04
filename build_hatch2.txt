@@ -1,0 +1,1 @@
+ninja: error: 'vcpkg_installed/x64-windows-static-clang/lib/dxfrw.lib', needed by 'QuickView.exe', missing and no known rule to make it

@@ -202,7 +202,7 @@ if(MSVC OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         target_compile_options(QuickView PRIVATE 
             /O2 /Gw /Zc:inline /GR- /fp:fast /GS- /EHs-c- /Z7
             /clang:-flto=full /clang:-mllvm /clang:-inline-threshold=250
-            /clang:-fwhole-program-vtables /clang:-fvirtual-function-elimination
+            /clang:-fwhole-program-vtables
             /clang:-fno-ident)
         target_link_options(QuickView PRIVATE /DEBUG /OPT:REF /OPT:ICF /opt:lldlto=3 "/MAP:${CMAKE_BINARY_DIR}/QuickView.map")
     endif()

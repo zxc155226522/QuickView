@@ -1,0 +1,7 @@
+At E:\项目\看图软件\看图软件编译并启动.ps1:47 char:1
++ }
++ ~
+Unexpected token '}' in expression or statement.
+    + CategoryInfo          : ParserError: (:) [], ParentContainsErrorRecordException
+    + FullyQualifiedErrorId : UnexpectedToken
+ 

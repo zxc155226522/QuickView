@@ -930,8 +930,158 @@ public:
                << "\" stroke-width=\"__SW__\" fill=\"none\"/>\n";
     }
 
-    void addHatch(const DRW_Hatch* /*data*/) override {
-        // Hatch 边界通常也作为独立实体存在，此处跳过填充
+    void addHatch(const DRW_Hatch* data) override {
+        if (!isVisible(*data)) return;
+        if (data->looplist.empty()) return;
+
+        std::string fillColor = resolveColor(*data);
+        std::ostringstream pathSS;
+        constexpr double PI = 3.14159265358979;
+
+        for (const auto& loop : data->looplist) {
+            bool firstPoint = true;
+
+            for (const auto& ent : loop->objlist) {
+                switch (ent->eType) {
+                    case DRW::LINE: {
+                        auto* line = static_cast<DRW_Line*>(ent.get());
+                        double x1 = line->basePoint.x, y1 = line->basePoint.y;
+                        double x2 = line->secPoint.x, y2 = line->secPoint.y;
+                        bboxAdd(x1, y1); bboxAdd(x2, y2);
+                        if (firstPoint) {
+                            pathSS << "M " << FmtFloat(x1) << " " << FmtFloat(-y1) << " ";
+                            firstPoint = false;
+                        }
+                        pathSS << "L " << FmtFloat(x2) << " " << FmtFloat(-y2) << " ";
+                        break;
+                    }
+                    case DRW::ARC: {
+                        auto* arc = static_cast<DRW_Arc*>(ent.get());
+                        double cx = arc->basePoint.x, cy = arc->basePoint.y, r = arc->radious;
+                        if (r <= 0) break;
+                        double sa = arc->staangle, ea = arc->endangle;
+                        double x1 = cx + r * cos(sa), y1 = cy + r * sin(sa);
+                        double x2 = cx + r * cos(ea), y2 = cy + r * sin(ea);
+                        bboxAdd(x1, y1); bboxAdd(x2, y2);
+                        bboxAdd(cx - r, cy - r); bboxAdd(cx + r, cy + r);
+                        if (firstPoint) {
+                            pathSS << "M " << FmtFloat(x1) << " " << FmtFloat(-y1) << " ";
+                            firstPoint = false;
+                        }
+                        double arcAngle = ea - sa;
+                        if (arcAngle < 0) arcAngle += 2.0 * PI;
+                        int largeArc = (arcAngle > PI) ? 1 : 0;
+                        pathSS << "A " << FmtFloat(r) << " " << FmtFloat(r) << " 0 "
+                               << largeArc << " 1 " << FmtFloat(x2) << " " << FmtFloat(-y2) << " ";
+                        break;
+                    }
+                    case DRW::ELLIPSE: {
+                        auto* el = static_cast<DRW_Ellipse*>(ent.get());
+                        double cx = el->basePoint.x, cy = el->basePoint.y;
+                        double mx = el->secPoint.x, my = el->secPoint.y;
+                        double majorLen = std::hypot(mx, my);
+                        if (majorLen < 1e-6) break;
+                        double rotAngle = atan2(my, mx);
+                        double minorLen = majorLen * el->ratio;
+                        double stParam = el->staparam;
+                        double enParam = el->endparam;
+                        double cosR = cos(rotAngle), sinR = sin(rotAngle);
+                        int numSamples = 32;
+                        for (int i = 0; i <= numSamples; i++) {
+                            double t = stParam + (enParam - stParam) * i / numSamples;
+                            double ex = majorLen * cos(t);
+                            double ey = minorLen * sin(t);
+                            double px = cx + ex * cosR - ey * sinR;
+                            double py = cy + ex * sinR + ey * cosR;
+                            bboxAdd(px, py);
+                            if (firstPoint) {
+                                pathSS << "M " << FmtFloat(px) << " " << FmtFloat(-py) << " ";
+                                firstPoint = false;
+                            } else {
+                                pathSS << "L " << FmtFloat(px) << " " << FmtFloat(-py) << " ";
+                            }
+                        }
+                        break;
+                    }
+                    case DRW::LWPOLYLINE: {
+                        auto* pl = static_cast<DRW_LWPolyline*>(ent.get());
+                        const auto& vl = pl->vertlist;
+                        for (size_t i = 0; i < vl.size(); i++) {
+                            double x = vl[i]->x, y = vl[i]->y;
+                            bboxAdd(x, y);
+                            if (firstPoint) {
+                                pathSS << "M " << FmtFloat(x) << " " << FmtFloat(-y) << " ";
+                                firstPoint = false;
+                            } else {
+                                double bulge = vl[i - 1]->bulge;
+                                if (std::abs(bulge) > 1e-6) {
+                                    double px = vl[i - 1]->x, py = vl[i - 1]->y;
+                                    double dx = x - px, dy = y - py;
+                                    double dist = std::hypot(dx, dy);
+                                    if (dist > 1e-6) {
+                                        double theta = 4.0 * std::atan(std::abs(bulge));
+                                        double rr = dist / (2.0 * std::sin(theta / 2.0));
+                                        int largeArc = (theta > PI) ? 1 : 0;
+                                        int sweep = (bulge > 0) ? 1 : 0;
+                                        pathSS << "A " << FmtFloat(rr) << " " << FmtFloat(rr)
+                                               << " 0 " << largeArc << " " << sweep
+                                               << " " << FmtFloat(x) << " " << FmtFloat(-y) << " ";
+                                    } else {
+                                        pathSS << "L " << FmtFloat(x) << " " << FmtFloat(-y) << " ";
+                                    }
+                                } else {
+                                    pathSS << "L " << FmtFloat(x) << " " << FmtFloat(-y) << " ";
+                                }
+                            }
+                        }
+                        break;
+                    }
+                    case DRW::SPLINE: {
+                        auto* sp = static_cast<DRW_Spline*>(ent.get());
+                        int degree = sp->degree;
+                        if (degree < 1) degree = 3;
+                        const auto& knots = sp->knotslist;
+                        const auto& ctrl = sp->controllist;
+                        int numCtrl = (int)ctrl.size();
+                        int numKnots = (int)knots.size();
+                        if (numCtrl < 2 || numKnots < 2) break;
+                        std::vector<double> cx, cy;
+                        for (const auto& c : ctrl) { cx.push_back(c->x); cy.push_back(c->y); }
+                        const auto& w = sp->weightlist;
+                        bool rational = !w.empty();
+                        double uMin = knots[degree];
+                        double uMax = knots[numKnots - degree - 1];
+                        if (uMax <= uMin) uMax = uMin + 1.0;
+                        int numSamples = std::max(50, numCtrl * 10);
+                        double du = (uMax - uMin) / numSamples;
+                        for (int i = 0; i <= numSamples; i++) {
+                            double u = (i == numSamples) ? uMax : (uMin + du * i);
+                            double px, py;
+                            DeBoorSpline(degree, knots, cx, cy,
+                                         rational ? w : std::vector<double>(),
+                                         u, px, py);
+                            bboxAdd(px, py);
+                            if (firstPoint) {
+                                pathSS << "M " << FmtFloat(px) << " " << FmtFloat(-py) << " ";
+                                firstPoint = false;
+                            } else {
+                                pathSS << "L " << FmtFloat(px) << " " << FmtFloat(-py) << " ";
+                            }
+                        }
+                        break;
+                    }
+                    default:
+                        break;
+                }
+            }
+            pathSS << "Z ";
+        }
+
+        std::string pathD = pathSS.str();
+        if (pathD.length() < 3) return;
+
+        emit() << "<path d=\"" << pathD << "\" fill=\"" << fillColor
+               << "\" fill-rule=\"evenodd\" stroke=\"none\"/>\n";
     }
 
     void addViewport(const DRW_Viewport&) override {}
@@ -1042,13 +1192,15 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
     std::string tempPath = WriteTempFile(data, size);
     if (tempPath.empty()) return {};
 
-    SVGDRWInterface iface;
-    dxfRW dxf(tempPath.c_str());
-    bool ok = dxf.read(&iface, true); // applyExtrusion=true
+    std::string result;
+    {
+        SVGDRWInterface iface;
+        dxfRW dxf(tempPath.c_str());
+        if (dxf.read(&iface, true))
+            result = iface.getResult();
+    }
     DeleteFileA(tempPath.c_str());
 
-    if (!ok) return {};
-    std::string result = iface.getResult();
     if (!result.empty()) DebugDumpSvg(result, "dxf");
     return result;
 }
@@ -1062,13 +1214,48 @@ std::string LoadDWGtoSVG(const uint8_t* data, size_t size) {
     std::string tempPath = WriteTempFile(data, size);
     if (tempPath.empty()) return {};
 
-    SVGDRWInterface iface;
-    dwgR dwg(tempPath.c_str());
-    bool ok = dwg.read(&iface, true);
+    std::string result;
+    {
+        SVGDRWInterface iface;
+        dwgR dwg(tempPath.c_str());
+        bool ok = dwg.read(&iface, true);
+        if (ok) {
+            result = iface.getResult();
+        } else {
+            // 诊断：将错误码写入桌面文件
+            DRW::Version ver = dwg.getVersion();
+            DRW::error err = dwg.getError();
+            const char* errStr = "UNKNOWN";
+            switch (err) {
+                case DRW::BAD_NONE: errStr = "BAD_NONE"; break;
+                case DRW::BAD_UNKNOWN: errStr = "BAD_UNKNOWN"; break;
+                case DRW::BAD_OPEN: errStr = "BAD_OPEN"; break;
+                case DRW::BAD_VERSION: errStr = "BAD_VERSION"; break;
+                case DRW::BAD_READ_METADATA: errStr = "BAD_READ_METADATA"; break;
+                case DRW::BAD_READ_FILE_HEADER: errStr = "BAD_READ_FILE_HEADER"; break;
+                case DRW::BAD_READ_HEADER: errStr = "BAD_READ_HEADER"; break;
+                case DRW::BAD_READ_HANDLES: errStr = "BAD_READ_HANDLES"; break;
+                case DRW::BAD_READ_CLASSES: errStr = "BAD_READ_CLASSES"; break;
+                case DRW::BAD_READ_TABLES: errStr = "BAD_READ_TABLES"; break;
+                case DRW::BAD_READ_BLOCKS: errStr = "BAD_READ_BLOCKS"; break;
+                case DRW::BAD_READ_ENTITIES: errStr = "BAD_READ_ENTITIES"; break;
+                case DRW::BAD_READ_OBJECTS: errStr = "BAD_READ_OBJECTS"; break;
+                case DRW::BAD_READ_SECTION: errStr = "BAD_READ_SECTION"; break;
+                case DRW::BAD_CODE_PARSED: errStr = "BAD_CODE_PARSED"; break;
+            }
+            char diag[512];
+            snprintf(diag, sizeof(diag),
+                     "DWG parse failed\nVersion: %d (AC1032 = R2018+)\nError: %s\nFile: %s\nSize: %zu bytes\n\n"
+                     "注意: AutoCAD 2018+ (AC1032) 格式的 DWG 文件可能需要先转换为 DXF 格式。\n"
+                     "可以使用 AutoCAD 或 ODA File Converter 进行转换。",
+                     (int)ver, errStr, tempPath.c_str(), size);
+            FILE* fp = nullptr;
+            fopen_s(&fp, "C:\\Users\\Administrator\\Desktop\\debug_dwg_error.txt", "wb");
+            if (fp) { fwrite(diag, 1, strlen(diag), fp); fclose(fp); }
+        }
+    }
     DeleteFileA(tempPath.c_str());
 
-    if (!ok) return {};
-    std::string result = iface.getResult();
     if (!result.empty()) DebugDumpSvg(result, "dwg");
     return result;
 }

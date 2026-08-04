@@ -1,0 +1,734 @@
+Preset CMake variables:
+
+  CMAKE_BUILD_TYPE="Release"
+  CMAKE_CXX_COMPILER="clang-cl"
+  CMAKE_C_COMPILER="clang-cl"
+  CMAKE_EXPORT_COMPILE_COMMANDS="ON"
+  CMAKE_LINKER="E:/qv_build_tmp/cmake/lld-link-wrapper.bat"
+  CMAKE_MSVC_RUNTIME_LIBRARY="MultiThreaded"
+  CMAKE_RC_COMPILER="llvm-rc"
+  CMAKE_TOOLCHAIN_FILE="E:/qv_build_tmp/cmake/QuickViewToolchain.cmake"
+  ENABLE_ASAN="OFF"
+  ENABLE_LTO="ON"
+  VCPKG_MANIFEST_INSTALL="ON"
+  VCPKG_MANIFEST_MODE="ON"
+  VCPKG_OVERLAY_PORTS="E:/qv_build_tmp/custom-ports"
+  VCPKG_OVERLAY_TRIPLETS="E:/qv_build_tmp/custom-triplet"
+  VCPKG_TARGET_TRIPLET="x64-windows-static-clang"
+
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Program Files/LLVM/bin/nasm.exe
+-- Running vcpkg install
+Detecting compiler hash for triplet x64-windows...
+-- Automatically setting %HTTP(S)_PROXY% environment variables to "127.0.0.1:7890".
+Compiler found: C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe
+Detecting compiler hash for triplet x64-windows-static-clang...
+Compiler found: C:/Program Files/LLVM/bin/clang-cl.exe
+The following packages are already installed:
+    boost-algorithm:x64-windows-static-clang@1.91.0
+  * boost-align:x64-windows-static-clang@1.91.0
+  * boost-any:x64-windows-static-clang@1.91.0
+  * boost-array:x64-windows-static-clang@1.91.0
+  * boost-assert:x64-windows-static-clang@1.91.0
+  * boost-atomic:x64-windows-static-clang@1.91.0
+  * boost-bind:x64-windows-static-clang@1.91.0
+  * boost-chrono:x64-windows-static-clang@1.91.0
+  * boost-cmake:x64-windows-static-clang@1.91.0
+  * boost-compat:x64-windows-static-clang@1.91.0
+  * boost-concept-check:x64-windows-static-clang@1.91.0
+  * boost-config:x64-windows-static-clang@1.91.0
+  * boost-container:x64-windows-static-clang@1.91.0
+  * boost-container-hash:x64-windows-static-clang@1.91.0
+  * boost-conversion:x64-windows-static-clang@1.91.0
+  * boost-core:x64-windows-static-clang@1.91.0
+  * boost-date-time:x64-windows-static-clang@1.91.0
+  * boost-describe:x64-windows-static-clang@1.91.0
+  * boost-detail:x64-windows-static-clang@1.91.0
+  * boost-endian:x64-windows-static-clang@1.91.0
+  * boost-exception:x64-windows-static-clang@1.91.0
+  * boost-function:x64-windows-static-clang@1.91.0
+  * boost-function-types:x64-windows-static-clang@1.91.0
+  * boost-functional:x64-windows-static-clang@1.91.0
+  * boost-fusion:x64-windows-static-clang@1.91.0
+  * boost-headers:x64-windows-static-clang@1.91.0
+  * boost-integer:x64-windows-static-clang@1.91.0
+  * boost-intrusive:x64-windows-static-clang@1.91.0
+  * boost-io:x64-windows-static-clang@1.91.0
+  * boost-iterator:x64-windows-static-clang@1.91.0
+  * boost-lexical-cast:x64-windows-static-clang@1.91.0
+  * boost-move:x64-windows-static-clang@1.91.0
+  * boost-mp11:x64-windows-static-clang@1.91.0
+  * boost-mpl:x64-windows-static-clang@1.91.0
+  * boost-multi-index:x64-windows-static-clang@1.91.0
+  * boost-numeric-conversion:x64-windows-static-clang@1.91.0
+    boost-optional:x64-windows-static-clang@1.91.0
+  * boost-phoenix:x64-windows-static-clang@1.91.0
+  * boost-pool:x64-windows-static-clang@1.91.0
+  * boost-predef:x64-windows-static-clang@1.91.0
+  * boost-preprocessor:x64-windows-static-clang@1.91.0
+    boost-property-tree:x64-windows-static-clang@1.91.0
+  * boost-proto:x64-windows-static-clang@1.91.0
+  * boost-range:x64-windows-static-clang@1.91.0
+  * boost-ratio:x64-windows-static-clang@1.91.0
+  * boost-regex:x64-windows-static-clang@1.91.0
+  * boost-serialization:x64-windows-static-clang@1.91.0
+  * boost-smart-ptr:x64-windows-static-clang@1.91.0
+    boost-spirit:x64-windows-static-clang@1.91.0
+  * boost-static-assert:x64-windows-static-clang@1.91.0
+  * boost-system:x64-windows-static-clang@1.91.0
+  * boost-thread:x64-windows-static-clang@1.91.0
+  * boost-throw-exception:x64-windows-static-clang@1.91.0
+  * boost-tokenizer:x64-windows-static-clang@1.91.0
+  * boost-tuple:x64-windows-static-clang@1.91.0
+  * boost-type-index:x64-windows-static-clang@1.91.0
+  * boost-type-traits:x64-windows-static-clang@1.91.0
+  * boost-typeof:x64-windows-static-clang@1.91.0
+  * boost-uninstall:x64-windows-static-clang@1.91.0
+  * boost-unordered:x64-windows-static-clang@1.91.0
+  * boost-utility:x64-windows-static-clang@1.91.0
+  * boost-variant:x64-windows-static-clang@1.91.0
+  * boost-variant2:x64-windows-static-clang@1.91.0
+  * boost-winapi:x64-windows-static-clang@1.91.0
+  * dav1d:x64-windows-static-clang@1.5.3
+    highway:x64-windows-static-clang@1.3.0#1
+    libavif[core,dav1d]:x64-windows-static-clang@1.4.1
+    libjpeg-turbo:x64-windows-static-clang@3.2.0
+  * libyuv:x64-windows-static-clang@1916
+  * vcpkg-boost:x64-windows@2025-03-29
+  * vcpkg-cmake:x64-windows@2024-04-23
+  * vcpkg-cmake-config:x64-windows@2024-05-23
+  * vcpkg-cmake-get-vars:x64-windows@2025-05-29
+  * vcpkg-tool-meson:x64-windows@1.9.0#8
+The following packages will be built and installed:
+  * brotli:x64-windows-static-clang@1.2.0
+  * bzip2[core,tool]:x64-windows-static-clang@1.0.8#6
+  * freetype[brotli,bzip2,core,png,zlib]:x64-windows-static-clang@2.14.3 -- E:/qv_build_tmp/custom-ports\freetype
+  * jbig2dec:x64-windows-static-clang@0.20
+  * lcms:x64-windows-static-clang@2.19.1#1
+    libdxfrw:x64-windows-static-clang@2025-09-25 -- E:/qv_build_tmp/custom-ports\libdxfrw
+    libjxl:x64-windows-static-clang@0.12.0 -- E:/qv_build_tmp/custom-ports\libjxl
+    libmupdf:x64-windows-static-clang@1.27.2 -- E:/qv_build_tmp/custom-ports\libmupdf
+  * libpng:x64-windows-static-clang@1.6.53 -- E:/qv_build_tmp/custom-ports\libpng
+    libraw:x64-windows-static-clang@0.22.1 -- E:/qv_build_tmp/custom-ports\libraw
+    libwebp[core,libwebpmux,simd,unicode]:x64-windows-static-clang@1.6.0#2 -- E:/qv_build_tmp/custom-ports\libwebp
+  * openjpeg:x64-windows-static-clang@2.5.4
+    zlib:x64-windows-static-clang@2.3.3#1 -- E:/qv_build_tmp/custom-ports\zlib
+Additional packages (*) will be modified to complete this operation.
+Restored 12 package(s) from C:\Users\Administrator\AppData\Local\vcpkg\archives in 1.1 s. Use --debug to see more details.
+Installing 1/13 libdxfrw:x64-windows-static-clang@2025-09-25...
+libdxfrw:x64-windows-static-clang@2025-09-25 package ABI: 1d7bdc4f1e5ab16ebf793cad3fde1d128371d79b71ecf4522b5ba4329d07613f
+Building libdxfrw:x64-windows-static-clang@2025-09-25...
+E:\qv_build_tmp\custom-triplet\x64-windows-static-clang.cmake: info: loaded overlay triplet from here
+E:/qv_build_tmp/custom-ports\libdxfrw: info: installing overlay port from here
+-- [AdaptiveToolchain] Initializing tool discovery...
+-- [AdaptiveToolchain] Found VS at: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+-- [AdaptiveToolchain] Extracting MSVC environment via vcvarsall.bat...
+-- [AdaptiveToolchain] Found Clang-cl: C:/Program Files/LLVM/bin/clang-cl.exe
+-- [AdaptiveToolchain] Found lld-link: C:/Program Files/LLVM/bin/lld-link.exe
+-- [AdaptiveToolchain] Found Ninja: E:/qv_build_tmp/third_party/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe
+-- [AdaptiveToolchain] Found NASM: C:/Windows/nasm.exe
+-- Using cached LibreCAD-libdxfrw-92d7466ed9146badcd4fb44c82d1dd8302b3c7db.tar.gz
+-- Extracting source E:/qv_build_tmp/third_party/vcpkg/downloads/LibreCAD-libdxfrw-92d7466ed9146badcd4fb44c82d1dd8302b3c7db.tar.gz
+-- Applying patch remove-werror.patch
+-- Using source at E:/qv_build_tmp/third_party/vcpkg/buildtrees/libdxfrw/src/8302b3c7db-591c8404e2.clean
+-- Configuring x64-windows-static-clang
+-- Building x64-windows-static-clang-dbg
+-- Building x64-windows-static-clang-rel
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/libdxfrw_x64-windows-static-clang/lib/pkgconfig/libdxfrw.pc
+-- Using cached msys2-mingw-w64-x86_64-pkgconf-1~2.5.1-1-any.pkg.tar.zst
+-- Using cached msys2-msys2-runtime-3.6.5-1-x86_64.pkg.tar.zst
+-- Using msys root at E:/qv_build_tmp/third_party/vcpkg/downloads/tools/msys2/3e71d1f8e22ab23f
+-- Fixing pkgconfig file: E:/qv_build_tmp/third_party/vcpkg/packages/libdxfrw_x64-windows-static-clang/debug/lib/pkgconfig/libdxfrw.pc
+-- Installing: E:/qv_build_tmp/third_party/vcpkg/packages/libdxfrw_x64-windows-static-clang/share/libdxfrw/copyright
+-- Performing post-build validation
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/pkgconfig/libdxfrw.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/dxfrw.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/dxfrw.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/pkgconfig/libdxfrw.pc was already present and will be overwritten
+Starting submission of libdxfrw:x64-windows-static-clang@2025-09-25 to 1 binary cache(s) in the background
+Elapsed time to handle libdxfrw:x64-windows-static-clang: 19 s
+Installing 2/13 lcms:x64-windows-static-clang@2.19.1#1...
+lcms:x64-windows-static-clang@2.19.1#1 package ABI: 0d0ae7891fd8080daf8b9cc5f5e181ff5280ff83cf6c4d01ba905fc883da8ecc
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/lcms2.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/lcms/usage was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/lcms2_plugin.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/pkgconfig/lcms2.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/lcms2.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/pkgconfig/lcms2.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/lcms/lcms-config.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/lcms2/lcms2-config.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/lcms/copyright was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/lcms2.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/lcms/vcpkg.spdx.json was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/lcms/vcpkg_abi_info.txt was already present and will be overwritten
+Elapsed time to handle lcms:x64-windows-static-clang: 27.3 ms
+Installing 3/13 brotli:x64-windows-static-clang@1.2.0...
+brotli:x64-windows-static-clang@1.2.0 package ABI: 4ee7171decf4236240d6bd9da3c66a315ba1ba4727eb1e159a4cee9915155179
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/brotlicommon.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/pkgconfig/libbrotlicommon.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/pkgconfig/libbrotlidec.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/pkgconfig/libbrotlienc.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/brotlienc.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/pkgconfig/libbrotlicommon.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/brotli/encode.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/brotli/shared_dictionary.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/brotlidec.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/brotli/types.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/pkgconfig/libbrotlidec.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/brotlienc.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/brotlicommon.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/brotli/port.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/pkgconfig/libbrotlienc.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/brotli/decode.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/brotlidec.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/brotli/copyright was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/brotli/usage was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/unofficial-brotli/unofficial-brotli-config-debug.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/brotli/vcpkg.spdx.json was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/brotli/vcpkg_abi_info.txt was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/unofficial-brotli/unofficial-brotli-config-release.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\tools/brotli/brotli.exe was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/unofficial-brotli/unofficial-brotli-config.cmake was already present and will be overwritten
+Elapsed time to handle brotli:x64-windows-static-clang: 31 ms
+Installing 4/13 libjxl:x64-windows-static-clang@0.12.0...
+libjxl:x64-windows-static-clang@0.12.0 package ABI: 0611206469d429217c498cfac2e962b158215b168d6145057bf34034b4e01d1a
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/pkgconfig/libjxl.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/pkgconfig/libjxl_threads.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/jxl_cms.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/jxl/decode.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/pkgconfig/libjxl_cms.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/jxl/cms_interface.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/jxl/codestream_header.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/jxl.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/jxl_threads.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/jxl/color_encoding.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/jxl/gain_map.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/jxl/decode_cxx.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/jxl/encode_cxx.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/jxl/compressed_icc.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/jxl/jxl_cms_export.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/jxl/cms.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/jxl/encode.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/jxl/jxl_export.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/jxl/jxl_threads_export.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/jxl/memory_manager.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/jxl/parallel_runner.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/jxl/resizable_parallel_runner.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/jxl/resizable_parallel_runner_cxx.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/jxl/stats.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/jxl/thread_parallel_runner.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/jxl/types.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/jxl/version.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/jxl/thread_parallel_runner_cxx.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/jxl.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/jxl_cms.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/jxl_threads.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/pkgconfig/libjxl.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/pkgconfig/libjxl_cms.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/pkgconfig/libjxl_threads.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/libjxl/copyright was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/libjxl/vcpkg.spdx.json was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/libjxl/vcpkg_abi_info.txt was already present and will be overwritten
+Elapsed time to handle libjxl:x64-windows-static-clang: 59.3 ms
+Installing 5/13 zlib:x64-windows-static-clang@2.3.3#1...
+zlib:x64-windows-static-clang@2.3.3#1 package ABI: 53ccd91b784755f6ccf05bf44fe91fc1c9a7e836d5b786374dc776970f604ed0
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/pkgconfig/zlib.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/zconf.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/zlib.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/zlib_name_mangling.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/pkgconfig/zlib.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/zlib/zlib-config.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/zlib/ZLIB-targets-debug.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/zlibstaticd.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/zlib/zlib-config-version.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/zlibstatic.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/zlib/vcpkg.spdx.json was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/zlib/vcpkg_abi_info.txt was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/zlib/copyright was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/zlib/ZLIB-targets-release.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/zlib/ZLIB-targets.cmake was already present and will be overwritten
+Elapsed time to handle zlib:x64-windows-static-clang: 25.4 ms
+Installing 6/13 openjpeg:x64-windows-static-clang@2.5.4...
+openjpeg:x64-windows-static-clang@2.5.4 package ABI: dccd9b6e625aaa26a89f87085da69e1929a474b9fe6b08b7a72cf60a1a49327d
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/pkgconfig/libopenjp2.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/openjpeg.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/openjp2.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/openjp2.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/openjpeg-2.5/openjpeg.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/openjpeg-2.5/opj_config.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/pkgconfig/libopenjp2.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/opj_config.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/openjpeg/OpenJPEGTargets-release.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/openjpeg/copyright was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/openjpeg/OpenJPEGConfigVersion.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/openjpeg/vcpkg_abi_info.txt was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/openjpeg/OpenJPEGConfig.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/openjpeg/OpenJPEGTargets-debug.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/openjpeg/OpenJPEGTargets.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/openjpeg/vcpkg.spdx.json was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/openjpeg/usage was already present and will be overwritten
+Elapsed time to handle openjpeg:x64-windows-static-clang: 26.8 ms
+Installing 7/13 jbig2dec:x64-windows-static-clang@0.20...
+jbig2dec:x64-windows-static-clang@0.20 package ABI: 886745dd7714f1a8fa4a1d85ab221eee00867e84ed4eacab8efff6f7660ba309
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/jbig2dec.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/jbig2decd.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/jbig2dec/vcpkg.spdx.json was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/jbig2.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/jbig2dec/copyright was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/jbig2dec/vcpkg_abi_info.txt was already present and will be overwritten
+Elapsed time to handle jbig2dec:x64-windows-static-clang: 25.2 ms
+Installing 8/13 libpng:x64-windows-static-clang@1.6.53...
+libpng:x64-windows-static-clang@1.6.53 package ABI: 72918a8c06084e05ba8dbc22162d1c65ea6857e8e212320d33b2ebdb61c5c856
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/pkgconfig/libpng16.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/libpng16d.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/libpng16.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/pkgconfig/libpng.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/libpng16/png.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/pkgconfig/libpng16.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/pnglibconf.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/libpng16/pnglibconf.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/libpng/libpng-config.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/pngconf.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/libpng16/pngconf.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/libpng/copyright was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/libpng/libpng16-debug.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/png.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/pkgconfig/libpng.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/libpng/libpng16-release.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/libpng/libpng16.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/libpng/usage was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/png/PNGConfig.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/libpng/vcpkg.spdx.json was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/libpng/vcpkg_abi_info.txt was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/png/PNGConfigVersion.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/png/PNGTargets-debug.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/png/PNGTargets.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/png/PNGTargets-release.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/png/vcpkg-cmake-wrapper.cmake was already present and will be overwritten
+Elapsed time to handle libpng:x64-windows-static-clang: 28.3 ms
+Installing 9/13 bzip2[core,tool]:x64-windows-static-clang@1.0.8#6...
+bzip2[core,tool]:x64-windows-static-clang@1.0.8#6 package ABI: 191a964972fbd6c50c0a5a0a0850ad9fa0fbbd5b9a35de24aa1e178212a589fa
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/bzlib.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/pkgconfig/bzip2.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/pkgconfig/bzip2.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/bz2d.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/bzip2/copyright was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/bzip2/usage was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\tools/bzip2/bzip2.exe was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\tools/bzip2/bzip2recover.exe was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/bz2.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/bzip2/vcpkg_abi_info.txt was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/bzip2/vcpkg.spdx.json was already present and will be overwritten
+Elapsed time to handle bzip2:x64-windows-static-clang: 29.1 ms
+Installing 10/13 freetype[brotli,bzip2,core,png,zlib]:x64-windows-static-clang@2.14.3...
+freetype[brotli,bzip2,core,png,zlib]:x64-windows-static-clang@2.14.3 package ABI: 9ca79273e39f266d2f50dadef7352a3a4f3fb6466e8052d1f6e5cf03f2cd4b9a
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/pkgconfig/freetype2.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/freetyped.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/config/ftmodule.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/config/ftconfig.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/config/ftheader.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/config/ftstdlib.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/config/integer-types.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftbitmap.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftbbox.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftadvanc.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/config/public-macros.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/freetype.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftbzip2.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/config/ftoption.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/config/mac-support.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftbdf.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftcache.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftchapters.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftcid.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftcolor.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftdriver.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/fterrdef.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/fterrors.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftgasp.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftfntfmt.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftglyph.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftgxval.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftgzip.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftincrem.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftlcdfil.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftimage.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftlzw.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftlogging.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftlist.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftmac.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftmm.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftmodapi.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftmoderr.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftotval.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftoutln.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftparams.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftpfr.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftrender.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftsizes.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftsnames.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftstroke.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftsynth.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftsystem.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/fttrigon.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/fttypes.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ftwinfnt.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/otsvg.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/t1tables.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/ttnameid.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/tttables.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/freetype/tttags.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/ft2build.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/freetype.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/pkgconfig/freetype2.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/freetype/freetype-config-version.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/freetype/copyright was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/freetype/freetype-config.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/freetype/freetype-targets-debug.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/freetype/freetype-targets-release.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/freetype/freetype-targets.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/freetype/usage was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/freetype/vcpkg-cmake-wrapper.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/freetype/vcpkg.spdx.json was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/freetype/vcpkg_abi_info.txt was already present and will be overwritten
+Elapsed time to handle freetype:x64-windows-static-clang: 47.9 ms
+Installing 11/13 libmupdf:x64-windows-static-clang@1.27.2...
+libmupdf:x64-windows-static-clang@1.27.2 package ABI: 99a98bda68c6865f2a9e07997cbf2230dc639d5ff5fb93dc260f14d3fe118c4c
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/band-writer.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/barcode.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/color.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/libmupdf.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/bitmap.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/buffer.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/compressed-buffer.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/compress.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/context.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/bidi.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/deskew.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/display-list.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/archive.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/crypt.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/config.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/device.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/document.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/export.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/filter.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/font.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/geometry.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/getopt.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/glyph-cache.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/glyph.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/hash.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/heap-imp.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/heap.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/hyphen.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/image.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/json.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/link.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/log.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/outline.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/output-svg.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/output.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/path.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/pixmap.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/pool.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/separation.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/shade.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/store.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/story-writer.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/story.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/stream.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/string-util.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/structured-text.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/system.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/text.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/track-usage.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/transition.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/tree.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/types.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/util.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/version.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/write-pixmap.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/writer.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/fitz/xml.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/helpers/mu-office-lib.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/helpers/mu-threads.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/helpers/pkcs7-openssl.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/html.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/memento.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/pdf.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/pdf/clean.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/pdf/annot.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/pdf/cmap.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/pdf/crypt.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/pdf/document.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/pdf/event.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/pdf/font.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/pdf/image-rewriter.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/pdf/form.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/pdf/interpret.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/pdf/javascript.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/pdf/name-table.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/pdf/object.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/pdf/page.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/pdf/parse.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/pdf/recolor.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/pdf/resource.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/pdf/xref.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/pdf/zugferd.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/mupdf/ucdn.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/libmupdf.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/libmupdf/copyright was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/libmupdf/vcpkg.spdx.json was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/libmupdf/vcpkg_abi_info.txt was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/unofficial-libmupdf/unofficial-libmupdf-config.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/unofficial-libmupdf/unofficial-libmupdf-targets-debug.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/unofficial-libmupdf/unofficial-libmupdf-targets.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/unofficial-libmupdf/unofficial-libmupdf-targets-release.cmake was already present and will be overwritten
+Elapsed time to handle libmupdf:x64-windows-static-clang: 69.5 ms
+Installing 12/13 libraw:x64-windows-static-clang@0.22.1...
+libraw:x64-windows-static-clang@0.22.1 package ABI: 741207ab89ce314813e123884aa144cf1b7acd6ff2a40b4acc379082d9c1a7ea
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/pkgconfig/libraw.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/libraw/libraw.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/pkgconfig/libraw_r.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/libraw/libraw_const.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/libraw/libraw_datastream.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/raw_rd.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/libraw/libraw_config.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/libraw/libraw_alloc.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/libraw/libraw_version.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/libraw/libraw_types.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/pkgconfig/libraw.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/pkgconfig/libraw_r.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/manual-link/rawd.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/libraw/libraw_internal.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/manual-link/raw.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/libraw/copyright was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/raw_r.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/libraw/librawConfig.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/libraw/FindLibRaw.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/libraw/librawConfigVersion.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/libraw/librawTargets-debug.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/libraw/librawTargets-release.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/libraw/librawTargets.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/libraw/usage was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/libraw/vcpkg-cmake-wrapper.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/libraw/vcpkg.spdx.json was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/libraw/vcpkg_abi_info.txt was already present and will be overwritten
+Elapsed time to handle libraw:x64-windows-static-clang: 34.6 ms
+Installing 13/13 libwebp[core,libwebpmux,simd,unicode]:x64-windows-static-clang@1.6.0#2...
+libwebp[core,libwebpmux,simd,unicode]:x64-windows-static-clang@1.6.0#2 package ABI: 333bdcf435a1834cff78dda717a3fcca9022257fc6ff2604cc43e5879809561e
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/libsharpyuv.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/pkgconfig/libwebp.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/pkgconfig/libsharpyuv.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/libwebpmux.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/libwebpdecoder.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/libwebpdemux.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/libwebp.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/pkgconfig/libwebpdecoder.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/pkgconfig/libwebpdemux.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/webp/decode.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/webp/encode.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/webp/mux.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/webp/demux.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\debug/lib/pkgconfig/libwebpmux.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/webp/sharpyuv/sharpyuv.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/webp/mux_types.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/webp/sharpyuv/sharpyuv_csp.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include/webp/types.h was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/libsharpyuv.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/libwebp.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/libwebpdecoder.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/libwebpdemux.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/libwebpmux.lib was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/pkgconfig/libsharpyuv.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/pkgconfig/libwebp.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/pkgconfig/libwebpdecoder.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/pkgconfig/libwebpdemux.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\lib/pkgconfig/libwebpmux.pc was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/libwebp/copyright was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/libwebp/usage was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/libwebp/vcpkg_abi_info.txt was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/WebP/WebPConfig.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/libwebp/vcpkg.spdx.json was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/WebP/WebPTargets-debug.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/WebP/WebPConfigVersion.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/WebP/WebPTargets-release.cmake was already present and will be overwritten
+warning: File E:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\share/WebP/WebPTargets.cmake was already present and will be overwritten
+Elapsed time to handle libwebp:x64-windows-static-clang: 49.3 ms
+Installed contents are licensed to you by owners. Microsoft is not responsible for, nor does it grant any licenses to, third-party packages.
+Some packages did not declare an SPDX license. Check the `copyright` file for each package for more information about their licensing.
+Packages installed in this vcpkg installation declare the following licenses:
+(FTL OR GPL-2.0-or-later)
+(LGPL-2.1-only OR CDDL-1.0)
+AGPL-3.0-only
+BSD-2-Clause
+BSD-3-Clause
+GPL-2.0-only
+MIT
+Zlib
+bzip2-1.0.6
+libpng-2.0
+The package boost-optional is compatible with built-in CMake targets of FindBoost.cmake:
+
+    find_package(Boost REQUIRED COMPONENTS optional)
+    target_link_libraries(main PRIVATE Boost::optional)
+
+or the generated cmake configs via:
+
+    find_package( REQUIRED CONFIG)
+    target_link_libraries(main PRIVATE Boost::optional)
+
+The package boost-algorithm is compatible with built-in CMake targets of FindBoost.cmake:
+
+    find_package(Boost REQUIRED COMPONENTS algorithm)
+    target_link_libraries(main PRIVATE Boost::algorithm)
+
+or the generated cmake configs via:
+
+    find_package( REQUIRED CONFIG)
+    target_link_libraries(main PRIVATE Boost::algorithm)
+
+The package boost-spirit is compatible with built-in CMake targets of FindBoost.cmake:
+
+    find_package(Boost REQUIRED COMPONENTS spirit)
+    target_link_libraries(main PRIVATE Boost::spirit)
+
+or the generated cmake configs via:
+
+    find_package( REQUIRED CONFIG)
+    target_link_libraries(main PRIVATE Boost::spirit)
+
+The package boost-property-tree is compatible with built-in CMake targets of FindBoost.cmake:
+
+    find_package(Boost REQUIRED COMPONENTS property_tree)
+    target_link_libraries(main PRIVATE Boost::property_tree)
+
+or the generated cmake configs via:
+
+    find_package( REQUIRED CONFIG)
+    target_link_libraries(main PRIVATE Boost::property_tree)
+
+highway provides CMake targets:
+
+    find_package(hwy CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE hwy::hwy)
+
+libjpeg-turbo is compatible with built-in implementation-agnostic CMake targets:
+
+    find_package(JPEG REQUIRED)
+    target_link_libraries(main PRIVATE JPEG::JPEG)
+
+libjpeg-turbo provides CMake targets for the TurboJPEG C API:
+
+    find_package(libjpeg-turbo CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE $<IF:$<TARGET_EXISTS:libjpeg-turbo::turbojpeg>,libjpeg-turbo::turbojpeg,libjpeg-turbo::turbojpeg-static>)
+
+libavif provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(libavif CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE avif)
+
+libavif provides pkg-config modules:
+
+  # Library for encoding and decoding .avif files
+  libavif
+
+libdxfrw provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(libdxfrw CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE libdxfrw::libdxfrw)
+
+libdxfrw provides pkg-config modules:
+
+  # c++ library to read/write dxf files in binary and ascii form
+  libdxfrw
+
+libjxl provides pkg-config modules:
+
+  # Loads and saves JPEG XL files
+  libjxl
+
+  # CMS support library for libjxl
+  libjxl_cms
+
+  # JPEG XL multi-thread runner using std::threads.
+  libjxl_threads
+
+zlib provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(zlib CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE ZLIB::ZLIB)
+
+zlib provides pkg-config modules:
+
+  # zlib-ng compression library
+  zlib
+
+libmupdf provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(unofficial-libmupdf CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE unofficial::libmupdf::libmupdf)
+
+libraw provides CMake targets:
+
+    find_package(libraw CONFIG REQUIRED)
+    # non-thread-safe
+    target_link_libraries(main PRIVATE libraw::raw)
+    # thread-safe
+    target_link_libraries(main PRIVATE libraw::raw_r)
+
+libwebp provides CMake targets:
+
+    find_package(WebP CONFIG REQUIRED)
+    # basic usage
+    target_link_libraries(main PRIVATE WebP::webp WebP::webpdecoder WebP::webpdemux)
+    # for manipulating the WebP graphics format container (port feature libwebpmux)
+    target_link_libraries(main PRIVATE WebP::libwebpmux)
+    # for sharp RGB to YUV conversion
+    target_link_libraries(main PRIVATE WebP::sharpyuv)
+
+Waiting for 1 remaining binary cache submissions...
+Completed submission of libdxfrw:x64-windows-static-clang@2025-09-25 to 1 binary cache(s) in 2.5 s (1/1)
+All requested installations completed successfully in: 19 s
+-- Running vcpkg install - done
+-- The C compiler identification is Clang 20.1.0 with MSVC-like command-line
+-- The CXX compiler identification is Clang 20.1.0 with MSVC-like command-line
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: C:/Program Files/LLVM/bin/clang-cl.exe - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: C:/Program Files/LLVM/bin/clang-cl.exe - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- unrar-mini: Google Highway SIMD enabled.
+-- Build Matrix: Enabling Full LTO (Release-LTO Mode)
+-- Found ZLIB: optimized;E:/qv_build_tmp/out/build/Release-LTO/vcpkg_installed/x64-windows-static-clang/lib/zlibstatic.lib;debug;E:/qv_build_tmp/out/build/Release-LTO/vcpkg_installed/x64-windows-static-clang/debug/lib/zlibstaticd.lib (found version "1.3.1")
+-- Found JPEG: optimized;E:/qv_build_tmp/out/build/Release-LTO/vcpkg_installed/x64-windows-static-clang/lib/jpeg.lib;debug;E:/qv_build_tmp/out/build/Release-LTO/vcpkg_installed/x64-windows-static-clang/debug/lib/jpeg.lib (found version "62")
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Failed
+-- Looking for pthread_create in pthreads
+-- Looking for pthread_create in pthreads - not found
+-- Looking for pthread_create in pthread
+-- Looking for pthread_create in pthread - not found
+-- Found Threads: TRUE
+-- Found BZip2: optimized;E:/qv_build_tmp/out/build/Release-LTO/vcpkg_installed/x64-windows-static-clang/lib/bz2.lib;debug;E:/qv_build_tmp/out/build/Release-LTO/vcpkg_installed/x64-windows-static-clang/debug/lib/bz2d.lib (found version "1.0.8")
+-- Looking for BZ2_bzCompressInit
+-- Looking for BZ2_bzCompressInit - found
+-- Found PNG: optimized;E:/qv_build_tmp/out/build/Release-LTO/vcpkg_installed/x64-windows-static-clang/lib/libpng16.lib;debug;E:/qv_build_tmp/out/build/Release-LTO/vcpkg_installed/x64-windows-static-clang/debug/lib/libpng16d.lib (found version "1.6.53")
+-- Configuring done (327.1s)
+-- Generating done (0.2s)
+-- Build files have been written to: E:/qv_build_tmp/out/build/Release-LTO
