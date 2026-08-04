@@ -404,6 +404,10 @@ const wchar_t *OSD_EditorLaunchFailed = nullptr;
 const wchar_t *Settings_Action_Add = nullptr;
 const wchar_t *Settings_Action_Added = nullptr;
 const wchar_t *Settings_Status_DisabledInPortable = nullptr;
+const wchar_t *Settings_Label_FileAssocTypes = nullptr;
+const wchar_t *Settings_Tooltip_FileAssocTypes = nullptr;
+const wchar_t *Settings_Action_SelectAll = nullptr;
+const wchar_t *Settings_Action_DeselectAll = nullptr;
 const wchar_t *Settings_Label_DebugHUD = nullptr;
 const wchar_t *Settings_Label_Prefetch = nullptr;
 const wchar_t *Settings_Label_InfoPanelAlpha = nullptr;
@@ -954,6 +958,10 @@ struct LanguageTable {
     const wchar_t *Settings_Action_Add;
     const wchar_t *Settings_Action_Added;
     const wchar_t *Settings_Status_DisabledInPortable;
+    const wchar_t *Settings_Label_FileAssocTypes;
+    const wchar_t *Settings_Tooltip_FileAssocTypes;
+    const wchar_t *Settings_Action_SelectAll;
+    const wchar_t *Settings_Action_DeselectAll;
     const wchar_t *Settings_Label_DebugHUD;
     const wchar_t *Settings_Label_Prefetch;
     const wchar_t *Settings_Label_InfoPanelAlpha;
@@ -1506,8 +1514,12 @@ static const LanguageTable Table_EN = {
     L"Failed to launch editor. Please configure it again.", // OSD_EditorLaunchFailed
     L"Add", // Settings_Action_Add
     L"Added", // Settings_Action_Added
-    L"Disabled in Portable Mode", // Settings_Status_DisabledInPortable
-    L"Enable Debug HUD (F12)", // Settings_Label_DebugHUD
+L"Disabled in Portable Mode", // Settings_Status_DisabledInPortable
+L"File Types to Associate", // Settings_Label_FileAssocTypes
+L"Select the file types to open with QuickView. Unchecked types will be removed from the registry.", // Settings_Tooltip_FileAssocTypes
+L"Select All", // Settings_Action_SelectAll
+L"Deselect All", // Settings_Action_DeselectAll
+L"Enable Debug HUD (F12)", // Settings_Label_DebugHUD
     L"Prefetch System", // Settings_Label_Prefetch
     L"Info Panel", // Settings_Label_InfoPanelAlpha
     L"Toolbar", // Settings_Label_ToolbarAlpha
@@ -2059,8 +2071,12 @@ static const LanguageTable Table_CN = {
     L"编辑器启动失败，请重新配置。", // OSD_EditorLaunchFailed
     L"添加", // Settings_Action_Add
     L"已添加", // Settings_Action_Added
-    L"便携模式下停用", // Settings_Status_DisabledInPortable
-    L"启用调试 HUD (F12)", // Settings_Label_DebugHUD
+L"便携模式下停用", // Settings_Status_DisabledInPortable
+L"关联文件类型", // Settings_Label_FileAssocTypes
+L"选择要用 QuickView 打开的文件类型，未勾选的类型将从注册表中移除。", // Settings_Tooltip_FileAssocTypes
+L"全选", // Settings_Action_SelectAll
+L"全不选", // Settings_Action_DeselectAll
+L"启用调试 HUD (F12)", // Settings_Label_DebugHUD
     L"预加载系统", // Settings_Label_Prefetch
     L"信息面板", // Settings_Label_InfoPanelAlpha
     L"工具栏", // Settings_Label_ToolbarAlpha
@@ -2612,8 +2628,12 @@ static const LanguageTable Table_TW = {
     L"編輯器啟動失敗，請重新配置。", // OSD_EditorLaunchFailed
     L"新增", // Settings_Action_Add
     L"已新增", // Settings_Action_Added
-    L"可攜式模式下停用", // Settings_Status_DisabledInPortable
-    L"啟用偵錯 HUD (F12)", // Settings_Label_DebugHUD
+L"可攜式模式下停用", // Settings_Status_DisabledInPortable
+L"關聯檔案類型", // Settings_Label_FileAssocTypes
+L"選擇要用 QuickView 開啟的檔案類型，未勾選的類型將從登錄檔中移除。", // Settings_Tooltip_FileAssocTypes
+L"全選", // Settings_Action_SelectAll
+L"全不選", // Settings_Action_DeselectAll
+L"啟用偵錯 HUD (F12)", // Settings_Label_DebugHUD
     L"預先載入系統", // Settings_Label_Prefetch
     L"資訊面板", // Settings_Label_InfoPanelAlpha
     L"工具列", // Settings_Label_ToolbarAlpha
@@ -3165,8 +3185,12 @@ static const LanguageTable Table_JA = {
     L"エディタの起動に失敗しました。再設定してください。", // OSD_EditorLaunchFailed
     L"追加", // Settings_Action_Add
     L"追加済み", // Settings_Action_Added
-    L"ポータブルモードでは無効", // Settings_Status_DisabledInPortable
-    L"デバッグ HUD を有効化 (F12)", // Settings_Label_DebugHUD
+L"ポータブルモードでは無効", // Settings_Status_DisabledInPortable
+L"関連付けるファイル種類", // Settings_Label_FileAssocTypes
+L"QuickView で開くファイル種類を選択します。チェックされていない種類はレジストリから削除されます。", // Settings_Tooltip_FileAssocTypes
+L"すべて選択", // Settings_Action_SelectAll
+L"すべて解除", // Settings_Action_DeselectAll
+L"デバッグ HUD を有効化 (F12)", // Settings_Label_DebugHUD
     L"先読みシステム", // Settings_Label_Prefetch
     L"情報パネル", // Settings_Label_InfoPanelAlpha
     L"ツールバー", // Settings_Label_ToolbarAlpha
@@ -3718,8 +3742,12 @@ static const LanguageTable Table_RU = {
     L"Не удалось запустить редактор. Настройте его снова.", // OSD_EditorLaunchFailed
     L"Добавить", // Settings_Action_Add
     L"Добавлено", // Settings_Action_Added
-    L"Отключено в портативном режиме", // Settings_Status_DisabledInPortable
-    L"Включить отладочный HUD (F12)", // Settings_Label_DebugHUD
+L"Отключено в портативном режиме", // Settings_Status_DisabledInPortable
+L"Типы файлов для ассоциации", // Settings_Label_FileAssocTypes
+L"Выберите типы файлов для открытия в QuickView. Невыбранные типы будут удалены из реестра.", // Settings_Tooltip_FileAssocTypes
+L"Выбрать все", // Settings_Action_SelectAll
+L"Снять все", // Settings_Action_DeselectAll
+L"Включить отладочный HUD (F12)", // Settings_Label_DebugHUD
     L"Система предзагрузки", // Settings_Label_Prefetch
     L"Панель информации", // Settings_Label_InfoPanelAlpha
     L"Панель инструментов", // Settings_Label_ToolbarAlpha
@@ -4271,8 +4299,12 @@ static const LanguageTable Table_DE = {
     L"Editor konnte nicht gestartet werden. Bitte neu konfigurieren.", // OSD_EditorLaunchFailed
     L"Hinzufügen", // Settings_Action_Add
     L"Hinzugefügt", // Settings_Action_Added
-    L"Im portablen Modus deaktiviert", // Settings_Status_DisabledInPortable
-    L"Debug-HUD aktivieren (F12)", // Settings_Label_DebugHUD
+L"Im portablen Modus deaktiviert", // Settings_Status_DisabledInPortable
+L"Dateitypen für Verknüpfung", // Settings_Label_FileAssocTypes
+L"Wählen Sie die Dateitypen aus, die mit QuickView geöffnet werden sollen. Nicht ausgewählte Typen werden aus der Registry entfernt.", // Settings_Tooltip_FileAssocTypes
+L"Alle auswählen", // Settings_Action_SelectAll
+L"Alle abwählen", // Settings_Action_DeselectAll
+L"Debug-HUD aktivieren (F12)", // Settings_Label_DebugHUD
     L"Vorlade-System", // Settings_Label_Prefetch
     L"Info-Panel", // Settings_Label_InfoPanelAlpha
     L"Symbolleiste", // Settings_Label_ToolbarAlpha
@@ -4824,8 +4856,12 @@ static const LanguageTable Table_ES = {
     L"No se pudo iniciar el editor. Por favor, configúrelo de nuevo.", // OSD_EditorLaunchFailed
     L"Añadir", // Settings_Action_Add
     L"Añadido", // Settings_Action_Added
-    L"Deshabilitado en modo portátil", // Settings_Status_DisabledInPortable
-    L"Habilitar HUD de depuración (F12)", // Settings_Label_DebugHUD
+L"Deshabilitado en modo portátil", // Settings_Status_DisabledInPortable
+L"Tipos de archivo para asociar", // Settings_Label_FileAssocTypes
+L"Seleccione los tipos de archivo para abrir con QuickView. Los tipos no marcados se eliminarán del registro.", // Settings_Tooltip_FileAssocTypes
+L"Seleccionar todo", // Settings_Action_SelectAll
+L"Deseleccionar todo", // Settings_Action_DeselectAll
+L"Habilitar HUD de depuración (F12)", // Settings_Label_DebugHUD
     L"Sistema de precarga", // Settings_Label_Prefetch
     L"Panel de información", // Settings_Label_InfoPanelAlpha
     L"Barra de herramientas", // Settings_Label_ToolbarAlpha
@@ -5377,8 +5413,12 @@ static const LanguageTable Table_FR = {
     L"Échec du lancement de l'éditeur. Veuillez le reconfigurer.", // OSD_EditorLaunchFailed
     L"Ajouter", // Settings_Action_Add
     L"Ajouté", // Settings_Action_Added
-    L"Désactivé en mode portable", // Settings_Status_DisabledInPortable
-    L"Activer le HUD de débogage (F12)", // Settings_Label_DebugHUD
+L"Désactivé en mode portable", // Settings_Status_DisabledInPortable
+L"Types de fichiers à associer", // Settings_Label_FileAssocTypes
+L"Sélectionnez les types de fichiers à ouvrir avec QuickView. Les types non cochés seront supprimés du registre.", // Settings_Tooltip_FileAssocTypes
+L"Tout sélectionner", // Settings_Action_SelectAll
+L"Tout désélectionner", // Settings_Action_DeselectAll
+L"Activer le HUD de débogage (F12)", // Settings_Label_DebugHUD
     L"Système de préchargement", // Settings_Label_Prefetch
     L"Panneau d'information", // Settings_Label_InfoPanelAlpha
     L"Barre d'outils", // Settings_Label_ToolbarAlpha
@@ -5934,8 +5974,12 @@ void Apply(const LanguageTable& t) {
   OSD_EditorLaunchFailed = t.OSD_EditorLaunchFailed;
   Settings_Action_Add = t.Settings_Action_Add;
   Settings_Action_Added = t.Settings_Action_Added;
-  Settings_Status_DisabledInPortable = t.Settings_Status_DisabledInPortable;
-  Settings_Label_DebugHUD = t.Settings_Label_DebugHUD;
+Settings_Status_DisabledInPortable = t.Settings_Status_DisabledInPortable;
+Settings_Label_FileAssocTypes = t.Settings_Label_FileAssocTypes;
+Settings_Tooltip_FileAssocTypes = t.Settings_Tooltip_FileAssocTypes;
+Settings_Action_SelectAll = t.Settings_Action_SelectAll;
+Settings_Action_DeselectAll = t.Settings_Action_DeselectAll;
+Settings_Label_DebugHUD = t.Settings_Label_DebugHUD;
   Settings_Label_Prefetch = t.Settings_Label_Prefetch;
   Settings_Label_InfoPanelAlpha = t.Settings_Label_InfoPanelAlpha;
   Settings_Label_ToolbarAlpha = t.Settings_Label_ToolbarAlpha;

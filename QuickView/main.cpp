@@ -4480,6 +4480,7 @@ void SaveConfig() {
     // Registry / Associations persistence
     WritePrivateProfileStringW(L"Registry", L"RegVer", g_config.LastRegisteredVersion.c_str(), iniPath.c_str());
     WritePrivateProfileStringW(L"Registry", L"RegPath", g_config.LastRegisteredPath.c_str(), iniPath.c_str());
+    WritePrivateProfileStringW(L"Registry", L"FileAssocExts", g_config.FileAssocExts.c_str(), iniPath.c_str());
 
     WritePrivateProfileStringW(L"General", L"NavLoopMode", nullptr, iniPath.c_str());
     WritePrivateProfileStringW(L"General", L"LoopNavigation", nullptr, iniPath.c_str());
@@ -4893,6 +4894,14 @@ g_config.AlwaysOnTop = GetPrivateProfileIntW(L"View", L"AlwaysOnTop", 0, iniPath
     GetPrivateProfileStringW(L"Registry", L"RegPath", L"", bufPath, MAX_PATH, iniPath.c_str());
     g_config.LastRegisteredVersion = bufVer;
     g_config.LastRegisteredPath = bufPath;
+
+    // File association extensions (empty = all, for backward compat with older versions)
+    wchar_t bufAssocExts[2048];
+    GetPrivateProfileStringW(L"Registry", L"FileAssocExts", L"", bufAssocExts, 2048, iniPath.c_str());
+    g_config.FileAssocExts = bufAssocExts;
+    if (g_config.FileAssocExts.empty()) {
+        g_config.FileAssocExts = QuickView::GetAllExtensionsString();
+    }
 
     // Load Hotkeys
     for (size_t i = 1; i < static_cast<size_t>(HotkeyAction::Count); ++i) {

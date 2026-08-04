@@ -203,4 +203,15 @@ inline std::wstring GetSupportedExtensionsFilter() {
     return filter;
 }
 
+// Generate a comma-separated string of all supported extensions (e.g. ".jpg,.png,...")
+// Used for initializing FileAssocExts to "all selected" by default.
+inline std::wstring GetAllExtensionsString() {
+    std::wstring result;
+    for (size_t i = 0; i < std::size(SUPPORTED_EXTENSIONS); ++i) {
+        result += SUPPORTED_EXTENSIONS[i];
+        if (i < std::size(SUPPORTED_EXTENSIONS) - 1) result += L",";
+    }
+    return result;
+}
+
 }

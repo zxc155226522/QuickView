@@ -698,6 +698,7 @@ bool SwatchIsCheckerboard[9] = {true, true, true, false, false, false, false, fa
     // --- Save Options --- (Functional options removed, fully automated/smart)
     std::wstring LastRegisteredVersion;
     std::wstring LastRegisteredPath;
+    std::wstring FileAssocExts;  // Comma-separated extensions to associate (empty = all)
 
 
     // Existing / Internal (Defaults for Runtime)

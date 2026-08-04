@@ -402,26 +402,36 @@ bool SettingsOverlay::RegisterAssociations() {
 
     HKEY hKey;
     LONG r;
-    
+
+    // Build the list of extensions to register from user selection.
+    // If FileAssocExts is empty, register all (backward compat).
+    std::vector<std::wstring> selectedExts;
+    if (!g_config.FileAssocExts.empty()) {
+        selectedExts = QuickView::SplitAndTrimCSV(g_config.FileAssocExts);
+    } else {
+        for (const auto& ext : QuickView::SUPPORTED_EXTENSIONS) {
+            selectedExts.emplace_back(ext);
+        }
+    }
+
     // 1. Register ProgID command
     std::wstring cmd = L"\"" + exePathStr + L"\" \"%1\"";
     SafeRegSetString(HKEY_CURRENT_USER, L"Software\\Classes\\QuickView.Image\\shell\\open\\command", NULL, cmd);
-    
+
     // 2. Register DefaultIcon
     std::wstring icon = exePathStr + L",0";
     SafeRegSetString(HKEY_CURRENT_USER, L"Software\\Classes\\QuickView.Image\\DefaultIcon", NULL, icon);
-    
+
     // 3. Register FriendlyTypeName
     SafeRegSetString(HKEY_CURRENT_USER, L"Software\\Classes\\QuickView.Image", L"FriendlyTypeName", L"QuickView Image Viewer");
-    
+
     // 4. Register specific ProgIDs and OpenWith
-    for (const auto& ext : QuickView::SUPPORTED_EXTENSIONS) {
-        std::wstring extStr(ext);
+    for (const auto& extStr : selectedExts) {
         std::wstring baseExt = (extStr.size() > 1) ? extStr.substr(1) : extStr;
-        
+
         // Generate ProgID: QuickView.EXT (e.g. QuickView.jpg)
         std::wstring progId = L"QuickView" + extStr;
-        
+
         // Generate Description: "EXT File" (e.g. "JPG File")
         std::wstring desc = baseExt;
         std::transform(desc.begin(), desc.end(), desc.begin(), ::towupper);
@@ -429,11 +439,11 @@ bool SettingsOverlay::RegisterAssociations() {
 
         // Create ProgID Key
         SafeRegSetString(HKEY_CURRENT_USER, (L"Software\\Classes\\" + progId).c_str(), L"FriendlyTypeName", desc);
-        
+
         // Command
         std::wstring cmd = L"\"" + exePathStr + L"\" \"%1\"";
         SafeRegSetString(HKEY_CURRENT_USER, (L"Software\\Classes\\" + progId + L"\\shell\\open\\command").c_str(), NULL, cmd);
-        
+
         // Icon
         std::wstring icon = exePathStr + L",0";
         SafeRegSetString(HKEY_CURRENT_USER, (L"Software\\Classes\\" + progId + L"\\DefaultIcon").c_str(), NULL, icon);
@@ -456,8 +466,7 @@ bool SettingsOverlay::RegisterAssociations() {
         L"Software\\Classes\\Applications\\QuickView.exe\\SupportedTypes",
         0, NULL, 0, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS) {
         
-        for (const auto& ext : QuickView::SUPPORTED_EXTENSIONS) {
-            std::wstring extStr(ext);
+        for (const auto& extStr : selectedExts) {
             // [Small AV Optimization] Only write if not already there
             DWORD type;
             if (RegQueryValueExW(hKey, extStr.c_str(), NULL, &type, NULL, NULL) != ERROR_SUCCESS) {
@@ -476,8 +485,7 @@ bool SettingsOverlay::RegisterAssociations() {
     
     std::wstring capKey = L"Software\\QuickView\\Capabilities\\FileAssociations";
     if (RegCreateKeyExW(HKEY_CURRENT_USER, capKey.c_str(), 0, NULL, 0, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS) {
-        for (const auto& ext : QuickView::SUPPORTED_EXTENSIONS) {
-            std::wstring extStr(ext);
+        for (const auto& extStr : selectedExts) {
             std::wstring progId = L"QuickView" + extStr;
             RegSetValueExW(hKey, extStr.c_str(), 0, REG_SZ, (const BYTE*)progId.c_str(), (DWORD)(progId.size() + 1) * sizeof(wchar_t));
         }
@@ -2442,6 +2450,44 @@ void SettingsOverlay::BuildMenu() {
     // System Helpers
     tabAdvanced.items.push_back({ AppStrings::Settings_Header_System, OptionType::Header });
     
+    // File Association Type Selection (TagCloud)
+    SettingsItem itemAssocTypes = { AppStrings::Settings_Label_FileAssocTypes, OptionType::TagCloud };
+    itemAssocTypes.pStrVal = &g_config.FileAssocExts;
+    itemAssocTypes.tooltipText = AppStrings::Settings_Tooltip_FileAssocTypes;
+    itemAssocTypes.tagCloudNoLimit = true;
+    itemAssocTypes.tagCloudNoSort = true;
+    // Build options from SUPPORTED_EXTENSIONS (wstring_view, zero-copy)
+    itemAssocTypes.options.assign(QuickView::SUPPORTED_EXTENSIONS.begin(), QuickView::SUPPORTED_EXTENSIONS.end());
+    itemAssocTypes.onChange = []([[maybe_unused]] SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) {
+        SaveConfig();
+    };
+    if (g_config.PortableMode) {
+        itemAssocTypes.isDisabled = true;
+        itemAssocTypes.disabledText = AppStrings::Settings_Status_DisabledInPortable;
+    }
+    tabAdvanced.items.push_back(itemAssocTypes);
+
+    // Select All / Deselect All
+    SettingsItem itemAssocBulk = { L"", OptionType::DualActionButton };
+    itemAssocBulk.buttonText = AppStrings::Settings_Action_SelectAll;
+    itemAssocBulk.buttonText2 = AppStrings::Settings_Action_DeselectAll;
+    if (g_config.PortableMode) {
+        itemAssocBulk.isDisabled = true;
+        itemAssocBulk.disabledText = AppStrings::Settings_Status_DisabledInPortable;
+    } else {
+        itemAssocBulk.onChange = []([[maybe_unused]] SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) {
+            g_config.FileAssocExts = QuickView::GetAllExtensionsString();
+            SaveConfig();
+            overlay->m_pendingRebuild = true;
+        };
+        itemAssocBulk.onChange2 = []([[maybe_unused]] SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) {
+            g_config.FileAssocExts.clear();
+            SaveConfig();
+            overlay->m_pendingRebuild = true;
+        };
+    }
+    tabAdvanced.items.push_back(itemAssocBulk);
+    
     SettingsItem itemFileAssoc = { AppStrings::Settings_Label_AddToOpenWith, OptionType::ActionButton };
     itemFileAssoc.buttonText = AppStrings::Settings_Action_Add;
     itemFileAssoc.buttonActivatedText = AppStrings::Settings_Action_Added;
@@ -2452,6 +2498,8 @@ void SettingsOverlay::BuildMenu() {
         itemFileAssoc.disabledText = AppStrings::Settings_Status_DisabledInPortable;
     } else {
         itemFileAssoc.onChange = []([[maybe_unused]] SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) {
+            // Clean up old associations first, then register only selected types
+            SettingsOverlay::UnregisterAssociations();
             SettingsOverlay::RegisterAssociations();
         };
     }

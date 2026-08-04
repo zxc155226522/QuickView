@@ -494,6 +494,12 @@ namespace AppStrings {
     extern const wchar_t* Settings_Action_Added;
     extern const wchar_t* Settings_Status_DisabledInPortable; // Hint for portable mode
 
+    // File Association Type Selection
+    extern const wchar_t* Settings_Label_FileAssocTypes;
+    extern const wchar_t* Settings_Tooltip_FileAssocTypes;
+    extern const wchar_t* Settings_Action_SelectAll;
+    extern const wchar_t* Settings_Action_DeselectAll;
+
     // Advanced
     extern const wchar_t* Settings_Header_Features;
     extern const wchar_t* Settings_Header_Performance;
