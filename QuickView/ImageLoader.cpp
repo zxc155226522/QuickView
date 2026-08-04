@@ -4053,6 +4053,33 @@ static HRESULT RasterizeSvgThumbnail(const std::vector<uint8_t> &xmlData,
   const UINT outW = (UINT)(std::max)(1, (int)std::lround(safeW * scale));
   const UINT outH = (UINT)(std::max)(1, (int)std::lround(safeH * scale));
 
+  // [Fix] Scale up stroke-width in SVG XML so lines remain visible when
+  // rasterized to a small thumbnail. Without this, a stroke-width of 1-2
+  // SVG units becomes <0.3px after downscaling, making the thumbnail look
+  // fragmented/invisible.
+  std::vector<uint8_t> processedXml = xmlData;
+  if (scale < 1.0f) {
+    const float minVisiblePx = 2.0f;  // at least 2px wide strokes
+    const float minStrokeInSvgUnits = minVisiblePx / scale;
+    // Replace stroke-width="X" with stroke-width="max(X, minStrokeInSvgUnits)"
+    const std::string needle = "stroke-width=\"";
+    std::string xmlStr(processedXml.begin(), processedXml.end());
+    size_t pos = 0;
+    while ((pos = xmlStr.find(needle, pos)) != std::string::npos) {
+      size_t valStart = pos + needle.length();
+      size_t valEnd = xmlStr.find('"', valStart);
+      if (valEnd == std::string::npos) break;
+      float curW = std::strtof(xmlStr.c_str() + valStart, nullptr);
+      if (curW > 0 && curW < minStrokeInSvgUnits) {
+        std::string replacement = std::to_string(minStrokeInSvgUnits);
+        xmlStr.replace(valStart, valEnd - valStart, replacement);
+        valEnd = valStart + replacement.length();
+      }
+      pos = valEnd + 1;
+    }
+    processedXml.assign(xmlStr.begin(), xmlStr.end());
+  }
+
   UINT creationFlags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
   D3D_FEATURE_LEVEL fl = D3D_FEATURE_LEVEL_11_0;
   ComPtr<ID3D11Device> d3dDevice;
@@ -4124,7 +4151,7 @@ static HRESULT RasterizeSvgThumbnail(const std::vector<uint8_t> &xmlData,
   if (FAILED(hr))
     return hr;
 
-  HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, xmlData.size());
+  HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, processedXml.size());
   if (!hMem)
     return E_OUTOFMEMORY;
 
@@ -4134,7 +4161,7 @@ static HRESULT RasterizeSvgThumbnail(const std::vector<uint8_t> &xmlData,
     GlobalFree(hMem);
     return E_OUTOFMEMORY;
   }
-  memcpy(mem, xmlData.data(), xmlData.size());
+  memcpy(mem, processedXml.data(), processedXml.size());
   GlobalUnlock(hMem);
   hr = CreateStreamOnHGlobal(hMem, TRUE, &stream);
   if (FAILED(hr)) {
@@ -4202,6 +4229,20 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
     return E_INVALIDARG;
   pData->isValid = false;
   pData->pixels.clear();
+
+  // [Debug] Log every LoadThumbnail call
+  {
+    static std::atomic<int> g_dbgCount{0};
+    if (g_dbgCount.load() < 200) {
+      FILE* dbg = nullptr;
+      if (_wfopen_s(&dbg, L"E:\\qv_thumb_debug.log", L"a") == 0 && dbg) {
+        fwprintf(dbg, L"[Call#%d] path=%s allowSlow=%d\n",
+                 g_dbgCount.load(), filePath, allowSlow?1:0);
+        fclose(dbg);
+        g_dbgCount.fetch_add(1);
+      }
+    }
+  }
 
   // 0. Highest Priority: Windows Shell Thumbnail Cache (Insanely fast for
   // pre-cached heavy RAWs)
@@ -4432,9 +4473,35 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
 
     HRESULT hr = LoadToFrame(filePath, pFrame.get(), nullptr, targetSize,
                              targetSize, &pData->loaderName, {}, {});
+    // [Debug] Trace vector/doc thumbnail loading
+    {
+      FILE* dbg = nullptr;
+      if (_wfopen_s(&dbg, L"E:\\qv_thumb_debug.log", L"a") == 0 && dbg) {
+        fwprintf(dbg, L"[Thumb] fmt=%s hr=0x%08X isSvg=%d hasPix=%d w=%d h=%d\n",
+                 format.c_str(), (unsigned)hr, pFrame->IsSvg()?1:0,
+                 pFrame->pixels?1:0, pFrame->width, pFrame->height);
+        fclose(dbg);
+      }
+    }
     if (SUCCEEDED(hr) && pFrame->IsSvg() && pFrame->svg) {
+      // [Debug] Save SVG XML for inspection
+      {
+        FILE* svgF = nullptr;
+        if (_wfopen_s(&svgF, L"E:\\qv_thumb_debug.svg", L"wb") == 0 && svgF) {
+          fwrite(pFrame->svg->xmlData.data(), 1, pFrame->svg->xmlData.size(), svgF);
+          fclose(svgF);
+        }
+      }
       hr = RasterizeSvgThumbnail(pFrame->svg->xmlData, pFrame->svg->viewBoxW,
                                  pFrame->svg->viewBoxH, targetSize, pData);
+      {
+        FILE* dbg = nullptr;
+        if (_wfopen_s(&dbg, L"E:\\qv_thumb_debug.log", L"a") == 0 && dbg) {
+          fwprintf(dbg, L"  Rasterize hr=0x%08X valid=%d w=%d h=%d\n",
+                   (unsigned)hr, pData->isValid?1:0, pData->width, pData->height);
+          fclose(dbg);
+        }
+      }
     } else if (SUCCEEDED(hr) && pFrame->pixels && pFrame->width > 0 &&
                pFrame->height > 0) {
       pData->width = pFrame->width;
