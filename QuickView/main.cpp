@@ -555,9 +555,6 @@ static float GetMinWindowWidth() {
         defaultMinW = g_config.WindowMinSize;
     }
 
-    if (g_settingsOverlay.IsVisible()) {
-        defaultMinW = std::max(defaultMinW, SettingsOverlay::HUD_WIDTH * g_uiScale + 50.0f * g_uiScale);
-    }
     if (g_helpOverlay.IsVisible()) {
         defaultMinW = std::max(defaultMinW, 500.0f * g_uiScale + 50.0f * g_uiScale);
     }
@@ -585,9 +582,6 @@ static float GetMinWindowHeight() {
         defaultMinH = g_config.WindowMinSize;
     }
 
-    if (g_settingsOverlay.IsVisible()) {
-        defaultMinH = std::max(defaultMinH, SettingsOverlay::HUD_HEIGHT * g_uiScale + 50.0f * g_uiScale);
-    }
     if (g_helpOverlay.IsVisible()) {
         defaultMinH = std::max(defaultMinH, 600.0f * g_uiScale + 50.0f * g_uiScale);
     }
@@ -1357,7 +1351,7 @@ static void RefreshWindowDpi(HWND hwnd, UINT dpiHint = 0) {
     if (dpi == 0) dpi = USER_DEFAULT_SCREEN_DPI;
     g_windowDpi = dpi;
     ApplyUIScale(ResolveUIScale(dpi));
-    if (hwnd && (g_settingsOverlay.IsVisible() || g_helpOverlay.IsVisible() || g_gallery.IsVisible() || AppContext::GetInstance().Dialog.IsVisible)) {
+    if (hwnd && (g_helpOverlay.IsVisible() || g_gallery.IsVisible() || AppContext::GetInstance().Dialog.IsVisible)) {
         AdjustWindowForOverlay(hwnd, false);
     }
 }
@@ -1401,7 +1395,7 @@ static void SaveOverlayWindowState(HWND hwnd) {
 
 static void RestoreOverlayWindowState(HWND hwnd) {
     if (!g_savedState.isValid) return;
-    if (g_settingsOverlay.IsVisible() || g_helpOverlay.IsVisible() || g_gallery.IsVisible() || AppContext::GetInstance().Dialog.IsVisible) return;
+    if (g_helpOverlay.IsVisible() || g_gallery.IsVisible() || AppContext::GetInstance().Dialog.IsVisible) return;
     
     // Restore exact saved state - no recalculation needed
     // The saved Zoom was relative to the saved window size, so they work together
@@ -5219,7 +5213,7 @@ void AdjustWindowForOverlay(HWND hwnd, bool isClosed) {
         }
     } else {
         // Closing overlay:
-        if (g_settingsOverlay.IsVisible() || g_helpOverlay.IsVisible() || g_gallery.IsVisible() || AppContext::GetInstance().Dialog.IsVisible) {
+        if (g_helpOverlay.IsVisible() || g_gallery.IsVisible() || AppContext::GetInstance().Dialog.IsVisible) {
             return;
         }
 
@@ -6648,7 +6642,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, [[maybe_unused]] LPWSTR lpCm
     // Init Gallery
     g_thumbMgr.Initialize(hwnd, g_imageLoader.get());
     g_gallery.Initialize(&g_thumbMgr, &GetPaneContext(PaneSlot::Primary).navigator);
-    g_settingsOverlay.Init(g_renderEngine->GetDeviceContext(), hwnd);
+    g_settingsOverlay.Init(hwnd);
     g_helpOverlay.Init(g_renderEngine->GetDeviceContext(), hwnd);
     DragAcceptFiles(hwnd, TRUE);
     
@@ -6890,7 +6884,7 @@ static bool IsMouseOverUI(HWND hwnd, int x, int y) {
     if (miniHit.minimapIdx != -1) return true;
 
     if (g_gallery.IsVisible() && g_gallery.HitTestArea(x, y, winW, winH)) return true;
-    if (g_settingsOverlay.IsVisible() || g_helpOverlay.IsVisible() || AppContext::GetInstance().Dialog.IsVisible) return true;
+    if (g_helpOverlay.IsVisible() || AppContext::GetInstance().Dialog.IsVisible) return true;
     if (g_toolbar.IsVisible() && g_toolbar.HitTest((float)x, (float)y)) return true;
     if (g_uiRenderer) {
         auto hit = g_uiRenderer->HitTest((float)x, (float)y);
@@ -8199,15 +8193,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
               }
           }
           
-          if (g_settingsOverlay.IsVisible()) {
-              g_currentCursor = LoadCursor(nullptr, IDC_ARROW);
-              SettingsAction action = g_settingsOverlay.OnMouseMove((float)pt.x, (float)pt.y);
-              if (action == SettingsAction::RepaintAll) RequestRepaint(PaintLayer::All);
-              else if (action == SettingsAction::RepaintStatic) RequestRepaint(PaintLayer::Static);
-              SetCursor(g_currentCursor);
-              return 0;
-          }
-          
           if (g_gallery.IsVisible()) {
               if (g_gallery.OnMouseMove(pt.x, pt.y)) {
                   RequestRepaint(PaintLayer::Gallery);  // Only if hover changed
@@ -8310,7 +8295,7 @@ SKIP_EDGE_NAV:;
           bool inZone = (pt.y > winH - zoneHeight) || g_toolbar.HitTest((float)pt.x, (float)pt.y);
           
           static DWORD s_hideRequestTime = 0;
-          bool anyOverlayOpen = g_settingsOverlay.IsVisible() || g_helpOverlay.IsVisible();
+          bool anyOverlayOpen = g_helpOverlay.IsVisible();
           
           if (anyOverlayOpen) {
               if (g_toolbar.IsVisible()) {
@@ -8893,9 +8878,7 @@ SKIP_EDGE_NAV:;
             return 0;
         }
         
-        // 1. Settings / Update Toast
-        bool wasSettingsVisible = g_settingsOverlay.IsVisible();
-        SettingsAction action = g_settingsOverlay.OnLButtonDown((float)pt.x, (float)pt.y);
+        // Settings events now handled by the independent settings window
         
         if (g_helpOverlay.IsVisible()) {
             g_helpOverlay.OnLButtonDown((float)pt.x, (float)pt.y);
@@ -8903,46 +8886,7 @@ SKIP_EDGE_NAV:;
             return 0;
         }
         
-        // Check if Settings closed itself (e.g. Back button or Help transition)
-        if (wasSettingsVisible && !g_settingsOverlay.IsVisible()) {
-             RequestRepaint(PaintLayer::Static);
-             return 0;
-        }
-
-        if (action == SettingsAction::OpenHelp) {
-             // Seamless Handoff: Close Settings -> Open Help
-             // Crucial: Do NOT restore window state here. Help Overlay inherits current expanded state.
-             g_helpOverlay.SetVisible(true);
-             g_settingsOverlay.SetVisible(false);
-             RequestRepaint(PaintLayer::All);
-             return 0;
-        }
-
-        if (action == SettingsAction::DragWindow) {
-             if (!g_isFullScreen) {
-                 ReleaseCapture();
-                 SendMessage(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
-             }
-             return 0;
-        }
-
-        if (action != SettingsAction::None) {
-             if (action == SettingsAction::RepaintAll) {
-                 RefreshWindowDpi(hwnd);
-                 RequestRepaint(PaintLayer::All);
-             } else {
-                 RequestRepaint(PaintLayer::Static);
-             }
-             return 0; 
-        }
-        
-        // 2. Click Outside Settings -> Close it
-        if (g_settingsOverlay.IsVisible()) {
-            g_settingsOverlay.SetVisible(false);
-            RestoreOverlayWindowState(hwnd); // Restore window state
-            RequestRepaint(PaintLayer::Static); // Only Static needed to clear overlay
-            return 0;
-        }
+        // Settings events now handled by the independent settings window
         
         // Click Hotspot to trigger Gallery (Trigger Mode 2)
         if (!g_imagePath.empty() && !g_gallery.IsVisible() && !g_settingsOverlay.IsVisible() && !g_helpOverlay.IsVisible() && g_config.GalleryTriggerMode == 2) {
@@ -9281,12 +9225,7 @@ SKIP_EDGE_NAV:;
             GetPaneContext(PaneSlot::Primary).view.IsPendingFullscreenExitDrag = false;
             ReleaseCapture();
         }
-        if (g_settingsOverlay.IsVisible()) {
-             SettingsAction action = g_settingsOverlay.OnLButtonUp((float)pt.x, (float)pt.y);
-             if (action == SettingsAction::RepaintAll) RequestRepaint(PaintLayer::All);
-             else if (action == SettingsAction::RepaintStatic) RequestRepaint(PaintLayer::Static);
-             return 0; // Consume event (prevent fallthrough to Image Repaint)
-        }
+        // Settings events now handled by the independent settings window
         
         if (g_isDraggingFilmstrip) {
             g_isDraggingFilmstrip = false;
@@ -9812,11 +9751,6 @@ SKIP_EDGE_NAV:;
             }
         }
         
-        if (g_settingsOverlay.OnMouseWheel(wheelDelta)) {
-            RequestRepaint(PaintLayer::Static);  // Settings panel is on Static layer
-            return 0;
-        }
-
         if (g_gallery.IsVisible()) {
              POINT ptScreen = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
              POINT ptClient = ptScreen;

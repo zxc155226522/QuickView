@@ -14,8 +14,8 @@
 #include "HelpOverlay.h"
 #include "ImageLoaderSimd.h"
 #include "ImageViewportLayout.h"
-#include "SettingsOverlay.h"
 #include "PrintPreviewUI.h"
+#include "SettingsOverlay.h"
 #include <functional> // For std::hash
 
 namespace {
@@ -39,8 +39,8 @@ namespace {
 extern Toolbar g_toolbar;
 extern D2D1_SIZE_F GetEffectiveImageSize();
 extern GalleryOverlay g_gallery;
-extern SettingsOverlay g_settingsOverlay;
 extern HelpOverlay g_helpOverlay;
+extern SettingsOverlay g_settingsOverlay;
 extern ImageEngine* g_pImageEngine; // [v3.1] Accessor (renamed from g_imageEngine)
 
 #include "FileNavigator.h"
@@ -287,18 +287,17 @@ HitTestResult UIRenderer::HitTest(float x, float y) {
 
     // Only hit test if info panel OR HUD is visible
     extern GalleryOverlay g_gallery;
-    extern SettingsOverlay g_settingsOverlay;
     extern HelpOverlay g_helpOverlay;
     float cx = m_width / 2.0f;
     float neckH = 40.0f * s;
     float neckW = 200.0f * s;
     bool isInNeck = (m_lastMousePos.y >= 0 && m_lastMousePos.y < neckH &&
                      m_lastMousePos.x >= cx - neckW && m_lastMousePos.x <= cx + neckW);
-    bool isHotspotShowing = !g_imagePath.empty() && !g_gallery.IsVisible() && !g_settingsOverlay.IsVisible() && !g_helpOverlay.IsVisible() && (g_config.GalleryTriggerMode == 1 || g_config.GalleryTriggerMode == 2) && (m_width >= 300.0f * s) && (m_height >= 200.0f * s) && isInNeck;
+    bool isHotspotShowing = !g_imagePath.empty() && !g_gallery.IsVisible() && !g_helpOverlay.IsVisible() && (g_config.GalleryTriggerMode == 1 || g_config.GalleryTriggerMode == 2) && (m_width >= 300.0f * s) && (m_height >= 200.0f * s) && isInNeck;
 
     bool isFilmstripActive = g_gallery.IsVisible() && g_gallery.GetMode() == GalleryMode::Filmstrip;
-    bool hideInfoPanel = g_settingsOverlay.IsVisible() || g_helpOverlay.IsVisible() || (g_gallery.IsVisible() && !isFilmstripActive);
-    bool hideHud = g_settingsOverlay.IsVisible() || g_helpOverlay.IsVisible() || g_gallery.IsVisible() || AppContext::GetInstance().Dialog.IsVisible;
+    bool hideInfoPanel = g_helpOverlay.IsVisible() || (g_gallery.IsVisible() && !isFilmstripActive);
+    bool hideHud = g_helpOverlay.IsVisible() || g_gallery.IsVisible() || AppContext::GetInstance().Dialog.IsVisible;
 
     bool hudVisible = IsCompareModeActive() && g_runtime.ShowCompareInfo && !hideHud && !isHotspotShowing;
     
@@ -815,13 +814,6 @@ void UIRenderer::RenderStaticLayer(ID2D1DeviceContext* dc, HWND hwnd) {
       DrawWelcomeScreen(dc);
 
       // Render overlays even on welcome screen if visible
-      if (g_settingsOverlay.IsVisible()) {
-        g_settingsOverlay.SetGeekGlassData(
-            m_bgCommandList.Get(), m_compEngine
-                                       ? m_compEngine->GetScreenTransform()
-                                       : D2D1::Matrix3x2F::Identity());
-        g_settingsOverlay.Render(dc, (float)m_width, (float)m_height);
-      }
       if (g_helpOverlay.IsVisible()) {
         g_helpOverlay.SetGeekGlassData(m_bgCommandList.Get(),
                                        m_compEngine
@@ -836,7 +828,7 @@ void UIRenderer::RenderStaticLayer(ID2D1DeviceContext* dc, HWND hwnd) {
     }
 
     bool isFullGridGallery = g_gallery.IsVisible() && g_gallery.GetMode() == GalleryMode::FullGrid;
-    bool isAnyOverlayActive = g_settingsOverlay.IsVisible() || g_helpOverlay.IsVisible() || isFullGridGallery;
+    bool isAnyOverlayActive = g_helpOverlay.IsVisible() || isFullGridGallery;
 
 
     // Compare Selected Pane Indicator
@@ -852,7 +844,7 @@ void UIRenderer::RenderStaticLayer(ID2D1DeviceContext* dc, HWND hwnd) {
     // Info Panel or HUD - Hide when gallery (any mode) or settings/help is visible
     // However, keep the Info Panel visible if we are in Filmstrip mode.
     bool isFilmstripActive = g_gallery.IsVisible() && g_gallery.GetMode() == GalleryMode::Filmstrip;
-    bool hideInfoPanel = g_settingsOverlay.IsVisible() || g_helpOverlay.IsVisible() || (g_gallery.IsVisible() && !isFilmstripActive);
+    bool hideInfoPanel = g_helpOverlay.IsVisible() || (g_gallery.IsVisible() && !isFilmstripActive);
     if ((g_runtime.ShowInfoPanel || hudVisible) && !hideInfoPanel) {
         // [v5.3] Lazy Metadata Trigger (Split Strategy)
         // If panel or HUD is visible, ensure we have full metadata (Async)
@@ -883,14 +875,13 @@ void UIRenderer::RenderStaticLayer(ID2D1DeviceContext* dc, HWND hwnd) {
         DrawNavigator(dc);
     }
 
-    // Settings Overlay
-    if (g_settingsOverlay.IsVisible()) {
-        g_settingsOverlay.SetGeekGlassData(m_bgCommandList.Get(), m_compEngine ? m_compEngine->GetScreenTransform() : D2D1::Matrix3x2F::Identity());
-        g_settingsOverlay.Render(dc, (float)m_width, (float)m_height);
-    }
-    
     if (QuickView::PrintPreviewUI::GetInstance().IsVisible()) {
         QuickView::PrintPreviewUI::GetInstance().Render(dc, (float)m_width, (float)m_height);
+    }
+
+    // Update Toast (rendered on main window when settings is closed)
+    if (g_settingsOverlay.IsUpdateToastVisible()) {
+        g_settingsOverlay.RenderToast(dc, (float)m_width, (float)m_height);
     }
     
     // Help Overlay (Top of Static Layer)
@@ -1269,7 +1260,7 @@ void UIRenderer::RenderDynamicLayer(ID2D1DeviceContext* dc, HWND hwnd) {
     }
 
     // Draw Top Gallery Hotspot: Vector Icon + Material Ripple (Fix #1)
-    if (!g_imagePath.empty() && !g_gallery.IsVisible() && !g_settingsOverlay.IsVisible() && !g_helpOverlay.IsVisible() && (g_config.GalleryTriggerMode == 1 || g_config.GalleryTriggerMode == 2) && m_width >= 300.0f * m_uiScale && m_height >= 200.0f * m_uiScale) {
+    if (!g_imagePath.empty() && !g_gallery.IsVisible() && !g_helpOverlay.IsVisible() && (g_config.GalleryTriggerMode == 1 || g_config.GalleryTriggerMode == 2) && m_width >= 300.0f * m_uiScale && m_height >= 200.0f * m_uiScale) {
         float cx = m_width / 2.0f;
         float neckH = 40.0f * m_uiScale;
         float neckW = 200.0f * m_uiScale;
@@ -1343,7 +1334,7 @@ void UIRenderer::RenderDynamicLayer(ID2D1DeviceContext* dc, HWND hwnd) {
 // ============================================================================
 
 void UIRenderer::RenderGalleryLayer(ID2D1DeviceContext* dc) {
-    if (g_gallery.IsVisible() && !g_settingsOverlay.IsVisible() && !g_helpOverlay.IsVisible()) {
+    if (g_gallery.IsVisible() && !g_helpOverlay.IsVisible()) {
         D2D1_SIZE_F rtSize = D2D1::SizeF((float)m_width, (float)m_height);
         g_gallery.Render(dc, rtSize, m_bgCommandList.Get(), m_compEngine ? m_compEngine->GetScreenTransform() : D2D1::Matrix3x2F::Identity());
     }
@@ -3832,7 +3823,7 @@ void UIRenderer::DrawCompactInfo(ID2D1DeviceContext* dc) {
     float neckW = 200.0f * s;
     bool isInNeck = (m_lastMousePos.y >= 0 && m_lastMousePos.y < neckH &&
                      m_lastMousePos.x >= cx - neckW && m_lastMousePos.x <= cx + neckW);
-    bool isHotspotShowing = !g_imagePath.empty() && !g_gallery.IsVisible() && !g_settingsOverlay.IsVisible() && !g_helpOverlay.IsVisible() && (g_config.GalleryTriggerMode == 1 || g_config.GalleryTriggerMode == 2) && (m_width >= 300.0f * s) && (m_height >= 200.0f * s) && isInNeck;
+    bool isHotspotShowing = !g_imagePath.empty() && !g_gallery.IsVisible() && !g_helpOverlay.IsVisible() && (g_config.GalleryTriggerMode == 1 || g_config.GalleryTriggerMode == 2) && (m_width >= 300.0f * s) && (m_height >= 200.0f * s) && isInNeck;
     bool overlapsHotspot = (panelRect.top < neckH && panelRect.right > cx - neckW && panelRect.left < cx + neckW);
     if (isHotspotShowing && overlapsHotspot) {
         m_lastInfoPanelRect = {};
@@ -4138,7 +4129,7 @@ void UIRenderer::DrawInfoPanel(ID2D1DeviceContext* dc) {
     float neckW = 200.0f * s;
     bool isInNeck = (m_lastMousePos.y >= 0 && m_lastMousePos.y < neckH &&
                      m_lastMousePos.x >= cx - neckW && m_lastMousePos.x <= cx + neckW);
-    bool isHotspotShowing = !g_imagePath.empty() && !g_gallery.IsVisible() && !g_settingsOverlay.IsVisible() && !g_helpOverlay.IsVisible() && (g_config.GalleryTriggerMode == 1 || g_config.GalleryTriggerMode == 2) && (m_width >= 300.0f * s) && (m_height >= 200.0f * s) && isInNeck;
+    bool isHotspotShowing = !g_imagePath.empty() && !g_gallery.IsVisible() && !g_helpOverlay.IsVisible() && (g_config.GalleryTriggerMode == 1 || g_config.GalleryTriggerMode == 2) && (m_width >= 300.0f * s) && (m_height >= 200.0f * s) && isInNeck;
     bool overlapsHotspot = (panelRect.top < neckH && panelRect.right > cx - neckW && panelRect.left < cx + neckW);
     if (isHotspotShowing && overlapsHotspot) {
         m_lastInfoPanelRect = {};
@@ -4289,7 +4280,7 @@ void UIRenderer::DrawNavIndicators(ID2D1DeviceContext* dc) {
     if (g_config.NavIndicator != 0) return;
     if (g_viewState.CompareActive && g_config.DisableEdgeNavInCompare) return;
     bool isFullGridGallery = g_gallery.IsVisible() && g_gallery.GetMode() == GalleryMode::FullGrid;
-    if (g_settingsOverlay.IsVisible() || g_helpOverlay.IsVisible() || isFullGridGallery || g_imagePath.empty()) return;
+    if (g_helpOverlay.IsVisible() || isFullGridGallery || g_imagePath.empty()) return;
     const float s = m_uiScale;
     float circleRadius = 16.0f * s;
     float arrowSize = 8.0f * s;
@@ -4614,8 +4605,8 @@ void UIRenderer::DrawCompareInfoHUD(ID2D1DeviceContext* dc) {
     float neckW = 200.0f * sUI;
     bool isInNeck = (m_lastMousePos.y >= 0 && m_lastMousePos.y < neckH &&
                      m_lastMousePos.x >= cx - neckW && m_lastMousePos.x <= cx + neckW);
-    bool isHotspotShowing = !g_imagePath.empty() && !g_gallery.IsVisible() && !g_settingsOverlay.IsVisible() && !g_helpOverlay.IsVisible() && (g_config.GalleryTriggerMode == 1 || g_config.GalleryTriggerMode == 2) && (m_width >= 300.0f * sUI) && (m_height >= 200.0f * sUI) && isInNeck;
-    if (g_gallery.IsVisible() || isHotspotShowing || g_settingsOverlay.IsVisible() || g_helpOverlay.IsVisible() || AppContext::GetInstance().Dialog.IsVisible) {
+    bool isHotspotShowing = !g_imagePath.empty() && !g_gallery.IsVisible() && !g_helpOverlay.IsVisible() && (g_config.GalleryTriggerMode == 1 || g_config.GalleryTriggerMode == 2) && (m_width >= 300.0f * sUI) && (m_height >= 200.0f * sUI) && isInNeck;
+    if (g_gallery.IsVisible() || isHotspotShowing || g_helpOverlay.IsVisible() || AppContext::GetInstance().Dialog.IsVisible) {
         m_lastHUDRect = {};
         m_hudToggleLiteRect = {};
         m_panelToggleRect = {};
@@ -4763,7 +4754,7 @@ void UIRenderer::DrawCompareInfoHUD(ID2D1DeviceContext* dc) {
         extern GalleryOverlay g_gallery;
         bool isInNeck = (m_lastMousePos.y >= 0 && m_lastMousePos.y < neckH &&
                          m_lastMousePos.x >= cx - neckW && m_lastMousePos.x <= cx + neckW);
-        bool isHotspotShowing = !g_imagePath.empty() && !g_gallery.IsVisible() && !g_settingsOverlay.IsVisible() && !g_helpOverlay.IsVisible() && (g_config.GalleryTriggerMode == 1 || g_config.GalleryTriggerMode == 2) && (m_width >= 300.0f * sUI) && (m_height >= 200.0f * sUI) && isInNeck;
+        bool isHotspotShowing = !g_imagePath.empty() && !g_gallery.IsVisible() && !g_helpOverlay.IsVisible() && (g_config.GalleryTriggerMode == 1 || g_config.GalleryTriggerMode == 2) && (m_width >= 300.0f * sUI) && (m_height >= 200.0f * sUI) && isInNeck;
         bool overlapsHotspot = (panelRect.top < neckH && panelRect.right > cx - neckW && panelRect.left < cx + neckW);
         if (isHotspotShowing && overlapsHotspot) {
             m_lastHUDRect = {};
