@@ -803,7 +803,10 @@ LRESULT SettingsOverlay::HandleSettingsMsg(HWND hwnd, UINT message, WPARAM wPara
         }
         case WM_ACTIVATE:
             if (LOWORD(wParam) == WA_INACTIVE && m_visible) {
-                SetVisible(false);
+                // Post WM_CLOSE instead of calling SetVisible(false) directly.
+                // Destroying the window during WM_ACTIVATE (which fires inside
+                // CreateSettingsWindow's ShowWindow call) causes UAF crash.
+                PostMessage(hwnd, WM_CLOSE, 0, 0);
             }
             return 0;
         case WM_NCHITTEST: {
@@ -825,8 +828,15 @@ LRESULT SettingsOverlay::HandleSettingsMsg(HWND hwnd, UINT message, WPARAM wPara
             float dipScale = 96.0f / m_settingsDpi;
             x *= dipScale;
             y *= dipScale;
-            OnLButtonDown(x, y);
-            RepaintSettings();
+            // If OnLButtonDown triggers a close (e.g. Back button), it will
+            // call SetVisible(false) -> DestroySettingsWindow(). We must not
+            // touch the window afterwards, so just return immediately.
+            SettingsAction act = OnLButtonDown(x, y);
+            if (act == SettingsAction::None) {
+                // Window may have been destroyed, do nothing.
+            } else {
+                RepaintSettings();
+            }
             return 0;
         }
         case WM_LBUTTONUP: {
@@ -927,26 +937,31 @@ void SettingsOverlay::CreateSettingsWindow() {
     ComPtr<ID3D11Device> d3dDevice;
     ComPtr<ID3D11DeviceContext> d3dCtx;
     D3D_FEATURE_LEVEL fl;
-    D3D11CreateDevice(
+    HRESULT hr = D3D11CreateDevice(
         nullptr, D3D_DRIVER_TYPE_HARDWARE, 0, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
         nullptr, 0, D3D11_SDK_VERSION, &d3dDevice, &fl, &d3dCtx);
+    if (FAILED(hr) || !d3dDevice) return;
 
     ComPtr<IDXGIDevice> dxgiDevice;
-    d3dDevice.As(&dxgiDevice);
+    if (FAILED(d3dDevice.As(&dxgiDevice)) || !dxgiDevice) return;
 
     // DComp device
-    DCompositionCreateDevice(dxgiDevice.Get(), IID_PPV_ARGS(&m_settingsDcompDevice));
+    if (FAILED(DCompositionCreateDevice(dxgiDevice.Get(), IID_PPV_ARGS(&m_settingsDcompDevice)))
+        || !m_settingsDcompDevice) return;
 
     // D2D device + context
     ComPtr<ID2D1Device> d2dDevice;
-    D2D1CreateDevice(dxgiDevice.Get(), nullptr, &d2dDevice);
-    d2dDevice->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &m_settingsD2dContext);
+    if (FAILED(D2D1CreateDevice(dxgiDevice.Get(), nullptr, &d2dDevice)) || !d2dDevice) return;
+    if (FAILED(d2dDevice->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &m_settingsD2dContext))
+        || !m_settingsD2dContext) return;
 
     // DComp target + visual + surface
-    m_settingsDcompDevice->CreateTargetForHwnd(m_settingsHwnd, true, &m_settingsDcompTarget);
-    m_settingsDcompDevice->CreateVisual(&m_settingsDcompVisual);
-    m_settingsDcompDevice->CreateSurface((UINT)hudW, (UINT)hudH,
-        DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_ALPHA_MODE_PREMULTIPLIED, &m_settingsDcompSurface);
+    if (FAILED(m_settingsDcompDevice->CreateTargetForHwnd(m_settingsHwnd, true, &m_settingsDcompTarget))
+        || !m_settingsDcompTarget) return;
+    if (FAILED(m_settingsDcompDevice->CreateVisual(&m_settingsDcompVisual)) || !m_settingsDcompVisual) return;
+    if (FAILED(m_settingsDcompDevice->CreateSurface((UINT)hudW, (UINT)hudH,
+        DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_ALPHA_MODE_PREMULTIPLIED, &m_settingsDcompSurface))
+        || !m_settingsDcompSurface) return;
 
     m_settingsDcompVisual->SetContent(m_settingsDcompSurface.Get());
     m_settingsDcompTarget->SetRoot(m_settingsDcompVisual.Get());
@@ -4827,9 +4842,11 @@ SettingsAction SettingsOverlay::OnLButtonDown(float x, float y) {
     float hudBottom = hudY + HUD_HEIGHT * s;
 
     // Check if click is OUTSIDE HUD -> Close settings
+    // (In independent window mode, the window IS the HUD, so this should
+    // never trigger. Kept as safety net with PostMessage to avoid UAF.)
     if (x < hudX || x > hudRight || y < hudY || y > hudBottom) {
-        SetVisible(false);
-        return SettingsAction::RepaintStatic;
+        if (m_settingsHwnd) PostMessage(m_settingsHwnd, WM_CLOSE, 0, 0);
+        return SettingsAction::None;
     }
 
     const float sidebarW = SIDEBAR_WIDTH * m_uiScale;
@@ -4849,8 +4866,8 @@ SettingsAction SettingsOverlay::OnLButtonDown(float x, float y) {
 
         // Back Button (Top 50px)
         if (localY < backH) {
-            SetVisible(false);
-            return SettingsAction::RepaintStatic;
+            if (m_settingsHwnd) PostMessage(m_settingsHwnd, WM_CLOSE, 0, 0);
+            return SettingsAction::None;
         }
 
         // Tab Click
@@ -4865,7 +4882,7 @@ SettingsAction SettingsOverlay::OnLButtonDown(float x, float y) {
             }
             tabY += tabStep;
         }
-        return SettingsAction::DragWindow; // Clicked sidebar blank area - native drag
+        return SettingsAction::None; // Clicked sidebar blank area - drag handled by WM_NCHITTEST
     }
 
     // 3. Active Combo Processing
@@ -5180,11 +5197,11 @@ SettingsAction SettingsOverlay::OnLButtonDown(float x, float y) {
     if (x >= contentX && x <= contentRight && y >= m_hudY && y <= m_hudY + HUD_HEIGHT * m_uiScale) {
         // If clicked in content area but not on an item, do nothing (prevent dragging window if they miss a button)
         // Actually native drag is nice on blank areas.
-        return (m_pActiveCombo) ? SettingsAction::RepaintAll : SettingsAction::DragWindow;
-    }
+return (m_pActiveCombo) ? SettingsAction::RepaintAll : SettingsAction::None;
+}
 
-    // Clicked outside content?
-    return (m_pActiveCombo) ? SettingsAction::RepaintAll : SettingsAction::DragWindow;
+// Clicked outside content?
+return (m_pActiveCombo) ? SettingsAction::RepaintAll : SettingsAction::None;
 }
 
 SettingsAction SettingsOverlay::OnLButtonUp([[maybe_unused]] float x, [[maybe_unused]] float y) {
