@@ -3964,8 +3964,11 @@ void SettingsOverlay::Render(ID2D1DeviceContext* pRT, float winW, float winH) {
                              }
                          } else {
                              // Solid color
-                             float solidA = g_config.SwatchColors[i][3];
-                             if (solidA >= 0.996f) solidA = 1.0f; // [Fix] 254/255 及以上视为完全不透明
+                             // [Fix] alpha 量化为 255 整数后判断是否完全不透明
+                             int a255 = static_cast<int>(std::round(g_config.SwatchColors[i][3] * 255.0f));
+                             if (a255 > 255) a255 = 255;
+                             if (a255 < 0) a255 = 0;
+                             float solidA = (a255 >= 255) ? 1.0f : static_cast<float>(a255) / 255.0f;
                              D2D1_COLOR_F color(g_config.SwatchColors[i][0], g_config.SwatchColors[i][1], g_config.SwatchColors[i][2], solidA);
                              ComPtr<ID2D1SolidColorBrush> brush;
                              pRT->CreateSolidColorBrush(color, &brush);

@@ -4660,7 +4660,14 @@ void LoadConfig() {
         g_config.SwatchColors[i][2] = (float)_wtof(buf);
         swprintf_s(defBuf, L"%.6f", g_config.SwatchColors[i][3]);
         GetPrivateProfileStringW(L"View", keyA, defBuf, buf, 32, iniPath.c_str());
-g_config.SwatchColors[i][3] = (float)_wtof(buf);
+        // [Fix] alpha 量化为 255 整数步进，消除浮点精度残留
+        {
+            float rawA = (float)_wtof(buf);
+            int a255 = static_cast<int>(std::round(rawA * 255.0f));
+            if (a255 > 255) a255 = 255;
+            if (a255 < 0) a255 = 0;
+            g_config.SwatchColors[i][3] = static_cast<float>(a255) / 255.0f;
+        }
 }
 for (int i = 3; i < 9; ++i) {
     wchar_t keyCB[32];
@@ -5587,8 +5594,11 @@ static D2D1_COLOR_F ResolveCanvasColor() {
                     case 2: return D2D1::ColorF(0.50f, 0.50f, 0.50f);
                 }
             } else if (idx >= 3 && idx < 9) {
-                float a = g_config.SwatchColors[idx][3];
-                if (a >= 0.996f) a = 1.0f; // [Fix] Alpha 量化为 255 整数后，254/255(≈0.996)及以上视为完全不透明
+                // [Fix] alpha 量化为 255 整数后判断是否完全不透明
+                int a255 = static_cast<int>(std::round(g_config.SwatchColors[idx][3] * 255.0f));
+                if (a255 > 255) a255 = 255;
+                if (a255 < 0) a255 = 0;
+                float a = (a255 >= 255) ? 1.0f : static_cast<float>(a255) / 255.0f;
                 return D2D1::ColorF(g_config.SwatchColors[idx][0], g_config.SwatchColors[idx][1],
                                    g_config.SwatchColors[idx][2], a);
             }

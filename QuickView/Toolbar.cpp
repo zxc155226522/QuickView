@@ -1000,9 +1000,12 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
           }
         } else {
           // Custom RGBA color
-          float alpha = g_config.SwatchColors[i][3];
-          if (alpha >= 0.996f) alpha = 1.0f; // [Fix] 254/255 及以上视为完全不透明
-          if (alpha < 0.996f) {
+          // [Fix] alpha 量化为 255 整数后判断是否完全不透明
+          int a255 = static_cast<int>(std::round(g_config.SwatchColors[i][3] * 255.0f));
+          if (a255 > 255) a255 = 255;
+          if (a255 < 0) a255 = 0;
+          float alpha = (a255 >= 255) ? 1.0f : static_cast<float>(a255) / 255.0f;
+          if (a255 < 255) {
             // Mini checkerboard background for transparency
             ComPtr<ID2D1EllipseGeometry> clipGeo;
             if (factory) factory->CreateEllipseGeometry(ellipse, &clipGeo);

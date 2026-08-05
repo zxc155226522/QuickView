@@ -194,7 +194,14 @@ namespace QuickView::UI::ThemeSystem {
                 config.SwatchColors[i][0] = (float)yyjson_get_real(yyjson_arr_get(arr, 0));
                 config.SwatchColors[i][1] = (float)yyjson_get_real(yyjson_arr_get(arr, 1));
                 config.SwatchColors[i][2] = (float)yyjson_get_real(yyjson_arr_get(arr, 2));
-                config.SwatchColors[i][3] = (float)yyjson_get_real(yyjson_arr_get(arr, 3));
+                // [Fix] alpha 量化为 255 整数步进，消除浮点精度残留
+                {
+                    float rawA = (float)yyjson_get_real(yyjson_arr_get(arr, 3));
+                    int a255 = static_cast<int>(std::round(rawA * 255.0));
+                    if (a255 > 255) a255 = 255;
+                    if (a255 < 0) a255 = 0;
+                    config.SwatchColors[i][3] = static_cast<float>(a255) / 255.0f;
+                }
             }
         }
 
