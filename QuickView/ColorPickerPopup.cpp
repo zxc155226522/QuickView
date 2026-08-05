@@ -75,7 +75,7 @@ void ColorPickerPopup::EnsureClassRegistered() {
 // Show / Dismiss
 // ============================================================
 void ColorPickerPopup::Show(HWND parent, int screenX, int screenY,
-                            float initialR, float initialG, float initialB, float initialA,
+                            float initialR, float initialG, float initialB, [[maybe_unused]] float initialA,
                             bool initialIsChecker,
                             ColorCallback onChange, ColorCallback onConfirm) {
     // 同步销毁旧实例：调用 onConfirm，清 userdata，reset，DestroyWindow
