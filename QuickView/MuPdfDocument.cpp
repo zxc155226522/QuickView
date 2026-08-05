@@ -165,18 +165,34 @@ HRESULT MuPdfDocument::RenderPage(uint32_t pageIndex,
     const float renderScale = std::min(requestedScale, std::max(maxDimensionScale, 0.05f));
 
     fz_pixmap* pixmap = nullptr;
+    fz_device* device = nullptr;
     fz_try(m_context) {
-        pixmap = fz_new_pixmap_from_display_list(
+        // [Fix] Split pixmap creation and rendering so that the white
+        // background fill happens BEFORE rendering (not after).
+        // Previously fz_clear_pixmap_with_value was called after
+        // fz_new_pixmap_from_display_list, erasing all rendered content.
+        const fz_matrix ctm = fz_scale(renderScale, renderScale);
+        const fz_rect bounds = fz_bound_display_list(m_context, m_displayList);
+        const fz_irect irect = fz_round_rect(fz_transform_rect(bounds, ctm));
+        pixmap = fz_new_pixmap_with_bbox(
             m_context,
-            m_displayList,
-            fz_scale(renderScale, renderScale),
             fz_device_bgr(m_context),
+            irect,
+            nullptr,
             1);
-        // [Fix] Fill with opaque white so PDF/AI thumbnails have a solid
-        // background instead of transparent (which causes fragmented appearance).
+        // Fill with opaque white BEFORE rendering so PDF/AI pages have a
+        // solid background instead of transparent.
         fz_clear_pixmap_with_value(m_context, pixmap, 0xFF);
+        device = fz_new_draw_device(m_context, ctm, pixmap);
+        fz_run_display_list(m_context, m_displayList, device,
+                            fz_identity, fz_infinite_rect, nullptr);
+        fz_close_device(m_context, device);
+    }
+    fz_always(m_context) {
+        if (device) fz_drop_device(m_context, device);
     }
     fz_catch(m_context) {
+        if (pixmap) fz_drop_pixmap(m_context, pixmap);
         result.status = E_FAIL;
         result.errorMessage = Utf8ToWide(fz_caught_message(m_context));
         return result.status;
