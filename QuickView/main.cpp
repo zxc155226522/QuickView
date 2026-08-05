@@ -6395,8 +6395,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, [[maybe_unused]] LPWSTR lpCm
     
     [[maybe_unused]] HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
-    // [PDF/AI] Initialize multi-page document render controller
-    g_docRenderCtrl = std::make_unique<QuickView::DocumentRenderController>();
+    // [PDF/AI] g_docRenderCtrl is lazily initialized on first page navigation
+    // to avoid creating a second MuPDF context during startup.
 
     WNDCLASSEXW wcex = {};
     wcex.cbSize = sizeof(WNDCLASSEXW);
@@ -14082,8 +14082,12 @@ void HandleAnimFrameStep(HWND hwnd, bool forward) {
 
 // [PDF/AI] Request rendering of a specific page (step forward/backward)
 void HandlePdfPageStep(HWND hwnd, bool forward) {
-    if (!g_docRenderCtrl || !g_docRenderCtrl->IsAvailable()) return;
     if (!g_pagedDoc.active || g_pagedDoc.totalPages <= 1) return;
+    // [Lazy Init] Create DocumentRenderController on first use
+    if (!g_docRenderCtrl) {
+        g_docRenderCtrl = std::make_unique<QuickView::DocumentRenderController>();
+    }
+    if (!g_docRenderCtrl->IsAvailable()) return;
 
     // Determine target page
     uint32_t targetPage = forward ? g_pagedDoc.currentPage + 1 : g_pagedDoc.currentPage - 1;
@@ -14112,9 +14116,13 @@ void HandlePdfPageStep(HWND hwnd, bool forward) {
 
 // [PDF/AI] Jump to a specific page (for Home/End keys)
 void HandlePdfPageJump(HWND hwnd, uint32_t targetPage) {
-    if (!g_docRenderCtrl || !g_docRenderCtrl->IsAvailable()) return;
     if (!g_pagedDoc.active || g_pagedDoc.totalPages <= 1) return;
     if (targetPage >= g_pagedDoc.totalPages || targetPage == g_pagedDoc.currentPage) return;
+    // [Lazy Init] Create DocumentRenderController on first use
+    if (!g_docRenderCtrl) {
+        g_docRenderCtrl = std::make_unique<QuickView::DocumentRenderController>();
+    }
+    if (!g_docRenderCtrl->IsAvailable()) return;
 
     QuickView::DocumentRenderRequest req;
     req.notifyWindow = hwnd;
