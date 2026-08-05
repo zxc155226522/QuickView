@@ -10,6 +10,7 @@ namespace QuickView {
 
 struct PagedDocumentState {
     bool active = false;
+    bool isVector = false;  // true = CDR/CMX (SVG cache), false = PDF/AI (MuPDF async)
     uint32_t currentPage = 0;
     uint32_t totalPages = 0;
     float pageWidthPoints = 0.0f;
@@ -31,6 +32,7 @@ struct PagedDocumentState {
 
     void Reset() noexcept {
         active = false;
+        isVector = false;
         currentPage = 0;
         totalPages = 0;
         pageWidthPoints = 0.0f;

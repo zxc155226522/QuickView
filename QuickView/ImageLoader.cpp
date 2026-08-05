@@ -58,6 +58,11 @@ using namespace QuickView;
 
 extern FileNavigator& g_navigator;
 
+// [CDR/CMX Multi-page] Global page cache
+static std::vector<CdrPageData> g_cdrPageCache;
+std::vector<CdrPageData>& GetCdrPageCache() { return g_cdrPageCache; }
+void ClearCdrPageCache() { g_cdrPageCache.clear(); }
+
 // Forward declaration
 static bool ReadFileToVector(LPCWSTR filePath, std::vector<uint8_t> &buffer);
 static std::string_view GetSvgRootTag(std::string_view xml);
@@ -11262,77 +11267,74 @@ HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
     return E_FAIL;
   }
 
-  // Use first page (most CDR documents are single-page)
-  // Multi-page: future enhancement could stitch pages vertically.
-  std::string svgContent(svgPages[0].cstr());
+  // [Multi-page] Process ALL pages and cache them for page navigation.
+  // Most CDR documents are single-page, but multi-page ones are fully supported.
+  g_cdrPageCache.clear();
+  g_cdrPageCache.reserve(svgPages.size());
 
-  // [Canvas] Record original page dimensions before cropping.
-  // librevenge generates viewBox="0 0 pageW pageH" covering the entire
-  // page. We need these to draw a page boundary rectangle after cropping.
-  float pageX = 0.0f, pageY = 0.0f, pageW = 0.0f, pageH = 0.0f;
-  {
-    std::string vbStr = GetSvgRootAttrVal(svgContent, "viewBox");
-    if (!vbStr.empty()) {
-      const char *p = vbStr.c_str();
-      char *endp = nullptr;
-      pageX = strtof(p, &endp);
-      if (endp != p) { p = endp; pageY = strtof(p, &endp);
-      if (endp != p) { p = endp; pageW = strtof(p, &endp);
-      if (endp != p) { p = endp; pageH = strtof(p, &endp); }}}
+  for (size_t i = 0; i < svgPages.size(); ++i) {
+    std::string svgContent(svgPages[i].cstr());
+
+    // [Canvas] Record original page dimensions before cropping.
+    float pageX = 0.0f, pageY = 0.0f, pageW = 0.0f, pageH = 0.0f;
+    {
+      std::string vbStr = GetSvgRootAttrVal(svgContent, "viewBox");
+      if (!vbStr.empty()) {
+        const char *p = vbStr.c_str();
+        char *endp = nullptr;
+        pageX = strtof(p, &endp);
+        if (endp != p) { p = endp; pageY = strtof(p, &endp);
+        if (endp != p) { p = endp; pageW = strtof(p, &endp);
+        if (endp != p) { p = endp; pageH = strtof(p, &endp); }}}
+      }
     }
-  }
 
-  // [Crop] librevenge generates viewBox="0 0 pageW pageH" covering the entire
-  // page. When drawing content occupies only a small or off-center region,
-  // the viewer scales the whole page down, producing excessive whitespace.
-  // CropSvgWhitespace scans drawing elements, computes a tight content bbox,
-  // and rewrites the root viewBox/width/height to eliminate blank margins.
-  float cropW = 0.0f, cropH = 0.0f;
-  CropSvgWhitespace(svgContent, cropW, cropH);
+    // [Crop] Eliminate blank margins around content.
+    float cropW = 0.0f, cropH = 0.0f;
+    CropSvgWhitespace(svgContent, cropW, cropH);
 
-  // [Style Inliner] librevenge writes fill/stroke as CSS style="..." which
-  // D2D's SVG renderer ignores. Convert CSS properties to direct attributes.
-  InlineSvgStyleAttrs(svgContent);
+    // [Style Inliner] Convert CSS style="..." to direct attributes for D2D.
+    InlineSvgStyleAttrs(svgContent);
 
-  // [Canvas] Insert a page boundary rectangle as the first child element.
-  // This draws a white "paper" area with a thin gray border at the original
-  // page coordinates, so the user can distinguish content inside the page
-  // from content spilling outside (CorelDRAW "desktop" feel).
-  // Must be inserted AFTER InlineSvgStyleAttrs to avoid being stripped,
-  // and as the first child so it renders behind all drawing elements.
-  if (pageW > 0.0f && pageH > 0.0f) {
-    std::string pageRect = "<rect x=\"" + FmtFloat(pageX) + "\" y=\"" +
-                           FmtFloat(pageY) + "\" width=\"" + FmtFloat(pageW) +
-                           "\" height=\"" + FmtFloat(pageH) +
-                           "\" fill=\"white\" stroke=\"#c0c0c0\" stroke-width=\"0.5\"/>";
-    std::string_view rootTag = GetSvgRootTag(svgContent);
-    if (!rootTag.empty()) {
-      size_t insertPos = (size_t)(rootTag.data() - svgContent.data()) +
-                         rootTag.length();
-      svgContent.insert(insertPos, pageRect);
+    // [Canvas] Insert page boundary rectangle as first child element.
+    if (pageW > 0.0f && pageH > 0.0f) {
+      std::string pageRect = "<rect x=\"" + FmtFloat(pageX) + "\" y=\"" +
+                             FmtFloat(pageY) + "\" width=\"" + FmtFloat(pageW) +
+                             "\" height=\"" + FmtFloat(pageH) +
+                             "\" fill=\"white\" stroke=\"#c0c0c0\" stroke-width=\"0.5\"/>";
+      std::string_view rootTag = GetSvgRootTag(svgContent);
+      if (!rootTag.empty()) {
+        size_t insertPos = (size_t)(rootTag.data() - svgContent.data()) +
+                           rootTag.length();
+        svgContent.insert(insertPos, pageRect);
+      }
     }
+
+    // Parse dimensions
+    float svgW = 0.0f, svgH = 0.0f;
+    const std::string wStr = GetSvgRootAttrVal(svgContent, "width");
+    const std::string hStr = GetSvgRootAttrVal(svgContent, "height");
+    const bool hasWidth = TryParseSvgLengthToDip(wStr, &svgW);
+    const bool hasHeight = TryParseSvgLengthToDip(hStr, &svgH);
+    if (!hasWidth || !hasHeight || svgW <= 0.0f || svgH <= 0.0f) {
+      const std::string viewBox = GetSvgRootAttrVal(svgContent, "viewBox");
+      TryParseSvgViewBoxSize(viewBox, &svgW, &svgH);
+    }
+    if (svgW <= 0) svgW = 512;
+    if (svgH <= 0) svgH = 512;
+
+    // Cache processed page
+    CdrPageData pageData;
+    pageData.xmlData.assign(svgContent.begin(), svgContent.end());
+    pageData.viewBoxW = svgW;
+    pageData.viewBoxH = svgH;
+    g_cdrPageCache.push_back(std::move(pageData));
   }
 
-  // Parse the generated SVG using the same CSS length rules as native SVG.
-  // librevenge writes physical root dimensions such as width="8.5in" while
-  // its viewBox and drawing coordinates use points. Treating 8.5in as 8.5px
-  // creates a tiny D2D viewport and clips most of the document.
-  float svgW = 0.0f, svgH = 0.0f;
-  const std::string wStr = GetSvgRootAttrVal(svgContent, "width");
-  const std::string hStr = GetSvgRootAttrVal(svgContent, "height");
-  const bool hasWidth = TryParseSvgLengthToDip(wStr, &svgW);
-  const bool hasHeight = TryParseSvgLengthToDip(hStr, &svgH);
-
-  if (!hasWidth || !hasHeight || svgW <= 0.0f || svgH <= 0.0f) {
-    const std::string viewBox = GetSvgRootAttrVal(svgContent, "viewBox");
-    TryParseSvgViewBoxSize(viewBox, &svgW, &svgH);
-  }
-
-  // Default fallback
-  if (svgW <= 0)
-    svgW = 512;
-  if (svgH <= 0)
-    svgH = 512;
+  // Use first page for the output frame
+  const auto& firstPage = g_cdrPageCache[0];
+  const float svgW = firstPage.viewBoxW;
+  const float svgH = firstPage.viewBoxH;
 
   // --- Populate RawImageFrame (same as SVG path) ---
   outFrame->format = PixelFormat::SVG_XML;
@@ -11342,7 +11344,7 @@ HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
   outFrame->pixels = nullptr;
 
   outFrame->svg = std::make_unique<RawImageFrame::SvgData>();
-  outFrame->svg->xmlData.assign(svgContent.begin(), svgContent.end());
+  outFrame->svg->xmlData = firstPage.xmlData;
   outFrame->svg->viewBoxW = svgW;
   outFrame->svg->viewBoxH = svgH;
 
@@ -11354,6 +11356,7 @@ HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
     pMetadata->FormatDetails = L"Vector (CorelDRAW)";
     pMetadata->Width = (UINT)svgW;
     pMetadata->Height = (UINT)svgH;
+    pMetadata->pageCount = static_cast<uint32_t>(g_cdrPageCache.size());
   }
   outFrame->formatDetails = isCdr ? L"CDR" : L"CMX";
 

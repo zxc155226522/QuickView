@@ -549,6 +549,18 @@ private:
   HRESULT LoadPCX(LPCWSTR filePath, IWICBitmap **ppBitmap);
 };
 
+// [CDR/CMX Multi-page] Cached SVG page data for multi-page CDR/CMX documents.
+// Populated by LoadCDR when the document has more than one page.
+struct CdrPageData {
+  std::vector<uint8_t> xmlData;  // Processed SVG XML
+  float viewBoxW = 0.0f;
+  float viewBoxH = 0.0f;
+};
+
+// Access the global CDR page cache (populated by LoadCDR, consumed by main.cpp)
+std::vector<CdrPageData>& GetCdrPageCache();
+void ClearCdrPageCache();
+
 namespace QuickView {
 namespace Codec {
 

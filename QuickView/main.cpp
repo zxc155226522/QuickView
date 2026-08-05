@@ -164,6 +164,8 @@ void PerformAnimSeek(HWND hwnd, float targetProgress);
 void HandlePdfPageStep(HWND hwnd, bool forward);
 void HandlePdfPageJump(HWND hwnd, uint32_t targetPage);
 void HandlePdfPageResult(HWND hwnd);
+// [CDR/CMX] Multi-page navigation (synchronous, from SVG cache)
+void HandleCdrPageStep(HWND hwnd, uint32_t targetPage);
 void RequestRepaint(QuickView::PaintLayer layer);
 static std::unique_ptr<CRenderEngine> g_renderEngine;
 static std::unique_ptr<CImageLoader> g_imageLoader;
@@ -12114,15 +12116,18 @@ void ProcessEngineEvents(HWND hwnd) {
                 // Cleanup
                 g_isLoading = false;
 
-                // [PDF/AI] Activate multi-page mode for PDF/AI documents with >1 pages
-                if (!isPreview && g_docRenderCtrl && g_docRenderCtrl->IsAvailable()) {
+                // [PDF/AI/CDR] Activate multi-page mode for documents with >1 pages
+                if (!isPreview) {
                     const uint32_t pages = evt.metadata.pageCount;
                     if (pages > 1) {
                         g_pagedDoc.active = true;
                         g_pagedDoc.currentPage = 0;
                         g_pagedDoc.totalPages = pages;
-                        g_pagedDoc.pageWidthPoints = 0;  // Will be filled on first page request
+                        g_pagedDoc.pageWidthPoints = 0;
                         g_pagedDoc.pageHeightPoints = 0;
+                        // Determine document type: CDR/CMX (vector) vs PDF/AI (bitmap)
+                        const auto& fmt = evt.metadata.Format;
+                        g_pagedDoc.isVector = (fmt == L"CDR" || fmt == L"CMX");
                         wchar_t pageOsd[64];
                         swprintf_s(pageOsd, L"第 1 / %u 页", pages);
                         g_osd.Show(hwnd, pageOsd, false, false,
@@ -12838,13 +12843,14 @@ void StartNavigation(HWND hwnd, std::wstring path, [[maybe_unused]] bool showOSD
     g_isLoading = true; // [Fix] Start loading state machine
     SetTimer(hwnd, 995, 16, nullptr); // [Fix] ~60 FPS UI Heartbeat for progress bar (runs for ALL loads to avoid WM_PAINT starvation)
 
-    // [PDF/AI] Reset paged document state for new file
+    // [PDF/AI/CDR] Reset paged document state for new file
     if (g_pagedDoc.active) {
         g_pagedDoc.Reset();
     }
     if (g_docRenderCtrl) {
         g_docRenderCtrl->Cancel();
     }
+    ClearCdrPageCache();
 
     // [Phase 3] Increment token FIRST (deprecated, kept for backward compatibility)
     uint64_t myToken = ++g_currentNavToken;
@@ -14188,6 +14194,89 @@ void HandlePdfPageResult(HWND hwnd) {
     RequestRepaint(PaintLayer::Image | PaintLayer::Dynamic | PaintLayer::Static);
 }
 
+// [CDR/CMX] Synchronous page switch from cached SVG data.
+// Unlike PDF (async MuPDF render), CDR pages are pre-parsed SVG strings,
+// so switching is instant — just rebuild the D2D SvgDocument.
+void HandleCdrPageStep(HWND hwnd, uint32_t targetPage) {
+    auto& cache = GetCdrPageCache();
+    if (targetPage >= cache.size()) return;
+
+    const auto& pageData = cache[targetPage];
+    const float svgW = pageData.viewBoxW;
+    const float svgH = pageData.viewBoxH;
+    if (svgW <= 0 || svgH <= 0) return;
+
+    // Create D2D SvgDocument from cached XML (same logic as FullReady SVG path)
+    ComPtr<ID2D1DeviceContext> ctxBase = g_renderEngine->GetDeviceContext();
+    ComPtr<ID2D1DeviceContext5> ctx5;
+    if (!ctxBase || FAILED(ctxBase.As(&ctx5))) {
+        g_osd.Show(hwnd, L"SVG 上下文获取失败", true);
+        return;
+    }
+
+    ComPtr<IStream> stream;
+    HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, pageData.xmlData.size());
+    if (!hMem) return;
+    {
+        void* pMem = GlobalLock(hMem);
+        if (pMem) {
+            memcpy(pMem, pageData.xmlData.data(), pageData.xmlData.size());
+            GlobalUnlock(hMem);
+            CreateStreamOnHGlobal(hMem, TRUE, &stream);
+        } else {
+            GlobalFree(hMem);
+            return;
+        }
+    }
+
+    D2D1_SIZE_F vpSize = { svgW, svgH };
+    if (vpSize.width <= 0) vpSize.width = 100;
+    if (vpSize.height <= 0) vpSize.height = 100;
+
+    ComPtr<ID2D1SvgDocument> svgDoc;
+    HRESULT hr = ctx5->CreateSvgDocument(stream.Get(), vpSize, &svgDoc);
+    if (FAILED(hr) || !svgDoc) {
+        g_osd.Show(hwnd, L"SVG 文档创建失败", true);
+        return;
+    }
+
+    // Update paged state
+    g_pagedDoc.currentPage = targetPage;
+
+    // Update resources
+    auto& pane = GetPaneContext(PaneSlot::Primary);
+    pane.resource.Reset();
+    pane.resource.isSvg = true;
+    pane.resource.svgW = svgW;
+    pane.resource.svgH = svgH;
+    pane.resource.svgDoc = svgDoc;
+
+    // Update metadata for new page dimensions
+    pane.metadata.Width = (UINT)svgW;
+    pane.metadata.Height = (UINT)svgH;
+
+    // Reset view for new page
+    pane.view.Reset();
+    pane.view.ExifOrientation = 1;
+    g_renderExifOrientation = 1;
+
+    // Render to DComp
+    RenderImageToDComp(hwnd, pane.resource, true);
+    if (g_compEngine && g_compEngine->IsInitialized()) {
+        RECT rc; GetClientRect(hwnd, &rc);
+        SyncDCompState(hwnd, (float)rc.right, (float)rc.bottom, false);
+        g_compEngine->Commit();
+    }
+
+    // Show page OSD
+    wchar_t buf[64];
+    swprintf_s(buf, L"第 %u / %u 页", targetPage + 1, g_pagedDoc.totalPages);
+    g_osd.Show(hwnd, buf, false, false, D2D1::ColorF(D2D1::ColorF::White),
+               OSDPosition::Bottom, 1500);
+
+    RequestRepaint(PaintLayer::Image | PaintLayer::Dynamic | PaintLayer::Static);
+}
+
 
 void PerformAnimSeek(HWND hwnd, float targetProgress) {
     if (!GetPaneContext(PaneSlot::Primary).resource.animator) return;
@@ -14734,11 +14823,14 @@ bool HandleHotkeyAction(HWND hwnd, HotkeyAction action) {
 
     switch (action) {
     case HotkeyAction::NavNext:
-        // [PDF/AI] Multi-page navigation: step to next page, or fall through
+        // [PDF/AI/CDR] Multi-page navigation: step to next page, or fall through
         // to file navigation when at the last page.
         if (g_pagedDoc.active && g_pagedDoc.totalPages > 1) {
             if (g_pagedDoc.currentPage + 1 < g_pagedDoc.totalPages) {
-                HandlePdfPageStep(hwnd, true);
+                if (g_pagedDoc.isVector)
+                    HandleCdrPageStep(hwnd, g_pagedDoc.currentPage + 1);
+                else
+                    HandlePdfPageStep(hwnd, true);
                 return true;
             }
             // At last page: fall through to normal file navigation
@@ -14751,11 +14843,14 @@ bool HandleHotkeyAction(HWND hwnd, HotkeyAction action) {
         return true;
 
     case HotkeyAction::NavPrev:
-        // [PDF/AI] Multi-page navigation: step to previous page, or fall
+        // [PDF/AI/CDR] Multi-page navigation: step to previous page, or fall
         // through to file navigation when at the first page.
         if (g_pagedDoc.active && g_pagedDoc.totalPages > 1) {
             if (g_pagedDoc.currentPage > 0) {
-                HandlePdfPageStep(hwnd, false);
+                if (g_pagedDoc.isVector)
+                    HandleCdrPageStep(hwnd, g_pagedDoc.currentPage - 1);
+                else
+                    HandlePdfPageStep(hwnd, false);
                 return true;
             }
             // At first page: fall through to normal file navigation
@@ -14768,19 +14863,25 @@ bool HandleHotkeyAction(HWND hwnd, HotkeyAction action) {
         return true;
 
     case HotkeyAction::NavFirst:
-        // [PDF/AI] Jump to first page in paged mode
+        // [PDF/AI/CDR] Jump to first page in paged mode
         if (g_pagedDoc.active && g_pagedDoc.totalPages > 1 && g_pagedDoc.currentPage > 0) {
-            HandlePdfPageJump(hwnd, 0);
+            if (g_pagedDoc.isVector)
+                HandleCdrPageStep(hwnd, 0);
+            else
+                HandlePdfPageJump(hwnd, 0);
             return true;
         }
         if (CheckUnsavedChanges(hwnd)) NavigateEdge(hwnd, false);
         return true;
 
     case HotkeyAction::NavLast:
-        // [PDF/AI] Jump to last page in paged mode
+        // [PDF/AI/CDR] Jump to last page in paged mode
         if (g_pagedDoc.active && g_pagedDoc.totalPages > 1 &&
             g_pagedDoc.currentPage + 1 < g_pagedDoc.totalPages) {
-            HandlePdfPageJump(hwnd, g_pagedDoc.totalPages - 1);
+            if (g_pagedDoc.isVector)
+                HandleCdrPageStep(hwnd, g_pagedDoc.totalPages - 1);
+            else
+                HandlePdfPageJump(hwnd, g_pagedDoc.totalPages - 1);
             return true;
         }
         if (CheckUnsavedChanges(hwnd)) NavigateEdge(hwnd, true);
