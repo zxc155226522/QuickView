@@ -109,11 +109,7 @@ void ColorPickerPopup::Show(HWND parent, int screenX, int screenY,
     picker->m_scale = dpiX / 96.0f;
 
     RgbToHsv(initialR, initialG, initialB, picker->m_h, picker->m_s, picker->m_v);
-    // [Fix] 透明度量化为 255 整数步进，消除浮点精度问题（0.995f → 254/255）
-    int alpha255 = static_cast<int>(std::round(initialA * 255.0f));
-    if (alpha255 > 255) alpha255 = 255;
-    if (alpha255 < 0) alpha255 = 0;
-    picker->m_a = static_cast<float>(alpha255) / 255.0f;
+    picker->m_a = 1.0f; // [Fix] 不支持透明度，固定为完全不透明
     picker->m_isChecker = initialIsChecker;
 
     picker->CalculateLayout();
@@ -175,16 +171,16 @@ void ColorPickerPopup::CalculateLayout() {
     m_svRect = D2D1::RectF(pad, pad, pad + SV_SIZE, pad + SV_SIZE);
     float barX = pad + SV_SIZE + BAR_GAP;
     m_hueRect = D2D1::RectF(barX, pad, barX + BAR_W, pad + SV_SIZE);
-    float alphaY = pad + SV_SIZE + BAR_GAP;
-    m_alphaRect = D2D1::RectF(pad, alphaY, pad + SV_SIZE, alphaY + BAR_W);
-    float toggleY = alphaY + BAR_W + BAR_GAP;
+    // [Fix] 去掉透明度条，toggle 直接跟在 SV 下方
+    float toggleY = pad + SV_SIZE + BAR_GAP;
     m_toggleRect = D2D1::RectF(pad, toggleY, pad + SV_SIZE, toggleY + TOGGLE_H);
     float previewY = toggleY + TOGGLE_H + BAR_GAP;
     m_previewRect = D2D1::RectF(pad, previewY, pad + SV_SIZE, previewY + PREVIEW_H);
 }
 
 SIZE ColorPickerPopup::GetWindowSize() const {
-    float totalH = PADDING + SV_SIZE + BAR_GAP + BAR_W + BAR_GAP + TOGGLE_H + BAR_GAP + PREVIEW_H + PADDING;
+    // [Fix] 去掉透明度条后高度减少 BAR_GAP + BAR_W
+    float totalH = PADDING + SV_SIZE + BAR_GAP + TOGGLE_H + BAR_GAP + PREVIEW_H + PADDING;
     return { static_cast<LONG>(std::ceil(TOTAL_W * m_scale)),
              static_cast<LONG>(std::ceil(totalH * m_scale)) };
 }
@@ -325,8 +321,6 @@ void ColorPickerPopup::OnLButtonDown(int x, int y) {
         m_dragTarget = 1;
     } else if (x >= m_hueRect.left && x <= m_hueRect.right && y >= m_hueRect.top && y <= m_hueRect.bottom) {
         m_dragTarget = 2;
-    } else if (x >= m_alphaRect.left && x <= m_alphaRect.right && y >= m_alphaRect.top && y <= m_alphaRect.bottom) {
-        m_dragTarget = 3;
     } else if (x >= m_toggleRect.left && x <= m_toggleRect.right && y >= m_toggleRect.top && y <= m_toggleRect.bottom) {
         // Toggle checker mode
         m_isChecker = !m_isChecker;
@@ -360,15 +354,6 @@ void ColorPickerPopup::OnMouseMove(int x, int y) {
     case 2:
         m_h = std::clamp((y - m_hueRect.top) / (m_hueRect.bottom - m_hueRect.top) * 360.0f, 0.0f, 360.0f);
         break;
-    case 3: {
-        float raw = std::clamp((x - m_alphaRect.left) / (m_alphaRect.right - m_alphaRect.left), 0.0f, 1.0f);
-        // [Fix] 透明度量化为 255 整数步进：拖到最右端时精确得到 255/255 = 1.0f
-        int alpha255 = static_cast<int>(std::round(raw * 255.0f));
-        if (alpha255 > 255) alpha255 = 255;
-        if (alpha255 < 0) alpha255 = 0;
-        m_a = static_cast<float>(alpha255) / 255.0f;
-        break;
-    }
     default: return;
     }
     if (m_onChange) {
@@ -545,9 +530,9 @@ void ColorPickerPopup::DrawPreview() {
             : D2D1::ColorF(std::min(r*1.2f,1.0f), std::min(g*1.2f,1.0f), std::min(b*1.2f,1.0f), 1.0f);
         DrawCheckerboard(m_previewRect, 10.0f, c1, c2);
     } else {
-        DrawCheckerboard(m_previewRect, 8.0f, D2D1::ColorF(0.7f,0.7f,0.7f,1), D2D1::ColorF(0.4f,0.4f,0.4f,1));
+        // [Fix] 纯色模式：直接填充，不需要透明度棋盘格底
         ComPtr<ID2D1SolidColorBrush> colorBrush;
-        m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(r, g, b, m_a), &colorBrush);
+        m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(r, g, b, 1.0f), &colorBrush);
         if (colorBrush) m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(m_previewRect, 4, 4), colorBrush.Get());
     }
 
@@ -559,10 +544,10 @@ void ColorPickerPopup::DrawPreview() {
         int ib = static_cast<int>(b * 255 + 0.5f);
         wchar_t hex[32];
         if (m_isChecker) swprintf_s(hex, L"棋盘格 #%02X%02X%02X", ir, ig, ib);
-        else { int ia = static_cast<int>(m_a * 255 + 0.5f); swprintf_s(hex, L"#%02X%02X%02X  %d%%", ir, ig, ib, ia * 100 / 255); }
+        else swprintf_s(hex, L"#%02X%02X%02X", ir, ig, ib);
         m_textFont->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
         m_textFont->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-        float lum = m_isChecker ? (0.2126f*r + 0.7152f*g + 0.0722f*b) : (0.2126f*r*m_a + 0.7152f*g*m_a + 0.0722f*b*m_a);
+        float lum = 0.2126f*r + 0.7152f*g + 0.0722f*b; // [Fix] 纯色模式 alpha=1.0，直接用 RGB 亮度
         ComPtr<ID2D1SolidColorBrush> hexBrush;
         if (lum > 0.5f) m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.1f,0.1f,0.1f,1), &hexBrush);
         else m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1,1,1,1), &hexBrush);
@@ -599,7 +584,6 @@ void ColorPickerPopup::Render() {
 
     DrawSvSquare();
     DrawHueBar();
-    DrawAlphaBar();
     DrawModeToggle();
     DrawPreview();
 
