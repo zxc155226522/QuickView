@@ -109,7 +109,11 @@ void ColorPickerPopup::Show(HWND parent, int screenX, int screenY,
     picker->m_scale = dpiX / 96.0f;
 
     RgbToHsv(initialR, initialG, initialB, picker->m_h, picker->m_s, picker->m_v);
-    picker->m_a = initialA;
+    // [Fix] 透明度量化为 255 整数步进，消除浮点精度问题（0.995f → 254/255）
+    int alpha255 = static_cast<int>(std::round(initialA * 255.0f));
+    if (alpha255 > 255) alpha255 = 255;
+    if (alpha255 < 0) alpha255 = 0;
+    picker->m_a = static_cast<float>(alpha255) / 255.0f;
     picker->m_isChecker = initialIsChecker;
 
     picker->CalculateLayout();
@@ -356,9 +360,15 @@ void ColorPickerPopup::OnMouseMove(int x, int y) {
     case 2:
         m_h = std::clamp((y - m_hueRect.top) / (m_hueRect.bottom - m_hueRect.top) * 360.0f, 0.0f, 360.0f);
         break;
-    case 3:
-        m_a = std::clamp((x - m_alphaRect.left) / (m_alphaRect.right - m_alphaRect.left), 0.0f, 1.0f);
+    case 3: {
+        float raw = std::clamp((x - m_alphaRect.left) / (m_alphaRect.right - m_alphaRect.left), 0.0f, 1.0f);
+        // [Fix] 透明度量化为 255 整数步进：拖到最右端时精确得到 255/255 = 1.0f
+        int alpha255 = static_cast<int>(std::round(raw * 255.0f));
+        if (alpha255 > 255) alpha255 = 255;
+        if (alpha255 < 0) alpha255 = 0;
+        m_a = static_cast<float>(alpha255) / 255.0f;
         break;
+    }
     default: return;
     }
     if (m_onChange) {

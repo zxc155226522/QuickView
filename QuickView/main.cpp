@@ -5588,7 +5588,7 @@ static D2D1_COLOR_F ResolveCanvasColor() {
                 }
             } else if (idx >= 3 && idx < 9) {
                 float a = g_config.SwatchColors[idx][3];
-                if (a >= 0.999f) a = 1.0f; // [Fix] Alpha precision: clamp near-1.0 to exactly 1.0
+                if (a >= 0.996f) a = 1.0f; // [Fix] Alpha 量化为 255 整数后，254/255(≈0.996)及以上视为完全不透明
                 return D2D1::ColorF(g_config.SwatchColors[idx][0], g_config.SwatchColors[idx][1],
                                    g_config.SwatchColors[idx][2], a);
             }

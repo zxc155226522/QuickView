@@ -1001,7 +1001,8 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
         } else {
           // Custom RGBA color
           float alpha = g_config.SwatchColors[i][3];
-          if (g_config.SwatchColors[i][3] < 1.0f) {
+          if (alpha >= 0.996f) alpha = 1.0f; // [Fix] 254/255 及以上视为完全不透明
+          if (alpha < 0.996f) {
             // Mini checkerboard background for transparency
             ComPtr<ID2D1EllipseGeometry> clipGeo;
             if (factory) factory->CreateEllipseGeometry(ellipse, &clipGeo);
