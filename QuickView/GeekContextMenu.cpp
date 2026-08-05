@@ -554,13 +554,8 @@ void GeekContextMenu::CreateResources() {
         L ? D2D1::ColorF(0, 0, 0, 0.12f) : D2D1::ColorF(1, 1, 1, 0.10f), &m_sepBrush);
 
     D2D1_COLOR_F accentClr, textClr;
-    if (g_config.ThemeMode == 3) {
-        accentClr = D2D1::ColorF(g_config.ThemeCustomAccentR, g_config.ThemeCustomAccentG, g_config.ThemeCustomAccentB);
-        textClr   = D2D1::ColorF(g_config.ThemeCustomTextR, g_config.ThemeCustomTextG, g_config.ThemeCustomTextB);
-    } else {
-        accentClr = L ? PRESET_LIGHT.accentColor : PRESET_DARK.accentColor;
-        textClr   = L ? PRESET_LIGHT.textColor : PRESET_DARK.textColor;
-    }
+    accentClr = L ? PRESET_LIGHT.accentColor : PRESET_DARK.accentColor;
+    textClr   = L ? PRESET_LIGHT.textColor : PRESET_DARK.textColor;
 
     m_d2dContext->CreateSolidColorBrush(accentClr, &m_accentBrush);
     m_d2dContext->CreateSolidColorBrush(textClr, &m_textBrush);

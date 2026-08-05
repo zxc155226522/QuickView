@@ -4102,11 +4102,6 @@ bool IsLightThemeActive() {
     switch (g_config.ThemeMode) {
         case 1: return false; // Dark
         case 2: return true;  // Light
-        case 3: // Custom
-        {
-            float luma = g_config.GlassCustomTintR * 0.299f + g_config.GlassCustomTintG * 0.587f + g_config.GlassCustomTintB * 0.114f;
-            return luma > 0.5f; // If custom base is bright, use Light UI style
-        }
         default: return IsSystemLightTheme();
     }
 }
@@ -4561,7 +4556,7 @@ void LoadConfig() {
     if (g_config.ThemeMode == -1) {
         g_config.ThemeMode = GetPrivateProfileIntW(L"View", L"ThemeMode", 0, iniPath.c_str()); // Fallback to old key
     }
-    if (g_config.ThemeMode < 0 || g_config.ThemeMode > 3) g_config.ThemeMode = 0;
+    if (g_config.ThemeMode < 0 || g_config.ThemeMode > 2) g_config.ThemeMode = 0;
 
     wchar_t bufTCAR[32], bufTCAG[32], bufTCAB[32];
     GetPrivateProfileStringW(L"Theme", L"CustomAccentR", L"0.00", bufTCAR, 32, iniPath.c_str());

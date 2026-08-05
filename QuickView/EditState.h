@@ -513,7 +513,7 @@ struct AppConfig {
     int UIScalePreset = 0;               // 0=Auto(DPI), 1=90%, 2=100%, 3=110%, 4=125%
 
     // --- View ---
-    int ThemeMode = 0;                  // 0=Auto, 1=Dark, 2=Light, 3=Custom
+    int ThemeMode = 0;                  // 0=Auto (follow system), 1=Dark, 2=Light
     float ThemeCustomAccentR = 0.00f;   // Custom Accent Color
     float ThemeCustomAccentG = 0.47f;
     float ThemeCustomAccentB = 0.84f;

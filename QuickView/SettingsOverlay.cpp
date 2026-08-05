@@ -62,51 +62,6 @@ struct SettingsThemePalette {
 };
 
 SettingsThemePalette GetSettingsThemePalette() {
-    if (g_config.ThemeMode == 3) {
-        D2D1_COLOR_F accent = D2D1::ColorF(g_config.ThemeCustomAccentR, g_config.ThemeCustomAccentG, g_config.ThemeCustomAccentB);
-        D2D1_COLOR_F text = D2D1::ColorF(g_config.ThemeCustomTextR, g_config.ThemeCustomTextG, g_config.ThemeCustomTextB);
-        
-        float textBrightness = (text.r * 299.0f + text.g * 587.0f + text.b * 114.0f) / 1000.0f;
-        bool isLightText = textBrightness > 0.5f;
-
-        D2D1_COLOR_F textDim = text;
-        textDim.a = 0.75f;
-
-        if (isLightText) {
-            return {
-                D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.4f),
-                text,
-                textDim,
-                accent,
-                D2D1::ColorF(0.25f, 0.25f, 0.25f),
-                D2D1::ColorF(0.3f, 0.3f, 0.3f),
-                D2D1::ColorF(0.1f, 0.8f, 0.1f),
-                D2D1::ColorF(0.8f, 0.1f, 0.1f),
-                D2D1::ColorF(0.08f, 0.08f, 0.10f, g_config.GlassModalsOpacity / 100.0f),
-                D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.12f),
-                D2D1::ColorF(0.3f, 0.3f, 0.3f, 0.5f),
-                D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.10f),
-                D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.20f),
-            };
-        } else {
-            return {
-                D2D1::ColorF(0.94f, 0.96f, 0.99f, 0.52f),
-                text,
-                textDim,
-                accent,
-                D2D1::ColorF(0.92f, 0.94f, 0.97f),
-                D2D1::ColorF(0.80f, 0.84f, 0.89f),
-                D2D1::ColorF(0.11f, 0.62f, 0.23f),
-                D2D1::ColorF(0.79f, 0.19f, 0.16f),
-                D2D1::ColorF(0.985f, 0.99f, 1.0f, g_config.GlassModalsOpacity / 100.0f),
-                D2D1::ColorF(0.0f, 0.18f, 0.42f, 0.10f),
-                D2D1::ColorF(0.85f, 0.88f, 0.92f, 0.65f),
-                D2D1::ColorF(0.06f, 0.08f, 0.12f, 0.06f),
-                D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.10f),
-            };
-        }
-    }
-
     if (IsLightThemeActive()) {
         return {
             D2D1::ColorF(0.94f, 0.96f, 0.99f, 0.52f),
@@ -254,24 +209,8 @@ std::wstring SettingsOverlay::GetRealWindowsVersion() {
 }
 
 void SettingsOverlay::AutoSwitchToCustom(bool save) {
-    if (g_config.ThemeMode != 3) {
-        // [UX Fix] If moving from a fixed preset (Dark/Light), capture its current tint 
-        // into custom slots to prevent the UI from jumping to Dark base (system default)
-        // when ThemeMode becomes 3 (Custom).
-        if (g_config.GlassTintProfile == 0) {
-            bool currentlyLight = IsLightThemeActive();
-            auto& base = currentlyLight ? PRESET_LIGHT : PRESET_DARK;
-            g_config.GlassCustomTintR = base.tintColor.r;
-            g_config.GlassCustomTintG = base.tintColor.g;
-            g_config.GlassCustomTintB = base.tintColor.b;
-            g_config.GlassTintProfile = 1; // Lock the current visual base
-        }
-        
-        g_config.ThemeMode = 3;
-        // Defer layout change (adding new rows) until mouse release if currently dragging
-        if (!m_pActiveSlider) m_pendingRebuild = true;
-        else m_needsLayoutRebuild = true;
-    }
+    // [Simplified] Theme mode no longer has Custom (3). Glass parameters are
+    // adjusted independently of Dark/Light/Auto theme selection.
     g_config.EnforceGlassSafetyLimits();
     if (save) SaveConfig();
     if (m_hwnd) InvalidateRect(m_hwnd, NULL, FALSE);
@@ -1157,10 +1096,10 @@ void SettingsOverlay::BuildMenu() {
         nullptr,
         0,
         0,
-        { AppStrings::Settings_Option_ThemeAuto, AppStrings::Settings_Option_ThemeDark, AppStrings::Settings_Option_ThemeLight, AppStrings::Settings_Option_ThemeCustom }
+        { AppStrings::Settings_Option_ThemeAuto, AppStrings::Settings_Option_ThemeDark, AppStrings::Settings_Option_ThemeLight }
     };
     itemThemeMode.onChange = []([[maybe_unused]] SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) {
-        if (g_config.ThemeMode < 0 || g_config.ThemeMode > 3) g_config.ThemeMode = 0;
+        if (g_config.ThemeMode < 0 || g_config.ThemeMode > 2) g_config.ThemeMode = 0;
         // Preset-driven full overwrite: clicking Dark/Light applies the built-in preset
         if (g_config.ThemeMode == 1) {
             g_config.ApplyThemePreset(PRESET_DARK);
@@ -1172,8 +1111,6 @@ void SettingsOverlay::BuildMenu() {
             ApplyWindowTheme(overlay->m_hwnd);
             InvalidateRect(overlay->m_hwnd, nullptr, FALSE);
         }
-        // Needs a rebuild to show/hide the custom color choosers
-        overlay->m_pendingRebuild = true;
     };
     tabTheme.items.push_back(itemThemeMode);
 
@@ -1196,51 +1133,6 @@ void SettingsOverlay::BuildMenu() {
     tabTheme.items.push_back(itemRounded);
 
 
-    if (g_config.ThemeMode == 3) {
-        // Custom Theme Mode options
-        SettingsItem itemAccentColor = { AppStrings::Settings_Label_AccentColor, OptionType::CustomColorRow, nullptr, {} };
-        itemAccentColor.pFloatVal = &g_config.ThemeCustomAccentR;
-        itemAccentColor.onChange = []([[maybe_unused]] SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) {
-            HWND hwnd = GetActiveWindow();
-            static COLORREF acrCustClr[16]; 
-            CHOOSECOLOR cc{}; cc.lStructSize = sizeof(cc);
-            cc.hwndOwner = hwnd;
-            cc.lpCustColors = acrCustClr;
-            cc.rgbResult = RGB((int)(g_config.ThemeCustomAccentR * 255.0f), (int)(g_config.ThemeCustomAccentG * 255.0f), (int)(g_config.ThemeCustomAccentB * 255.0f));
-            cc.Flags = CC_FULLOPEN | CC_RGBINIT;
-            
-            if (ChooseColor(&cc)) {
-                g_config.ThemeCustomAccentR = GetRValue(cc.rgbResult) / 255.0f;
-                g_config.ThemeCustomAccentG = GetGValue(cc.rgbResult) / 255.0f;
-                g_config.ThemeCustomAccentB = GetBValue(cc.rgbResult) / 255.0f;
-                SaveConfig();
-                if (overlay->m_hwnd) InvalidateRect(overlay->m_hwnd, nullptr, FALSE);
-            }
-        };
-        tabTheme.items.push_back(itemAccentColor);
-
-        SettingsItem itemTextColor = { AppStrings::Settings_Label_TextColor, OptionType::CustomColorRow };
-        itemTextColor.pFloatVal = &g_config.ThemeCustomTextR;
-        itemTextColor.onChange = []([[maybe_unused]] SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) {
-            HWND hwnd = GetActiveWindow();
-            static COLORREF acrCustClr[16]; 
-            CHOOSECOLOR cc{};
-            cc.lStructSize = sizeof(CHOOSECOLOR);
-            cc.hwndOwner = hwnd;
-            cc.lpCustColors = acrCustClr;
-            cc.rgbResult = RGB((int)(g_config.ThemeCustomTextR * 255.0f), (int)(g_config.ThemeCustomTextG * 255.0f), (int)(g_config.ThemeCustomTextB * 255.0f));
-            cc.Flags = CC_FULLOPEN | CC_RGBINIT;
-            
-            if (ChooseColor(&cc)) {
-                g_config.ThemeCustomTextR = GetRValue(cc.rgbResult) / 255.0f;
-                g_config.ThemeCustomTextG = GetGValue(cc.rgbResult) / 255.0f;
-                g_config.ThemeCustomTextB = GetBValue(cc.rgbResult) / 255.0f;
-                SaveConfig();
-                if (overlay->m_hwnd) InvalidateRect(overlay->m_hwnd, nullptr, FALSE);
-            }
-        };
-        tabTheme.items.push_back(itemTextColor);
-    }
     
     // Geek Glass Engine
     tabTheme.items.push_back({ AppStrings::Settings_Header_GeekGlass, OptionType::Header });
