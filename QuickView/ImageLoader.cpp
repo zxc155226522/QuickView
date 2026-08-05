@@ -4235,20 +4235,6 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
   pData->isValid = false;
   pData->pixels.clear();
 
-  // [Debug] Log every LoadThumbnail call
-  {
-    static std::atomic<int> g_dbgCount{0};
-    if (g_dbgCount.load() < 200) {
-      FILE* dbg = nullptr;
-      if (_wfopen_s(&dbg, L"E:\\qv_thumb_debug.log", L"a") == 0 && dbg) {
-        fwprintf(dbg, L"[Call#%d] path=%s allowSlow=%d\n",
-                 g_dbgCount.load(), filePath, allowSlow?1:0);
-        fclose(dbg);
-        g_dbgCount.fetch_add(1);
-      }
-    }
-  }
-
   // 0. Highest Priority: Windows Shell Thumbnail Cache (Insanely fast for
   // pre-cached heavy RAWs)
   // [Fix] Skip Shell cache for vector/document formats (CDR/CMX/PLT/DXF/DWG/PDF/AI)
@@ -4478,35 +4464,9 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
 
     HRESULT hr = LoadToFrame(filePath, pFrame.get(), nullptr, targetSize,
                              targetSize, &pData->loaderName, {}, {});
-    // [Debug] Trace vector/doc thumbnail loading
-    {
-      FILE* dbg = nullptr;
-      if (_wfopen_s(&dbg, L"E:\\qv_thumb_debug.log", L"a") == 0 && dbg) {
-        fwprintf(dbg, L"[Thumb] fmt=%s hr=0x%08X isSvg=%d hasPix=%d w=%d h=%d\n",
-                 format.c_str(), (unsigned)hr, pFrame->IsSvg()?1:0,
-                 pFrame->pixels?1:0, pFrame->width, pFrame->height);
-        fclose(dbg);
-      }
-    }
     if (SUCCEEDED(hr) && pFrame->IsSvg() && pFrame->svg) {
-      // [Debug] Save SVG XML for inspection
-      {
-        FILE* svgF = nullptr;
-        if (_wfopen_s(&svgF, L"E:\\qv_thumb_debug.svg", L"wb") == 0 && svgF) {
-          fwrite(pFrame->svg->xmlData.data(), 1, pFrame->svg->xmlData.size(), svgF);
-          fclose(svgF);
-        }
-      }
       hr = RasterizeSvgThumbnail(pFrame->svg->xmlData, pFrame->svg->viewBoxW,
                                  pFrame->svg->viewBoxH, targetSize, pData);
-      {
-        FILE* dbg = nullptr;
-        if (_wfopen_s(&dbg, L"E:\\qv_thumb_debug.log", L"a") == 0 && dbg) {
-          fwprintf(dbg, L"  Rasterize hr=0x%08X valid=%d w=%d h=%d\n",
-                   (unsigned)hr, pData->isValid?1:0, pData->width, pData->height);
-          fclose(dbg);
-        }
-      }
     } else if (SUCCEEDED(hr) && pFrame->pixels && pFrame->width > 0 &&
                pFrame->height > 0) {
       pData->width = pFrame->width;

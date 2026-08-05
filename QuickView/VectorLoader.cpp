@@ -65,19 +65,6 @@ static std::string CalcStrokeWidth(double maxDim) {
     return FmtFloat(sw);
 }
 
-// 调试: 将生成的 SVG 保存到桌面 (临时诊断用)
-static void DebugDumpSvg(const std::string& svg, const char* suffix) {
-    char path[MAX_PATH];
-    snprintf(path, sizeof(path),
-             "C:\\Users\\Administrator\\Desktop\\debug_%s.svg", suffix);
-    FILE* fp = nullptr;
-    fopen_s(&fp, path, "wb");
-    if (fp) {
-        fwrite(svg.data(), 1, svg.size(), fp);
-        fclose(fp);
-    }
-}
-
 // XML 文本净化: 转义特殊字符 + 替换非 ASCII 字节为 '?'
 // D2D 的 SVG 解析器要求 UTF-8，GBK 编码的中文等非 ASCII 字节会导致解析失败
 static std::string SanitizeXmlText(const std::string& s) {
@@ -352,7 +339,6 @@ std::string LoadPLTtoSVG(const uint8_t* data, size_t size) {
         << "</svg>";
 
     std::string result = svg.str();
-    DebugDumpSvg(result, "plt");
     return result;
 }
 
@@ -1201,7 +1187,6 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
     }
     DeleteFileA(tempPath.c_str());
 
-    if (!result.empty()) DebugDumpSvg(result, "dxf");
     return result;
 }
 
@@ -1222,41 +1207,11 @@ std::string LoadDWGtoSVG(const uint8_t* data, size_t size) {
         if (ok) {
             result = iface.getResult();
         } else {
-            // 诊断：将错误码写入桌面文件
-            DRW::Version ver = dwg.getVersion();
-            DRW::error err = dwg.getError();
-            const char* errStr = "UNKNOWN";
-            switch (err) {
-                case DRW::BAD_NONE: errStr = "BAD_NONE"; break;
-                case DRW::BAD_UNKNOWN: errStr = "BAD_UNKNOWN"; break;
-                case DRW::BAD_OPEN: errStr = "BAD_OPEN"; break;
-                case DRW::BAD_VERSION: errStr = "BAD_VERSION"; break;
-                case DRW::BAD_READ_METADATA: errStr = "BAD_READ_METADATA"; break;
-                case DRW::BAD_READ_FILE_HEADER: errStr = "BAD_READ_FILE_HEADER"; break;
-                case DRW::BAD_READ_HEADER: errStr = "BAD_READ_HEADER"; break;
-                case DRW::BAD_READ_HANDLES: errStr = "BAD_READ_HANDLES"; break;
-                case DRW::BAD_READ_CLASSES: errStr = "BAD_READ_CLASSES"; break;
-                case DRW::BAD_READ_TABLES: errStr = "BAD_READ_TABLES"; break;
-                case DRW::BAD_READ_BLOCKS: errStr = "BAD_READ_BLOCKS"; break;
-                case DRW::BAD_READ_ENTITIES: errStr = "BAD_READ_ENTITIES"; break;
-                case DRW::BAD_READ_OBJECTS: errStr = "BAD_READ_OBJECTS"; break;
-                case DRW::BAD_READ_SECTION: errStr = "BAD_READ_SECTION"; break;
-                case DRW::BAD_CODE_PARSED: errStr = "BAD_CODE_PARSED"; break;
-            }
-            char diag[512];
-            snprintf(diag, sizeof(diag),
-                     "DWG parse failed\nVersion: %d (AC1032 = R2018+)\nError: %s\nFile: %s\nSize: %zu bytes\n\n"
-                     "注意: AutoCAD 2018+ (AC1032) 格式的 DWG 文件可能需要先转换为 DXF 格式。\n"
-                     "可以使用 AutoCAD 或 ODA File Converter 进行转换。",
-                     (int)ver, errStr, tempPath.c_str(), size);
-            FILE* fp = nullptr;
-            fopen_s(&fp, "C:\\Users\\Administrator\\Desktop\\debug_dwg_error.txt", "wb");
-            if (fp) { fwrite(diag, 1, strlen(diag), fp); fclose(fp); }
+            // DWG parse failed
         }
     }
     DeleteFileA(tempPath.c_str());
 
-    if (!result.empty()) DebugDumpSvg(result, "dwg");
     return result;
 }
 
