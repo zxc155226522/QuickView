@@ -5653,6 +5653,8 @@ if (g_config.CanvasColor == 5 && g_config.SwatchColorIndex >= 0 && g_config.Swat
         : D2D1::ColorF(std::min(r*1.2f,1.0f), std::min(g*1.2f,1.0f), std::min(b*1.2f,1.0f), 1.0f);
     g_compEngine->SetCheckerboardMode(true, c1, c2);
 } else {
+    // [Fix] Swatch 纯色模式：显式关闭 showGrid，避免 CanvasShowGrid 残留导致画网格叠加
+    showGrid = false;
     g_compEngine->SetCheckerboardMode(false);
 }
     // Compute viewport layout
