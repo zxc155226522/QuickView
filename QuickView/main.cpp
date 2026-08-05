@@ -1961,10 +1961,10 @@ static void ExitOverlayMode(HWND hwnd) {
 
     g_runtime.OverlayModeState = OverlayState::Normal;
 
-    // Restore DWM system backdrop and frame extension for drop shadow
+    // [Fix] ApplyWindowTheme handles dynamic DWM frame extension based on canvas opacity.
+    // Do NOT hardcode DwmExtendFrameIntoClientArea here — it would override the
+    // {0,0,0,0} margins set for opaque canvas colors, causing DWM background bleed.
     ApplyWindowTheme(hwnd);
-    MARGINS margins = { 0, 0, 0, 1 };
-    DwmExtendFrameIntoClientArea(hwnd, &margins);
 
     // Force background redraw with normal canvas color
     RECT bgRc{};
@@ -4142,18 +4142,6 @@ void ApplyWindowTheme(HWND hwnd) {
         DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, &backdropType, sizeof(backdropType));
     }
 
-    // [Fix] Dynamic DWM frame extension: when canvas is fully opaque, disable frame extension
-    // to prevent DWM system background bleeding through DComp surface on WS_EX_NOREDIRECTIONBITMAP windows.
-    // When canvas has alpha < 1.0, keep {0,0,0,1} for drop shadow.
-    {
-        D2D1_COLOR_F canvasColor = ResolveCanvasColor();
-        bool canvasOpaque = (canvasColor.a >= 0.999f) && !IsOverlayModeActive() &&
-                            !(g_slideshowState.IsActive && g_config.SlideshowImmersiveMode == 1) &&
-                            (g_config.CanvasColor != 4);
-        MARGINS margins = canvasOpaque ? MARGINS{0, 0, 0, 0} : MARGINS{0, 0, 0, 1};
-        DwmExtendFrameIntoClientArea(hwnd, &margins);
-    }
-
 #ifndef DWMWA_BORDER_COLOR
 #define DWMWA_BORDER_COLOR 34
 #endif
@@ -4189,6 +4177,19 @@ void ApplyWindowTheme(HWND hwnd) {
         0,
         0,
         SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+
+    // [Fix] Dynamic DWM frame extension: when canvas is fully opaque, disable frame extension
+    // to prevent DWM system background bleeding through DComp surface on WS_EX_NOREDIRECTIONBITMAP windows.
+    // When canvas has alpha < 1.0, keep {0,0,0,1} for drop shadow.
+    // Must be called AFTER SetWindowPos(SWP_FRAMECHANGED) which may reset frame margins.
+    {
+        D2D1_COLOR_F canvasColor = ResolveCanvasColor();
+        bool canvasOpaque = (canvasColor.a >= 0.999f) && !IsOverlayModeActive() &&
+                            !(g_slideshowState.IsActive && g_config.SlideshowImmersiveMode == 1) &&
+                            (g_config.CanvasColor != 4);
+        MARGINS margins = canvasOpaque ? MARGINS{0, 0, 0, 0} : MARGINS{0, 0, 0, 1};
+        DwmExtendFrameIntoClientArea(hwnd, &margins);
+    }
 }
 
 void ParseFixedZoomLevels() {
@@ -9625,6 +9626,7 @@ SKIP_EDGE_NAV:;
                                     g_config.SwatchColors[8][3] = a;
                                     g_config.SwatchIsCheckerboard[8] = isChecker;
                                     SaveConfig();
+                                    if (g_mainHwnd) ApplyWindowTheme(g_mainHwnd);
                                     RequestRepaint(PaintLayer::All);
                                 });
                         } else {

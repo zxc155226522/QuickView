@@ -4925,6 +4925,8 @@ SettingsAction SettingsOverlay::OnLButtonDown(float x, float y) {
                                 g_config.SwatchColors[i][2] = b;
                                 g_config.SwatchColors[i][3] = a;
                                 g_config.SwatchIsCheckerboard[i] = isChecker;
+                                extern HWND g_mainHwnd;
+                                if (g_mainHwnd) ApplyWindowTheme(g_mainHwnd);
                                 extern void RequestRepaint(QuickView::PaintLayer layerMask);
                                 RequestRepaint(QuickView::PaintLayer::All);
                             },
