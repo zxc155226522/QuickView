@@ -10,7 +10,7 @@ extern GalleryOverlay g_gallery;
 ImageViewportLayout ComputeImageViewportLayout(float windowWidth, float windowHeight) {
     const float safeWidth = (std::max)(1.0f, windowWidth);
     const float safeHeight = (std::max)(1.0f, windowHeight);
-    const float padding = g_isFullScreen ? 0.0f : 12.0f * g_uiScale;
+    const float padding = 0.0f;
     const float titleBarHeight = g_isFullScreen ? 0.0f : 36.0f * g_uiScale;
     const float galleryHeight = (!g_isFullScreen && g_gallery.IsPinned() && g_gallery.IsVisible())
         ? g_gallery.GetVisualHeight(safeHeight)
