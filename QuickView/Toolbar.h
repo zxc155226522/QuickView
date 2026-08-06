@@ -53,6 +53,7 @@ struct ToolbarButton {
     D2D1_RECT_F rect;       // Runtime layout rect
     bool isEnabled = true;
     bool isToggled = false; // For Lock/Exif/Raw
+    bool isWarning = false; // For CompareRawToggle
     bool isHovered = false;
     bool isPaired = false;  // [RAW+JPEG Pairing] RawToggle switches a pair
 };
