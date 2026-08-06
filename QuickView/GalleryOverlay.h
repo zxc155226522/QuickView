@@ -155,6 +155,8 @@ private:
   float m_preferredCellWidth = 140.0f;
 
   float m_cellHeight = 0.0f;
+  float m_gridTopOffset = 0.0f;  // Y offset to avoid title bar overlap in FullGrid
+  float m_gridBottomReserved = 0.0f; // Bottom reserved space (toolbar + bottom bar) in FullGrid
 
   int m_selectedIndex = -1;
   bool m_needsEnsureVisible = false;

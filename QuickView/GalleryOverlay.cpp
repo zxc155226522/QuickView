@@ -597,9 +597,17 @@ void GalleryOverlay::Render(ID2D1DeviceContext *pDC, const D2D1_SIZE_F &size,
     float gridCellH = gridCellW;
     m_cellHeight = gridCellH;
     
+    // Calculate top/bottom reserved space for FullGrid to avoid toolbar overlap
+    float titleBarH = 36.0f * scale;
+    float toolbarH = g_toolbar.GetReservedHeight();
+    float bottomBarH = (m_gridProgress > 0.5f) ? BOTTOM_BAR_HEIGHT * scale : 0.0f;
+    m_gridTopOffset = titleBarH + currentPadding;
+    m_gridBottomReserved = toolbarH + bottomBarH + currentPadding;
+    float gridViewportH = size.height - m_gridTopOffset - m_gridBottomReserved;
+    if (gridViewportH < 1.0f) gridViewportH = 1.0f;
+
     int gridRows = (int)((count + gridCols - 1) / gridCols);
-    float barPadding = (m_gridProgress > 0.5f) ? BOTTOM_BAR_HEIGHT * scale : 0.0f;
-    m_maxScroll = std::max(0.0f, currentPadding * 2 + gridRows * (gridCellH + currentGap) - currentGap + barPadding - size.height);
+    m_maxScroll = std::max(0.0f, currentPadding * 2 + gridRows * (gridCellH + currentGap) - currentGap - gridViewportH);
     
     float filmLeftMargin = FILM_LEFT_MARGIN * scale;
     m_maxScrollLeft = std::max(0.0f, filmLeftMargin * 2.0f + count * (filmCellW + currentGap) - currentGap - size.width);
@@ -629,7 +637,11 @@ void GalleryOverlay::Render(ID2D1DeviceContext *pDC, const D2D1_SIZE_F &size,
     // Clip thumbnails to scrollable region (to avoid overlapping Pin button and arrows)
     // Add scaled buffer on left/right to ensure selection DodgerBlue outline is not clipped
     float currentLeftMargin = filmLeftMargin + (currentPadding - filmLeftMargin) * m_gridProgress;
-    D2D1_RECT_F thumbsClip = D2D1::RectF(currentLeftMargin - 6.0f * scale, 0.0f, size.width - currentLeftMargin + 6.0f * scale, galleryH);
+    // In FullGrid mode, clip to the viewport between title bar and toolbar
+    float clipTop = m_gridTopOffset * m_gridProgress;
+    float clipBottom = galleryH - m_gridBottomReserved * m_gridProgress;
+    if (clipBottom < clipTop + 1.0f) clipBottom = clipTop + 1.0f;
+    D2D1_RECT_F thumbsClip = D2D1::RectF(currentLeftMargin - 6.0f * scale, clipTop, size.width - currentLeftMargin + 6.0f * scale, clipBottom);
     pDC->PushAxisAlignedClip(thumbsClip, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
     
     // Single item draw lambda to keep Z-Order multipass loops clean and hyper-efficient
@@ -1072,9 +1084,10 @@ void GalleryOverlay::Render(ID2D1DeviceContext *pDC, const D2D1_SIZE_F &size,
     // 7. FullGrid bottom toolbar (thumbnail size slider + close button)
     if (m_gridProgress > 0.5f) {
         float barH = BOTTOM_BAR_HEIGHT * scale;
-        float barY = galleryH - barH;
+        float toolbarH = g_toolbar.GetReservedHeight();
+        float barY = galleryH - toolbarH - barH;
         float barAlpha = (m_gridProgress - 0.5f) * 2.0f; // Fade in as grid expands (0.5→1.0 → 0→1)
-        D2D1_RECT_F barRect = D2D1::RectF(0.0f, barY, size.width, galleryH);
+        D2D1_RECT_F barRect = D2D1::RectF(0.0f, barY, size.width, barY + barH);
         
         // Bar background
         D2D1_COLOR_F barBgClr = isLight
@@ -1401,7 +1414,8 @@ bool GalleryOverlay::OnLButtonDown(int x, int y) {
     if (m_gridProgress > 0.5f) {
         float scale = g_uiScale > 0.0f ? g_uiScale : 1.0f;
         float barH = BOTTOM_BAR_HEIGHT * scale;
-        float barY = galleryH - barH;
+        float toolbarH = g_toolbar.GetReservedHeight();
+        float barY = galleryH - toolbarH - barH;
         
         if (fy >= barY) {
             // Close button
@@ -1539,7 +1553,8 @@ bool GalleryOverlay::OnMouseMove(int x, int y) {
         float scale = g_uiScale > 0.0f ? g_uiScale : 1.0f;
         float galleryH = GetVisualHeight(m_lastSize.height);
         float barH = BOTTOM_BAR_HEIGHT * scale;
-        float barY = galleryH - barH;
+        float toolbarH = g_toolbar.GetReservedHeight();
+        float barY = galleryH - toolbarH - barH;
         float barCenterY = barY + barH / 2.0f;
         
         // Close button hover
@@ -1728,14 +1743,16 @@ void GalleryOverlay::EnsureVisible(int index, const D2D1_SIZE_F& size, bool smoo
     
     if (m_mode == GalleryMode::FullGrid) {
         if (m_cellHeight <= 0.0f) return;
+        float gridViewportH = size.height - m_gridTopOffset - m_gridBottomReserved;
+        if (gridViewportH < 1.0f) gridViewportH = 1.0f;
         int row = index / m_cols;
-        float itemTop = currentPadding + row * (m_cellHeight + currentGap);
+        float itemTop = row * (m_cellHeight + currentGap);
         float itemBottom = itemTop + m_cellHeight;
         
         if (itemTop < m_scrollTop) {
             m_scrollTop = itemTop;
-        } else if (itemBottom > m_scrollTop + size.height) {
-            m_scrollTop = itemBottom - size.height;
+        } else if (itemBottom > m_scrollTop + gridViewportH) {
+            m_scrollTop = itemBottom - gridViewportH;
         }
     } else {
         float cellW = GetFilmCellSize() * scale;
@@ -1786,7 +1803,7 @@ D2D1_RECT_F GalleryOverlay::GetItemRect(int index, float winW) const {
     int col = index % gridCols;
     int row = index / gridCols;
     float gx = gridPadding + col * (gridCellW + currentGap);
-    float gy = gridPadding + row * (gridCellH + currentGap) - m_scrollTop;
+    float gy = m_gridTopOffset + row * (gridCellH + currentGap) - m_scrollTop;
     
     float cx = fx + (gx - fx) * m_gridProgress;
     float cy = fy + (gy - fy) * m_gridProgress;
