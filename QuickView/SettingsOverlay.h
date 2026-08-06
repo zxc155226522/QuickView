@@ -6,10 +6,6 @@
 #include "GeekGlass.h"
 #include "GeekIconLibrary.h"
 #include "EditState.h"
-#include <dxgi1_2.h>
-#include <dwmapi.h>
-
-#pragma comment(lib, "dwmapi.lib")
 
 // [Fix] Resolve Windows macro interference
 #undef LoadIcon
@@ -118,7 +114,8 @@ public:
     static constexpr float CONTROL_INSET_Y = 4.0f;
     static constexpr float PADDING = 16.0f;
 
-    void Init(HWND mainHwnd);
+    void Init(ID2D1DeviceContext* pRT, HWND hwnd);
+    void Render(ID2D1DeviceContext* pRT, float winW, float winH);
     void SetUIScale(float scale);
     SettingsAction OnMouseMove(float x, float y);
     SettingsAction OnLButtonDown(float x, float y);
@@ -129,20 +126,20 @@ public:
     bool IsVisible() const { return m_visible || m_showUpdateToast; }
     void Toggle() { SetVisible(!m_visible); }
 
-    // --- Independent Settings Window ---
-    HWND GetSettingsHwnd() const { return m_settingsHwnd; }
-    void RepaintSettings();
-    void OnSettingsDpiChanged(UINT dpi);
-
     void BuildMenu(); 
     void RebuildMenu(); 
+    
+    // [Geek Glass] Data Injection
+    void SetGeekGlassData(ID2D1CommandList* list, const D2D1_MATRIX_3X2_F& transform) {
+        m_bgCmdList = list;
+        m_bgTransform = transform;
+    }
     
     void SetItemStatus(const std::wstring& label, const std::wstring& status, D2D1::ColorF color); 
     void OpenTab(int index); 
     
     void ShowUpdateToast(const std::wstring& version, const std::wstring& changelog);
     bool IsUpdateToastVisible() const { return m_showUpdateToast; } 
-    void RenderToast(ID2D1DeviceContext* pRT, float winW, float winH);
 
     static bool RegisterAssociations();
     static void UnregisterAssociations(); 
@@ -159,17 +156,6 @@ public:
 
 private:
     void CreateResources(ID2D1DeviceContext* pRT);
-    void RenderInternal(ID2D1DeviceContext* pRT, float winW, float winH);
-
-    // --- Independent Settings Window Infrastructure ---
-    static void EnsureClassRegistered();
-    static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
-    LRESULT HandleSettingsMsg(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
-    void CreateSettingsWindow();
-    void DestroySettingsWindow();
-    void PaintSettings();
-    bool ApplySettingsBackdrop();
-    void DiscardSettingsResources();
     
     void DrawToggle(ID2D1DeviceContext* pRT, const D2D1_RECT_F& rect, bool isOn, bool isHovered);
     void DrawSlider(ID2D1DeviceContext *pRT, const D2D1_RECT_F &rect, float val,
@@ -258,20 +244,4 @@ private:
     D2D1_MATRIX_3X2_F m_bgTransform = D2D1::Matrix3x2F::Identity();
     int m_borderStrokeOption = 0; // [UX Fix] 3-state border options (0=None, 1=Fine, 2=Standard)
     int m_separatorPresetIndex = 0;
-
-    // --- Independent Settings Window Members ---
-    HWND m_settingsHwnd = nullptr;       // The independent settings popup window
-    HWND m_mainHwnd = nullptr;           // The main application window (owner)
-    static bool s_classRegistered;
-    static constexpr const wchar_t* SETTINGS_CLASS_NAME = L"QuickViewSettingsClass";
-
-    // Private DXGI SwapChain + D2D pipeline for the settings window
-    ComPtr<IDXGISwapChain1> m_settingsSwapChain;
-    ComPtr<ID2D1DeviceContext> m_settingsD2dContext;
-    ComPtr<ID2D1Bitmap1> m_settingsBitmap;
-    ComPtr<IDWriteFactory> m_settingsDwriteFactory;
-
-    UINT m_settingsDpi = 96;
-    bool m_settingsResourcesCreated = false;
-    bool m_initializing = false;  // Guard: prevent WM_ACTIVATE/WM_PAINT during CreateSettingsWindow
 };

@@ -1,4 +1,4 @@
-﻿#include "CompareController.h"
+#include "CompareController.h"
 #include "StringUtils.h"
 #include "SettingsOverlay.h"
 #include "ThemeSystem.h"
@@ -22,7 +22,6 @@
 #include "ImageLoaderSimd.h"
 #include "GeekGlass.h"
 #include "GeekIconRenderer.h"
-#include "SystemInfo.h"
 
 // Windows headers
 #pragma comment(lib, "version.lib")
@@ -519,7 +518,6 @@ SettingsOverlay::SettingsOverlay() {
 }
 
 SettingsOverlay::~SettingsOverlay() {
-    DestroySettingsWindow();
 }
 
 // ----------------------------------------------------------------------------
@@ -529,10 +527,15 @@ SettingsOverlay::~SettingsOverlay() {
 void SettingsOverlay::ShowUpdateToast(const std::wstring& version, const std::wstring& changelog) {
     if (version == m_dismissedVersion) return; // User already dismissed this version
     m_showUpdateToast = true;
-    SetVisible(false); // Ensure Settings closes to focus on Toast
+    SetVisible(false); // Ensure Settings closes to focus on Toast (and avoid layout shift on resize)
     m_updateVersion = version;
     m_updateLog = changelog;
     m_toastScrollY = 0.0f; // Reset scroll
+    
+    // Auto-resize window if too small for toast
+    extern void AdjustWindowForOverlay(HWND hwnd, bool isClosed);
+    AdjustWindowForOverlay(m_hwnd, false);
+    
     BuildMenu(); // Refresh About tab state
 }
 
@@ -749,367 +752,10 @@ void SettingsOverlay::RenderUpdateToast(ID2D1DeviceContext* pRT, float /*hudX*/,
     m_textFormatItem->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
 }
 
-void SettingsOverlay::Init(HWND mainHwnd) {
-    m_mainHwnd = mainHwnd;
-    m_hwnd = mainHwnd; // Keep for compatibility (toast rendering on main window)
+void SettingsOverlay::Init(ID2D1DeviceContext* pRT, HWND hwnd) {
+    m_hwnd = hwnd;
+    CreateResources(pRT);
     BuildMenu();
-}
-
-// ============================================================================
-// Independent Settings Window Infrastructure
-// ============================================================================
-
-#ifndef DWMWA_SYSTEMBACKDROP_TYPE
-#define DWMWA_SYSTEMBACKDROP_TYPE 38
-#endif
-#ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
-#define DWMWA_USE_IMMERSIVE_DARK_MODE 20
-#endif
-
-bool SettingsOverlay::s_classRegistered = false;
-
-void SettingsOverlay::EnsureClassRegistered() {
-    if (s_classRegistered) return;
-    WNDCLASSEXW wc = {};
-    wc.cbSize = sizeof(wc);
-    wc.style = CS_HREDRAW | CS_VREDRAW;
-    wc.lpfnWndProc = SettingsWndProc;
-    wc.hInstance = GetModuleHandleW(nullptr);
-    wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-    wc.lpszClassName = SETTINGS_CLASS_NAME;
-    RegisterClassExW(&wc);
-    s_classRegistered = true;
-}
-
-LRESULT CALLBACK SettingsOverlay::SettingsWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
-    SettingsOverlay* pThis = reinterpret_cast<SettingsOverlay*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-    if (message == WM_CREATE) {
-        auto* cs = reinterpret_cast<CREATESTRUCTW*>(lParam);
-        pThis = reinterpret_cast<SettingsOverlay*>(cs->lpCreateParams);
-        SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(pThis));
-    }
-    if (pThis) return pThis->HandleSettingsMsg(hwnd, message, wParam, lParam);
-    return DefWindowProcW(hwnd, message, wParam, lParam);
-}
-
-LRESULT SettingsOverlay::HandleSettingsMsg(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
-    switch (message) {
-        case WM_PAINT: {
-            PAINTSTRUCT ps;
-            BeginPaint(hwnd, &ps);
-            if (!m_initializing) {
-                PaintSettings();
-            }
-            EndPaint(hwnd, &ps);
-            return 0;
-        }
-        case WM_ACTIVATE:
-            if (!m_initializing && LOWORD(wParam) == WA_INACTIVE && m_visible) {
-                PostMessage(hwnd, WM_CLOSE, 0, 0);
-            }
-            return 0;
-        case WM_NCHITTEST: {
-            POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
-            ScreenToClient(hwnd, &pt);
-            float dpiScale = m_settingsDpi / 96.0f;
-            float s = m_uiScale;
-            float sidebarW = SIDEBAR_WIDTH * s * dpiScale;
-            float backH = 50.0f * s * dpiScale;
-            // Sidebar below back button: draggable
-            if (pt.x < (int)sidebarW && pt.y >= (int)backH) {
-                return HTCAPTION;
-            }
-            return HTCLIENT;
-        }
-        case WM_LBUTTONDOWN: {
-            float x = (float)(short)LOWORD(lParam);
-            float y = (float)(short)HIWORD(lParam);
-            float dipScale = 96.0f / m_settingsDpi;
-            x *= dipScale;
-            y *= dipScale;
-            // If OnLButtonDown triggers a close (e.g. Back button), it will
-            // call SetVisible(false) -> DestroySettingsWindow(). We must not
-            // touch the window afterwards, so just return immediately.
-            SettingsAction act = OnLButtonDown(x, y);
-            if (act == SettingsAction::None) {
-                // Window may have been destroyed, do nothing.
-            } else {
-                RepaintSettings();
-            }
-            return 0;
-        }
-        case WM_LBUTTONUP: {
-            float x = (float)(short)LOWORD(lParam);
-            float y = (float)(short)HIWORD(lParam);
-            float dipScale = 96.0f / m_settingsDpi;
-            x *= dipScale;
-            y *= dipScale;
-            OnLButtonUp(x, y);
-            RepaintSettings();
-            return 0;
-        }
-        case WM_MOUSEMOVE: {
-            float x = (float)(short)LOWORD(lParam);
-            float y = (float)(short)HIWORD(lParam);
-            float dipScale = 96.0f / m_settingsDpi;
-            x *= dipScale;
-            y *= dipScale;
-            if (OnMouseMove(x, y) != SettingsAction::None) {
-                RepaintSettings();
-            }
-            return 0;
-        }
-        case WM_MOUSEWHEEL: {
-            float delta = GET_WHEEL_DELTA_WPARAM(wParam) / (float)WHEEL_DELTA;
-            if (OnMouseWheel(delta)) {
-                RepaintSettings();
-            }
-            return 0;
-        }
-        case WM_KEYDOWN:
-            if (wParam == VK_ESCAPE) {
-                PostMessage(hwnd, WM_CLOSE, 0, 0);
-            }
-            return 0;
-        case WM_CLOSE:
-            // Safe here - we're in the message loop, not inside CreateSettingsWindow.
-            // SetVisible(false) will SaveConfig() and DestroySettingsWindow().
-            SetVisible(false);
-            return 0;
-        case WM_DPICHANGED: {
-            UINT newDpi = HIWORD(wParam);
-            OnSettingsDpiChanged(newDpi);
-            auto* rect = reinterpret_cast<RECT*>(lParam);
-            SetWindowPos(hwnd, nullptr, rect->left, rect->top,
-                         rect->right - rect->left, rect->bottom - rect->top,
-                         SWP_NOZORDER | SWP_NOACTIVATE);
-            return 0;
-        }
-        case WM_DESTROY:
-            m_settingsHwnd = nullptr;
-            DiscardSettingsResources();
-            m_visible = false;
-            return 0;
-        default:
-            return DefWindowProcW(hwnd, message, wParam, lParam);
-    }
-}
-
-void SettingsOverlay::CreateSettingsWindow() {
-    if (m_settingsHwnd) {
-        ShowWindow(m_settingsHwnd, SW_SHOWNORMAL);
-        SetForegroundWindow(m_settingsHwnd);
-        return;
-    }
-
-    EnsureClassRegistered();
-
-    m_settingsDpi = GetDpiForWindow(m_mainHwnd);
-    float dpiScale = m_settingsDpi / 96.0f;
-    float s = m_uiScale;
-
-    // Calculate sizes (DIPs for surface, physical pixels for window)
-    float hudW = HUD_WIDTH * s;
-    float hudH = HUD_HEIGHT * s;
-    int physW = (int)(hudW * dpiScale);
-    int physH = (int)(hudH * dpiScale);
-
-    // Center over main window
-    RECT rcMain;
-    GetWindowRect(m_mainHwnd, &rcMain);
-    int x = rcMain.left + ((rcMain.right - rcMain.left) - physW) / 2;
-    int y = rcMain.top + ((rcMain.bottom - rcMain.top) - physH) / 2;
-
-    m_settingsHwnd = CreateWindowExW(
-        0,  // No WS_EX_NOREDIRECTIONBITMAP — normal window with back buffer
-        SETTINGS_CLASS_NAME,
-        L"QuickView Settings",
-        WS_POPUP,
-        x, y, physW, physH,
-        m_mainHwnd,
-        nullptr,
-        GetModuleHandleW(nullptr),
-        this
-    );
-
-    if (!m_settingsHwnd) return;
-
-    // --- Create independent D3D / DXGI SwapChain / D2D pipeline ---
-    do { // do-while(false) for break-on-failure pattern (avoids goto over init)
-    ComPtr<ID3D11Device> d3dDevice;
-    ComPtr<ID3D11DeviceContext> d3dCtx;
-    D3D_FEATURE_LEVEL fl;
-    HRESULT hr = D3D11CreateDevice(
-        nullptr, D3D_DRIVER_TYPE_HARDWARE, 0, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-        nullptr, 0, D3D11_SDK_VERSION, &d3dDevice, &fl, &d3dCtx);
-    if (FAILED(hr) || !d3dDevice) break;
-
-    ComPtr<IDXGIDevice> dxgiDevice;
-    if (FAILED(d3dDevice.As(&dxgiDevice)) || !dxgiDevice) break;
-
-    ComPtr<IDXGIAdapter> dxgiAdapter;
-    if (FAILED(dxgiDevice->GetAdapter(&dxgiAdapter)) || !dxgiAdapter) break;
-    ComPtr<IDXGIFactory2> dxgiFactory;
-    if (FAILED(dxgiAdapter->GetParent(IID_PPV_ARGS(&dxgiFactory))) || !dxgiFactory) break;
-
-    // Create DXGI SwapChain bound to the settings window
-    DXGI_SWAP_CHAIN_DESC1 scDesc = {};
-    scDesc.Width = physW;
-    scDesc.Height = physH;
-    scDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-    scDesc.SampleDesc.Count = 1;
-    scDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    scDesc.BufferCount = 2;
-    scDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
-    scDesc.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
-    if (FAILED(dxgiFactory->CreateSwapChainForHwnd(d3dDevice.Get(), m_settingsHwnd, &scDesc, nullptr, nullptr, &m_settingsSwapChain))
-        || !m_settingsSwapChain) break;
-
-    // D2D device + context
-    ComPtr<ID2D1Device> d2dDevice;
-    if (FAILED(D2D1CreateDevice(dxgiDevice.Get(), nullptr, &d2dDevice)) || !d2dDevice) break;
-    if (FAILED(d2dDevice->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &m_settingsD2dContext))
-        || !m_settingsD2dContext) break;
-
-    // Apply Mica/Acrylic backdrop
-    ApplySettingsBackdrop();
-
-    m_settingsResourcesCreated = true;
-
-    m_initializing = true;
-    ShowWindow(m_settingsHwnd, SW_SHOWNORMAL);
-    SetForegroundWindow(m_settingsHwnd);
-    m_initializing = false;
-
-    PaintSettings();
-    return;
-    } while(false);
-
-    // FailCleanup: D3D/DXGI/D2D creation failed
-    if (m_settingsHwnd) { DestroyWindow(m_settingsHwnd); m_settingsHwnd = nullptr; }
-    m_settingsSwapChain.Reset();
-    m_settingsD2dContext.Reset();
-    return;
-}
-
-void SettingsOverlay::DestroySettingsWindow() {
-    if (m_settingsHwnd) {
-        HWND hwnd = m_settingsHwnd;
-        m_settingsHwnd = nullptr;
-        DestroyWindow(hwnd);
-    }
-    DiscardSettingsResources();
-}
-
-void SettingsOverlay::DiscardSettingsResources() {
-    m_brushBg.Reset();
-    m_brushText.Reset();
-    m_brushTextDim.Reset();
-    m_brushAccent.Reset();
-    m_brushControlBg.Reset();
-    m_brushBorder.Reset();
-    m_brushSuccess.Reset();
-    m_brushError.Reset();
-    m_brushWhite.Reset();
-    m_settingsBitmap.Reset();
-    m_settingsD2dContext.Reset();
-    m_settingsSwapChain.Reset();
-    m_settingsResourcesCreated = false;
-}
-
-void SettingsOverlay::PaintSettings() {
-    if (!m_settingsHwnd || !m_settingsSwapChain || !m_settingsD2dContext) return;
-
-    ComPtr<IDXGISurface> dxgiSurface;
-    if (FAILED(m_settingsSwapChain->GetBuffer(0, IID_PPV_ARGS(&dxgiSurface))) || !dxgiSurface) return;
-
-    float dpiF = (float)m_settingsDpi;
-    D2D1_BITMAP_PROPERTIES1 bp = D2D1::BitmapProperties1(
-        D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
-        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
-        dpiF, dpiF);
-
-    m_settingsBitmap.Reset();
-    if (FAILED(m_settingsD2dContext->CreateBitmapFromDxgiSurface(dxgiSurface.Get(), &bp, &m_settingsBitmap))
-        || !m_settingsBitmap) return;
-    m_settingsD2dContext->SetTarget(m_settingsBitmap.Get());
-
-    m_settingsD2dContext->BeginDraw();
-    m_settingsD2dContext->Clear(D2D1::ColorF(0, 0, 0, 0));
-
-    float s = m_uiScale;
-    float hudW = HUD_WIDTH * s;
-    float hudH = HUD_HEIGHT * s;
-    RenderInternal(m_settingsD2dContext.Get(), hudW, hudH);
-
-    m_settingsD2dContext->EndDraw();
-
-    DXGI_PRESENT_PARAMETERS params = {};
-    m_settingsSwapChain->Present1(1, 0, &params);
-}
-
-void SettingsOverlay::RepaintSettings() {
-    if (m_settingsHwnd) {
-        InvalidateRect(m_settingsHwnd, nullptr, FALSE);
-    }
-}
-
-void SettingsOverlay::OnSettingsDpiChanged(UINT dpi) {
-    m_settingsDpi = dpi;
-    float dpiScale = dpi / 96.0f;
-    float s = m_uiScale;
-    int physW = (int)(HUD_WIDTH * s * dpiScale);
-    int physH = (int)(HUD_HEIGHT * s * dpiScale);
-
-    if (m_settingsSwapChain) {
-        m_settingsBitmap.Reset();
-        m_settingsD2dContext->SetTarget(nullptr);
-        if (FAILED(m_settingsSwapChain->ResizeBuffers(0, physW, physH, DXGI_FORMAT_UNKNOWN, 0))) {
-            DiscardSettingsResources();
-        }
-    }
-
-    RepaintSettings();
-}
-
-bool SettingsOverlay::ApplySettingsBackdrop() {
-    if (!m_settingsHwnd) return false;
-
-    // Enable dark mode if needed
-    BOOL darkMode = TRUE;
-    DwmSetWindowAttribute(m_settingsHwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &darkMode, sizeof(darkMode));
-
-    // Try Win11 22H2+ system backdrop (Mica)
-    int backdropType = 2; // DWMSBT_MAINWINDOW
-    HRESULT hr = DwmSetWindowAttribute(m_settingsHwnd, DWMWA_SYSTEMBACKDROP_TYPE, &backdropType, sizeof(backdropType));
-    if (SUCCEEDED(hr)) return true;
-
-    // Fallback: Win10 acrylic via undocumented SetWindowCompositionAttribute
-    HMODULE hUser = GetModuleHandleW(L"user32.dll");
-    if (hUser) {
-        auto pfn = reinterpret_cast<BOOL(WINAPI*)(HWND, PVOID)>(
-            GetProcAddress(hUser, "SetWindowCompositionAttribute"));
-        if (pfn) {
-            struct ACCENTPOLICY { int nAccentState; int nFlags; int nColor; int nAnimationId; };
-            struct WINCOMPATTRDATA { int nAttribute; PVOID pData; ULONG ulDataSize; };
-            ACCENTPOLICY policy = {};
-            policy.nAccentState = 4; // ACCENT_ENABLE_ACRYLICBLURBEHIND
-            policy.nColor = 0x01000000;
-            WINCOMPATTRDATA data = {};
-            data.nAttribute = 19; // WCA_ACCENT_POLICY
-            data.pData = &policy;
-            data.ulDataSize = sizeof(policy);
-            pfn(m_settingsHwnd, &data);
-            return true;
-        }
-    }
-
-    return false;
-}
-
-void SettingsOverlay::RenderToast(ID2D1DeviceContext* pRT, float winW, float winH) {
-    if (!m_showUpdateToast) return;
-    RenderInternal(pRT, winW, winH);
 }
 
 void SettingsOverlay::SetUIScale(float scale) {
@@ -1166,7 +812,6 @@ void SettingsOverlay::CreateResources(ID2D1DeviceContext* pRT) {
     if (!m_dwriteFactory) {
         DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(m_dwriteFactory.GetAddressOf()));
     }
-    if (!m_dwriteFactory) return; // DWrite factory creation failed
 
     if (!m_textFormatHeader || !m_textFormatItem || !m_textFormatBadge) {
         float scaledHeader = fontSizeHeader * m_uiScale;
@@ -2960,21 +2605,37 @@ void SettingsOverlay::SetVisible(bool visible) {
 
     if (m_visible) {
         RebuildMenu(); // Ensure strings are up-to-date
-        m_opacity = 1.0f;
-        CreateSettingsWindow();
+        m_opacity = 0.0f;
+        
+        // Hide toolbar and filmstrip gallery when settings pop up
+        g_toolbar.SetVisible(false);
+        extern GalleryOverlay g_gallery;
+        if (g_gallery.IsVisible()) {
+            g_gallery.Close(true);
+        }
+        g_gallery.SetHoveringHotspot(false);
+        
+        // Auto-Resize if window is too small
+        if (m_hwnd) {
+             extern void AdjustWindowForOverlay(HWND hwnd, bool isClosed);
+             AdjustWindowForOverlay(m_hwnd, false);
+        }
     } else {
+        // ... (Cleanup if needed)
         extern void SaveConfig();
         SaveConfig();
-        DestroySettingsWindow();
+        
+        if (m_hwnd) {
+             extern void AdjustWindowForOverlay(HWND hwnd, bool isClosed);
+             if (!m_showUpdateToast) AdjustWindowForOverlay(m_hwnd, true);
+        }
     }
 }
 
-void SettingsOverlay::RenderInternal(ID2D1DeviceContext* pRT, float winW, float winH) {
-if (!m_visible && !m_showUpdateToast) return;
-CreateResources(pRT);
-// Bail out if essential resources failed to create
-if (!m_brushBg || !m_brushText || !m_textFormatItem || !m_textFormatHeader) return;
-const auto palette = GetSettingsThemePalette();
+void SettingsOverlay::Render(ID2D1DeviceContext* pRT, float winW, float winH) {
+    if (!m_visible && !m_showUpdateToast) return;
+    CreateResources(pRT);
+    const auto palette = GetSettingsThemePalette();
     
     // Check for deferred rebuild before rendering
     if (m_pendingRebuild) {
@@ -2999,7 +2660,13 @@ const auto palette = GetSettingsThemePalette();
         m_windowHeight = size.height;
     }
 
-    // 1. Calculate HUD Panel Position (Centered)
+    // 1. Draw Dimmer (Semi-transparent overlay over entire window)
+    if (g_config.EnableAmbientDimmer) {
+        D2D1_RECT_F dimmerRect = D2D1::RectF(0, 0, m_windowWidth, m_windowHeight);
+        pRT->FillRectangle(dimmerRect, m_brushBg.Get()); // 0.4 Alpha Black
+    }
+
+    // 2. Calculate HUD Panel Position (Centered)
     float hudX = (m_windowWidth - hudW) / 2.0f;
     float hudY = (m_windowHeight - hudH) / 2.0f;
     if (hudX < 0) hudX = 0;
@@ -4854,11 +4521,9 @@ SettingsAction SettingsOverlay::OnLButtonDown(float x, float y) {
     float hudBottom = hudY + HUD_HEIGHT * s;
 
     // Check if click is OUTSIDE HUD -> Close settings
-    // (In independent window mode, the window IS the HUD, so this should
-    // never trigger. Kept as safety net with PostMessage to avoid UAF.)
     if (x < hudX || x > hudRight || y < hudY || y > hudBottom) {
-        if (m_settingsHwnd) PostMessage(m_settingsHwnd, WM_CLOSE, 0, 0);
-        return SettingsAction::None;
+        SetVisible(false);
+        return SettingsAction::RepaintStatic;
     }
 
     const float sidebarW = SIDEBAR_WIDTH * m_uiScale;
@@ -4878,8 +4543,8 @@ SettingsAction SettingsOverlay::OnLButtonDown(float x, float y) {
 
         // Back Button (Top 50px)
         if (localY < backH) {
-            if (m_settingsHwnd) PostMessage(m_settingsHwnd, WM_CLOSE, 0, 0);
-            return SettingsAction::None;
+            SetVisible(false);
+            return SettingsAction::RepaintStatic;
         }
 
         // Tab Click
@@ -4894,7 +4559,7 @@ SettingsAction SettingsOverlay::OnLButtonDown(float x, float y) {
             }
             tabY += tabStep;
         }
-        return SettingsAction::None; // Clicked sidebar blank area - drag handled by WM_NCHITTEST
+        return SettingsAction::DragWindow; // Clicked sidebar blank area - native drag
     }
 
     // 3. Active Combo Processing
@@ -5209,11 +4874,11 @@ SettingsAction SettingsOverlay::OnLButtonDown(float x, float y) {
     if (x >= contentX && x <= contentRight && y >= m_hudY && y <= m_hudY + HUD_HEIGHT * m_uiScale) {
         // If clicked in content area but not on an item, do nothing (prevent dragging window if they miss a button)
         // Actually native drag is nice on blank areas.
-return (m_pActiveCombo) ? SettingsAction::RepaintAll : SettingsAction::None;
-}
+        return (m_pActiveCombo) ? SettingsAction::RepaintAll : SettingsAction::DragWindow;
+    }
 
-// Clicked outside content?
-return (m_pActiveCombo) ? SettingsAction::RepaintAll : SettingsAction::None;
+    // Clicked outside content?
+    return (m_pActiveCombo) ? SettingsAction::RepaintAll : SettingsAction::DragWindow;
 }
 
 SettingsAction SettingsOverlay::OnLButtonUp([[maybe_unused]] float x, [[maybe_unused]] float y) {
