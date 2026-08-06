@@ -601,13 +601,14 @@ void GalleryOverlay::Render(ID2D1DeviceContext *pDC, const D2D1_SIZE_F &size,
     // Note: Main toolbar is hidden in FullGrid mode (see UIRenderer.cpp), so no need to reserve space for it
     float titleBarH = 36.0f * scale;
     float bottomBarH = (m_gridProgress > 0.5f) ? BOTTOM_BAR_HEIGHT * scale : 0.0f;
-    m_gridTopOffset = titleBarH + currentPadding;
-    m_gridBottomReserved = bottomBarH + currentPadding;
+    float gridPad = 8.0f * scale; // Slim padding between title bar / bottom bar and thumbnails
+    m_gridTopOffset = titleBarH + gridPad;
+    m_gridBottomReserved = bottomBarH + gridPad;
     float gridViewportH = size.height - m_gridTopOffset - m_gridBottomReserved;
     if (gridViewportH < 1.0f) gridViewportH = 1.0f;
 
     int gridRows = (int)((count + gridCols - 1) / gridCols);
-    m_maxScroll = std::max(0.0f, currentPadding * 2 + gridRows * (gridCellH + currentGap) - currentGap - gridViewportH);
+    m_maxScroll = std::max(0.0f, gridRows * (gridCellH + currentGap) - currentGap - gridViewportH);
     
     float filmLeftMargin = FILM_LEFT_MARGIN * scale;
     m_maxScrollLeft = std::max(0.0f, filmLeftMargin * 2.0f + count * (filmCellW + currentGap) - currentGap - size.width);
