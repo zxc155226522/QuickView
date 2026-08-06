@@ -57,11 +57,11 @@ struct BBox {
     double maxDim() const { return std::max(width(), height()); }
 };
 
-// 按坐标系比例计算线宽 (至少 0.1，确保可见)
+// 按坐标系比例计算线宽 (下限 0.05，确保可见且最细化)
 static std::string CalcStrokeWidth(double maxDim) {
     if (maxDim <= 0) return "0.5";
-    double sw = maxDim * 0.0008; // 0.08% of max dimension
-    if (sw < 0.1) sw = 0.1;
+    double sw = maxDim * 0.0003; // 0.03% of max dimension
+    if (sw < 0.05) sw = 0.05;
     return FmtFloat(sw);
 }
 
@@ -96,8 +96,8 @@ static std::string SanitizeXmlText(const std::string& s) {
 // ============================================================================
 
 static const char* kPLTPenColors[] = {
-    "black", "black", "red", "green", "yellow",
-    "blue", "magenta", "cyan", "white"
+    "black", "black", "red", "red", "green",
+    "blue", "magenta", "cyan", "black"
 };
 static constexpr int kPLTMaxPen = 8;
 
