@@ -797,15 +797,14 @@ LRESULT SettingsOverlay::HandleSettingsMsg(HWND hwnd, UINT message, WPARAM wPara
         case WM_PAINT: {
             PAINTSTRUCT ps;
             BeginPaint(hwnd, &ps);
-            PaintSettings();
+            if (!m_initializing) {
+                PaintSettings();
+            }
             EndPaint(hwnd, &ps);
             return 0;
         }
         case WM_ACTIVATE:
-            if (LOWORD(wParam) == WA_INACTIVE && m_visible) {
-                // Post WM_CLOSE instead of calling SetVisible(false) directly.
-                // Destroying the window during WM_ACTIVATE (which fires inside
-                // CreateSettingsWindow's ShowWindow call) causes UAF crash.
+            if (!m_initializing && LOWORD(wParam) == WA_INACTIVE && m_visible) {
                 PostMessage(hwnd, WM_CLOSE, 0, 0);
             }
             return 0;
@@ -869,10 +868,12 @@ LRESULT SettingsOverlay::HandleSettingsMsg(HWND hwnd, UINT message, WPARAM wPara
         }
         case WM_KEYDOWN:
             if (wParam == VK_ESCAPE) {
-                SetVisible(false);
+                PostMessage(hwnd, WM_CLOSE, 0, 0);
             }
             return 0;
         case WM_CLOSE:
+            // Safe here - we're in the message loop, not inside CreateSettingsWindow.
+            // SetVisible(false) will SaveConfig() and DestroySettingsWindow().
             SetVisible(false);
             return 0;
         case WM_DPICHANGED: {
@@ -972,8 +973,10 @@ void SettingsOverlay::CreateSettingsWindow() {
 
     m_settingsResourcesCreated = true;
 
+    m_initializing = true;
     ShowWindow(m_settingsHwnd, SW_SHOWNORMAL);
     SetForegroundWindow(m_settingsHwnd);
+    m_initializing = false;
 
     PaintSettings();
 }
@@ -1019,7 +1022,10 @@ void SettingsOverlay::PaintSettings() {
         96.0f, 96.0f);
 
     ComPtr<ID2D1Bitmap1> bitmap;
-    m_settingsD2dContext->CreateBitmapFromDxgiSurface(dxgiSurface.Get(), &bp, &bitmap);
+    if (FAILED(m_settingsD2dContext->CreateBitmapFromDxgiSurface(dxgiSurface.Get(), &bp, &bitmap)) || !bitmap) {
+        m_settingsDcompSurface->EndDraw();
+        return;
+    }
     m_settingsD2dContext->SetTarget(bitmap.Get());
 
     m_settingsD2dContext->BeginDraw();
@@ -1157,6 +1163,7 @@ void SettingsOverlay::CreateResources(ID2D1DeviceContext* pRT) {
     if (!m_dwriteFactory) {
         DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(m_dwriteFactory.GetAddressOf()));
     }
+    if (!m_dwriteFactory) return; // DWrite factory creation failed
 
     if (!m_textFormatHeader || !m_textFormatItem || !m_textFormatBadge) {
         float scaledHeader = fontSizeHeader * m_uiScale;
@@ -2960,9 +2967,11 @@ void SettingsOverlay::SetVisible(bool visible) {
 }
 
 void SettingsOverlay::RenderInternal(ID2D1DeviceContext* pRT, float winW, float winH) {
-    if (!m_visible && !m_showUpdateToast) return;
-    CreateResources(pRT);
-    const auto palette = GetSettingsThemePalette();
+if (!m_visible && !m_showUpdateToast) return;
+CreateResources(pRT);
+// Bail out if essential resources failed to create
+if (!m_brushBg || !m_brushText || !m_textFormatItem || !m_textFormatHeader) return;
+const auto palette = GetSettingsThemePalette();
     
     // Check for deferred rebuild before rendering
     if (m_pendingRebuild) {

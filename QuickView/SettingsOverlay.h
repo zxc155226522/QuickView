@@ -276,4 +276,5 @@ private:
 
     UINT m_settingsDpi = 96;
     bool m_settingsResourcesCreated = false;
+    bool m_initializing = false;  // Guard: prevent WM_ACTIVATE/WM_PAINT during CreateSettingsWindow
 };
