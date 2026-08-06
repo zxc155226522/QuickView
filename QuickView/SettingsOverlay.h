@@ -210,6 +210,7 @@ private:
     
     int m_hoverLinkIndex = -1; 
     bool m_isHoveringCopyright = false;
+    bool m_hoverCloseBtn = false;
     
     std::wstring GetRealWindowsVersion();
     void AutoSwitchToCustom(bool save = true);

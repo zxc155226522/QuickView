@@ -4033,6 +4033,33 @@ void SettingsOverlay::Render(ID2D1DeviceContext* pRT, float winW, float winH) {
     }
 
     pRT->PopLayer();
+
+    // Close Button [ X ] (Top-right of HUD)
+    {
+        const float btnSize = 28.0f * s;
+        const float btnMargin = 10.0f * s;
+        D2D1_RECT_F closeRect = D2D1::RectF(
+            hudX + hudW - btnSize - btnMargin,
+            hudY + btnMargin,
+            hudX + hudW - btnMargin,
+            hudY + btnMargin + btnSize);
+
+        if (m_hoverCloseBtn) {
+            ComPtr<ID2D1SolidColorBrush> hoverBg;
+            D2D1_COLOR_F hoverColor = IsLightThemeActive()
+                ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.06f)
+                : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.08f);
+            pRT->CreateSolidColorBrush(hoverColor, &hoverBg);
+            pRT->FillRoundedRectangle(D2D1::RoundedRect(closeRect, 4.0f * s, 4.0f * s), hoverBg.Get());
+        }
+
+        const float side = btnSize * 0.44f;
+        const float cx = (closeRect.left + closeRect.right) * 0.5f;
+        const float cy = (closeRect.top + closeRect.bottom) * 0.5f;
+        D2D1_RECT_F closeIconRect = D2D1::RectF(cx - side * 0.5f, cy - side * 0.5f, cx + side * 0.5f, cy + side * 0.5f);
+        QuickView::UI::GeekIconRenderer::DrawVectorIcon(pRT, *Icons::Close, closeIconRect, m_brushText.Get());
+    }
+
     RenderTooltip(pRT);
 } // End if (m_visible)
 
@@ -4407,6 +4434,27 @@ SettingsAction SettingsOverlay::OnMouseMove(float x, float y) {
         g_currentCursor = ::LoadCursor(NULL, IDC_HAND);
     }
 
+    // Close button [X] hover detection
+    {
+        float s2 = m_uiScale;
+        float btnSize = 28.0f * s2;
+        float btnMargin = 10.0f * s2;
+        float hudW2 = HUD_WIDTH * s2;
+        float closeLeft = m_hudX + hudW2 - btnSize - btnMargin;
+        float closeTop = m_hudY + btnMargin;
+        float closeRight = m_hudX + hudW2 - btnMargin;
+        float closeBottom = m_hudY + btnMargin + btnSize;
+
+        bool oldHoverClose = m_hoverCloseBtn;
+        m_hoverCloseBtn = (x >= closeLeft && x <= closeRight && y >= closeTop && y <= closeBottom);
+        if (m_hoverCloseBtn) {
+            g_currentCursor = ::LoadCursor(NULL, IDC_HAND);
+        }
+        if (oldHoverClose != m_hoverCloseBtn) {
+            RequestRepaint(QuickView::PaintLayer::Static);
+        }
+    }
+
     // Scroll clipping bounds
     float hudY = m_hudY;
     float hudBottom = m_hudY + HUD_HEIGHT * m_uiScale;
@@ -4524,6 +4572,22 @@ SettingsAction SettingsOverlay::OnLButtonDown(float x, float y) {
     if (x < hudX || x > hudRight || y < hudY || y > hudBottom) {
         SetVisible(false);
         return SettingsAction::RepaintStatic;
+    }
+
+    // Close button [X] click (Top-right of HUD)
+    {
+        float btnSize = 28.0f * s;
+        float btnMargin = 10.0f * s;
+        float hudW = HUD_WIDTH * s;
+        float closeLeft = hudX + hudW - btnSize - btnMargin;
+        float closeTop = hudY + btnMargin;
+        float closeRight = hudX + hudW - btnMargin;
+        float closeBottom = hudY + btnMargin + btnSize;
+
+        if (x >= closeLeft && x <= closeRight && y >= closeTop && y <= closeBottom) {
+            SetVisible(false);
+            return SettingsAction::RepaintStatic;
+        }
     }
 
     const float sidebarW = SIDEBAR_WIDTH * m_uiScale;
