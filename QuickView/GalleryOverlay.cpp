@@ -446,7 +446,7 @@ void GalleryOverlay::Render(ID2D1DeviceContext *pDC, const D2D1_SIZE_F &size,
     // bounds must stay inside the clip region, otherwise the top border of the
     // first row gets cropped. Thumbnails start below this margin; the panel/clip
     // top sits at (m_gridTopOffset - thumbTopMargin).
-    float thumbTopMargin = 4.0f * scale;
+    float thumbTopMargin = 8.0f * scale;
     m_gridTopOffset = titleBarH + gridPad + thumbTopMargin;
     m_gridBottomReserved = bottomBarH + gridPad;
     
