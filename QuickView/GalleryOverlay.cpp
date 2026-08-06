@@ -441,7 +441,7 @@ void GalleryOverlay::Render(ID2D1DeviceContext *pDC, const D2D1_SIZE_F &size,
     // Note: Main toolbar is hidden in FullGrid mode (see UIRenderer.cpp), so no need to reserve space for it
     float titleBarH = 36.0f * scale;
     float bottomBarH = (m_gridProgress > 0.5f) ? BOTTOM_BAR_HEIGHT * scale : 0.0f;
-    float gridPad = 8.0f * scale;
+    float gridPad = 0.0f;
     m_gridTopOffset = titleBarH + gridPad;
     m_gridBottomReserved = bottomBarH + gridPad;
     
