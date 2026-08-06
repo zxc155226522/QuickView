@@ -689,6 +689,13 @@ void GalleryOverlay::Render(ID2D1DeviceContext *pDC, const D2D1_SIZE_F &size,
             float cellW = cellRect.right - cellRect.left;
             float cellH = cellRect.bottom - cellRect.top;
 
+            // Inner padding so image doesn't touch cell edges
+            float innerPad = 3.0f * scale;
+            float innerW = cellW - innerPad * 2.0f;
+            float innerH = cellH - innerPad * 2.0f;
+            if (innerW < 1.0f) innerW = 1.0f;
+            if (innerH < 1.0f) innerH = 1.0f;
+
             // 1. Fill cell background (for letterboxing / pillarboxing)
             D2D1_COLOR_F bgClr = isLight ? D2D1::ColorF(0.85f, 0.85f, 0.85f, 1.0f) : D2D1::ColorF(0.2f, 0.2f, 0.2f, 1.0f);
             bgClr.a *= m_transitionProgress;
@@ -698,11 +705,11 @@ void GalleryOverlay::Render(ID2D1DeviceContext *pDC, const D2D1_SIZE_F &size,
 
             if (bmpSize.width > 0.0f && bmpSize.height > 0.0f) {
                 // 2. Calculate fit rect (contain mode - preserve aspect ratio)
-                float fitScaleVal = std::min(cellW / bmpSize.width, cellH / bmpSize.height);
+                float fitScaleVal = std::min(innerW / bmpSize.width, innerH / bmpSize.height);
                 float drawW = bmpSize.width * fitScaleVal;
                 float drawH = bmpSize.height * fitScaleVal;
-                float fitX = cellRect.left + (cellW - drawW) * 0.5f;
-                float fitY = cellRect.top + (cellH - drawH) * 0.5f;
+                float fitX = cellRect.left + innerPad + (innerW - drawW) * 0.5f;
+                float fitY = cellRect.top + innerPad + (innerH - drawH) * 0.5f;
                 D2D1_RECT_F fitRect = D2D1::RectF(fitX, fitY, fitX + drawW, fitY + drawH);
 
                 // 3. Draw bitmap with BitmapBrush for rounded corners
@@ -720,8 +727,17 @@ void GalleryOverlay::Render(ID2D1DeviceContext *pDC, const D2D1_SIZE_F &size,
 
                     // Proportionally scaled corner radius
                     float cornerRatio = (std::min)(drawW / cellW, drawH / cellH);
-                    float fitRadius = 6.0f * scale * cornerRatio;
+                    float fitRadius = 4.0f * scale * cornerRatio;
                     pDC->FillRoundedRectangle(D2D1::RoundedRect(fitRect, fitRadius, fitRadius), bmpBrush.Get());
+
+                    // 4. Draw thin border around thumbnail
+                    D2D1_COLOR_F borderClr = isLight
+                        ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.15f)
+                        : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.12f);
+                    borderClr.a *= m_transitionProgress;
+                    m_brushBg->SetColor(borderClr);
+                    m_brushBg->SetOpacity(1.0f);
+                    pDC->DrawRoundedRectangle(D2D1::RoundedRect(fitRect, fitRadius, fitRadius), m_brushBg.Get(), 1.0f * scale);
                 }
             }
         } else {
