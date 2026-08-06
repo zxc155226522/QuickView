@@ -2087,24 +2087,45 @@ static bool UseSvgViewportRendering(const ImageResource& res) {
 
 static float ComputeBaseFitScaleForVisual(const VisualState& vs, float winW, float winH);
 
-static float ComputeSvgViewportScale(float winW, float winH, const VisualState& vs) {
-    if (vs.VisualSize.width <= 0.0f || vs.VisualSize.height <= 0.0f) {
-        return 1.0f;
-    }
+// [Fix] The SVG backing surface must hold the FULL zoomed image (not just the
+// window-sized view), otherwise magnified content is clipped at the surface edges
+// and the left/right (and top/bottom) appear "covered" when zooming in. DComp then
+// performs centering + pan, and only upscales when GPU surface limits are exceeded.
+static void ComputeSvgSurfaceSize(float winW, float winH, float& outSurfW, float& outSurfH, float& outDCompScale) {
+    outSurfW = winW; outSurfH = winH; outDCompScale = 1.0f;
+    if (winW <= 0.0f || winH <= 0.0f) return;
+    VisualState vs = GetVisualState();
+    if (vs.VisualSize.width <= 0.0f || vs.VisualSize.height <= 0.0f) return;
     const ImageViewportLayout viewport = ComputeImageViewportLayout(winW, winH);
     const float baseFit = ComputeBaseFitScaleForVisual(vs, viewport.Width, viewport.Height);
-    return baseFit * GetPaneContext(PaneSlot::Primary).view.Zoom;
+    const float zoom = GetPaneContext(PaneSlot::Primary).view.Zoom;
+    float dispW = vs.VisualSize.width * baseFit * zoom;
+    float dispH = vs.VisualSize.height * baseFit * zoom;
+    if (dispW <= 0.0f) dispW = 1.0f;
+    if (dispH <= 0.0f) dispH = 1.0f;
+    const float maxDim = (float)GetSvgSurfaceSizeLimit();
+    float dcompScale = 1.0f;
+    if (dispW > maxDim || dispH > maxDim) {
+        const float r = maxDim / (std::max)(dispW, dispH);
+        dispW *= r; dispH *= r;
+        dcompScale = 1.0f / r;
+    }
+    outSurfW = dispW;
+    outSurfH = dispH;
+    outDCompScale = dcompScale;
 }
 
-static D2D1_MATRIX_3X2_F BuildSvgViewportTransform(float winW, float winH, const ImageResource& res, const VisualState& vs) {
-    const ImageViewportLayout viewport = ComputeImageViewportLayout(winW, winH);
-    const float targetZoom = ComputeSvgViewportScale(winW, winH, vs);
-    const float centerX = winW * 0.5f + viewport.CenterOffsetX + GetPaneContext(PaneSlot::Primary).view.PanX;
-    const float centerY = winH * 0.5f + viewport.CenterOffsetY + GetPaneContext(PaneSlot::Primary).view.PanY;
+static D2D1_MATRIX_3X2_F BuildSvgViewportTransform(float surfW, float surfH, const ImageResource& res, const VisualState& vs) {
+    // [Fix] Draw the SVG to fill the (possibly size-clamped) backing surface; pan/zoom
+    // are applied by DComp (SyncDCompState), so the surface must hold the FULL zoomed
+    // image instead of only the window-sized view.
+    const float scale = (res.svgW > 0.0f) ? (surfW / res.svgW) : 1.0f;
+    const float centerX = surfW * 0.5f;
+    const float centerY = surfH * 0.5f;
     return D2D1::Matrix3x2F::Translation(-res.svgW * 0.5f, -res.svgH * 0.5f) *
            D2D1::Matrix3x2F::Scale(vs.FlipX, vs.FlipY) *
            D2D1::Matrix3x2F::Rotation(vs.TotalRotation) *
-           D2D1::Matrix3x2F::Scale(targetZoom, targetZoom) *
+           D2D1::Matrix3x2F::Scale(scale, scale) *
            D2D1::Matrix3x2F::Translation(centerX, centerY);
 }
 
@@ -2200,8 +2221,10 @@ static bool UpgradeSvgSurface(HWND hwnd, ImageResource& res) {
     
     float winW = (float)rc.right;
     float winH = (float)rc.bottom;
-    const UINT surfW = (UINT)std::max(1L, (long)rc.right);
-    const UINT surfH = (UINT)std::max(1L, (long)rc.bottom);
+    float sW = 0.0f, sH = 0.0f, ds = 1.0f;
+    ComputeSvgSurfaceSize(winW, winH, sW, sH, ds);
+    const UINT surfW = (UINT)std::max(1L, (long)std::round(sW));
+    const UINT surfH = (UINT)std::max(1L, (long)std::round(sH));
     VisualState vs = GetVisualState();
     
     // Begin DComp update
@@ -2212,7 +2235,7 @@ static bool UpgradeSvgSurface(HWND hwnd, ImageResource& res) {
     ctx->Clear(D2D1::ColorF(0, 0, 0, 0));
     
     // Draw SVG with D2D Native
-    D2D1_MATRIX_3X2_F transform = BuildSvgViewportTransform(winW, winH, res, vs);
+    D2D1_MATRIX_3X2_F transform = BuildSvgViewportTransform(sW, sH, res, vs);
     DrawSvgWithViewportTransform(ctx, res, transform);
     
     g_compEngine->EndPendingUpdate();
@@ -2403,8 +2426,10 @@ bool RenderImageToDComp(HWND hwnd, ImageResource& res, bool isFastUpgrade) {
     UINT surfW = targetWinW;
     UINT surfH = targetWinH;
     if (UseSvgViewportRendering(res)) {
-        surfW = winW;
-        surfH = winH;
+        float sW = 0.0f, sH = 0.0f, ds = 1.0f;
+        ComputeSvgSurfaceSize((float)winW, (float)winH, sW, sH, ds);
+        surfW = (UINT)std::max(1L, (long)std::round(sW));
+        surfH = (UINT)std::max(1L, (long)std::round(sH));
     }
 
     // [Titan Detection]
@@ -2464,7 +2489,9 @@ bool RenderImageToDComp(HWND hwnd, ImageResource& res, bool isFastUpgrade) {
     if (UseSvgViewportRendering(res)) {
         // === SVG Viewport Path ===
         VisualState vs = GetVisualState();
-        D2D1_MATRIX_3X2_F transform = BuildSvgViewportTransform((float)winW, (float)winH, res, vs);
+        float sW = 0.0f, sH = 0.0f, ds = 1.0f;
+        ComputeSvgSurfaceSize((float)winW, (float)winH, sW, sH, ds);
+        D2D1_MATRIX_3X2_F transform = BuildSvgViewportTransform(sW, sH, res, vs);
         DrawSvgWithViewportTransform(ctx, res, transform);
         
         const ImageViewportLayout viewport = ComputeImageViewportLayout((float)winW, (float)winH);
@@ -5622,32 +5649,28 @@ if (g_config.CanvasColor == 5 && g_config.SwatchColorIndex >= 0 && g_config.Swat
 
             if (UseSvgViewportRendering(GetPaneContext(PaneSlot::Primary).resource)) {
                 VisualState surfaceVs{};
-                float currentScale = 1.0f;
-                // [Fix] Maintain aspect ratio and sync zoom during interactive resize by uniformly scaling the old surface.
-                if (g_lastSurfaceSize.width > 0.0f && g_lastSurfaceSize.height > 0.0f) {
-                    currentScale = std::min(winW / g_lastSurfaceSize.width, effWinH / g_lastSurfaceSize.height);
-                    surfaceVs.PhysicalSize.width = g_lastSurfaceSize.width * currentScale;
-                    surfaceVs.PhysicalSize.height = g_lastSurfaceSize.height * currentScale;
-                } else {
-                    surfaceVs.PhysicalSize = D2D1::SizeF(winW, effWinH);
-                }
+                float sW = 0.0f, sH = 0.0f, ds = 1.0f;
+                ComputeSvgSurfaceSize(winW, winH, sW, sH, ds);
+                surfaceVs.PhysicalSize = D2D1::SizeF(sW, sH);
                 surfaceVs.VisualSize = surfaceVs.PhysicalSize;
                 surfaceVs.TotalRotation = 0.0f;
                 surfaceVs.IsRotated90 = false;
                 surfaceVs.FlipX = 1.0f;
                 surfaceVs.FlipY = 1.0f;
-                // SVG content is already drawn at the padded viewport center.
+                // The SVG backing surface now holds the FULL zoomed image; DComp performs
+                // centering + pan (and a possible upscale only when GPU limits are exceeded).
+                float svgPanX = GetPaneContext(PaneSlot::Primary).view.PanX + viewport.CenterOffsetX;
+                float svgPanY = GetPaneContext(PaneSlot::Primary).view.PanY + viewport.CenterOffsetY;
                 g_compEngine->UpdateTransformMatrix(
                     surfaceVs,
                     winW,
                     winH,
-                    1.0f,
-                    0.0f,
-                    0.0f,
+                    ds,
+                    svgPanX,
+                    svgPanY,
                     animationDurationMs);
-                
-                // Use adaptive interpolation even during SVG viewport resizing to keep it smooth
-                DCOMPOSITION_BITMAP_INTERPOLATION_MODE interpMode = GetOptimalDCompInterpolationMode(currentScale, g_lastSurfaceSize.width, g_lastSurfaceSize.height);
+
+                DCOMPOSITION_BITMAP_INTERPOLATION_MODE interpMode = GetOptimalDCompInterpolationMode(ds, sW, sH);
                 g_compEngine->SetImageInterpolationMode(interpMode);
             } else {
                 g_compEngine->UpdateTransformMatrix(vs, winW, winH, displayZoom, displayPanX, displayPanY, animationDurationMs);
