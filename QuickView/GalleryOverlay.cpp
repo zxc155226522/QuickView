@@ -1087,7 +1087,10 @@ void GalleryOverlay::Render(ID2D1DeviceContext *pDC, const D2D1_SIZE_F &size,
         m_brushSelection->SetOpacity(1.0f); // Reset opacity
     }
     
+    pDC->PopAxisAlignedClip(); // Pop panelRect
+    
     // 7. FullGrid bottom toolbar (thumbnail size slider + close button)
+    // Draw OUTSIDE panelRect clip so it's not cut off
     if (m_gridProgress > 0.5f) {
         float barH = BOTTOM_BAR_HEIGHT * scale;
         float barY = galleryH - barH;
@@ -1210,8 +1213,6 @@ void GalleryOverlay::Render(ID2D1DeviceContext *pDC, const D2D1_SIZE_F &size,
         m_brushText->SetOpacity(1.0f);
         m_brushSelection->SetOpacity(1.0f);
     }
-    
-    pDC->PopAxisAlignedClip(); // Pop panelRect
     
     // 6b. Bottom drag indicator / visual cue (handle strip)
     // Draw OUTSIDE clip area so it renders below the filmstrip edge
