@@ -1401,7 +1401,7 @@ static void SaveOverlayWindowState(HWND hwnd) {
 
 void RestoreOverlayWindowState(HWND hwnd) {
     if (!g_savedState.isValid) return;
-    if (g_settingsOverlay.IsVisible() || g_helpOverlay.IsVisible() || g_gallery.IsVisible() || AppContext::GetInstance().Dialog.IsVisible) return;
+    if (g_settingsOverlay.IsVisible() || g_helpOverlay.IsVisible() || g_gallery.IsVisible() || AppContext::GetInstance().Dialog.IsVisible || g_runtime.ShowInfoPanel) return;
     
     // Restore exact saved state - no recalculation needed
     // The saved Zoom was relative to the saved window size, so they work together
@@ -5210,6 +5210,9 @@ void AdjustWindowForOverlay(HWND hwnd, bool isClosed) {
     }
 
     if (!isClosed) {
+        // Save window state before any expansion (for later restoration)
+        SaveOverlayWindowState(hwnd);
+
         // Opening overlay: expand window ONLY IF too small for the overlay's minimum size.
         if (currentW < minW || currentH < minH) {
             targetW = std::max(currentW, minW);
@@ -5219,33 +5222,13 @@ void AdjustWindowForOverlay(HWND hwnd, bool isClosed) {
         }
     } else {
         // Closing overlay:
-        if (g_settingsOverlay.IsVisible() || g_helpOverlay.IsVisible() || g_gallery.IsVisible() || AppContext::GetInstance().Dialog.IsVisible) {
+        if (g_settingsOverlay.IsVisible() || g_helpOverlay.IsVisible() || g_gallery.IsVisible() || AppContext::GetInstance().Dialog.IsVisible || g_runtime.ShowInfoPanel) {
             return;
         }
 
-        // Do not shrink if window size is locked by user setting
-        if (g_runtime.LockWindowSize) return;
-
-        if (!hasImage) return;
-
-        // Stateless Gap Detection: calculate rendered image bounds in current window
-        float renderedW = imgW * curBaseFit * GetPaneContext(PaneSlot::Primary).view.Zoom;
-        float renderedH = imgH * curBaseFit * GetPaneContext(PaneSlot::Primary).view.Zoom;
-
-        // Check if there is blank gap around image inside current Client area
-        bool hasHorizontalGap = (curClientW > renderedW + 1.0f);
-        bool hasVerticalGap   = (curClientH > renderedH + 1.0f);
-
-        if (!hasHorizontalGap && !hasVerticalGap) {
-            return; // Image fills or exceeds window client area -- no gap, keep window as-is!
-        }
-
-        // Blank gap exists: shrink window client size to eliminate padding
-        float targetClientW = std::min(curClientW, std::max(100.0f, renderedW));
-        float targetClientH = std::min(curClientH, std::max(100.0f, renderedH));
-
-        targetW = (int)std::round(targetClientW) + borderW;
-        targetH = (int)std::round(targetClientH) + borderH;
+        // Restore exact saved state (bypasses LockWindowSize and Gap Detection)
+        RestoreOverlayWindowState(hwnd);
+        return;
     }
 
     // Clamp target window size to minimum window bounds FIRST so center calculation aligns with Win32 MinTrackSize
