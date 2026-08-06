@@ -597,12 +597,12 @@ void GalleryOverlay::Render(ID2D1DeviceContext *pDC, const D2D1_SIZE_F &size,
     float gridCellH = gridCellW;
     m_cellHeight = gridCellH;
     
-    // Calculate top/bottom reserved space for FullGrid to avoid toolbar overlap
+    // Calculate top/bottom reserved space for FullGrid layout: title bar on top, gallery bottom bar on bottom
+    // Note: Main toolbar is hidden in FullGrid mode (see UIRenderer.cpp), so no need to reserve space for it
     float titleBarH = 36.0f * scale;
-    float toolbarH = g_toolbar.GetReservedHeight();
     float bottomBarH = (m_gridProgress > 0.5f) ? BOTTOM_BAR_HEIGHT * scale : 0.0f;
     m_gridTopOffset = titleBarH + currentPadding;
-    m_gridBottomReserved = toolbarH + bottomBarH + currentPadding;
+    m_gridBottomReserved = bottomBarH + currentPadding;
     float gridViewportH = size.height - m_gridTopOffset - m_gridBottomReserved;
     if (gridViewportH < 1.0f) gridViewportH = 1.0f;
 
@@ -1084,8 +1084,7 @@ void GalleryOverlay::Render(ID2D1DeviceContext *pDC, const D2D1_SIZE_F &size,
     // 7. FullGrid bottom toolbar (thumbnail size slider + close button)
     if (m_gridProgress > 0.5f) {
         float barH = BOTTOM_BAR_HEIGHT * scale;
-        float toolbarH = g_toolbar.GetReservedHeight();
-        float barY = galleryH - toolbarH - barH;
+        float barY = galleryH - barH;
         float barAlpha = (m_gridProgress - 0.5f) * 2.0f; // Fade in as grid expands (0.5→1.0 → 0→1)
         D2D1_RECT_F barRect = D2D1::RectF(0.0f, barY, size.width, barY + barH);
         
@@ -1414,8 +1413,7 @@ bool GalleryOverlay::OnLButtonDown(int x, int y) {
     if (m_gridProgress > 0.5f) {
         float scale = g_uiScale > 0.0f ? g_uiScale : 1.0f;
         float barH = BOTTOM_BAR_HEIGHT * scale;
-        float toolbarH = g_toolbar.GetReservedHeight();
-        float barY = galleryH - toolbarH - barH;
+        float barY = galleryH - barH;
         
         if (fy >= barY) {
             // Close button
@@ -1553,8 +1551,7 @@ bool GalleryOverlay::OnMouseMove(int x, int y) {
         float scale = g_uiScale > 0.0f ? g_uiScale : 1.0f;
         float galleryH = GetVisualHeight(m_lastSize.height);
         float barH = BOTTOM_BAR_HEIGHT * scale;
-        float toolbarH = g_toolbar.GetReservedHeight();
-        float barY = galleryH - toolbarH - barH;
+        float barY = galleryH - barH;
         float barCenterY = barY + barH / 2.0f;
         
         // Close button hover
