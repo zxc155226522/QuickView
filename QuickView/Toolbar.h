@@ -12,7 +12,7 @@ enum class ToolbarButtonID {
     Prev, Next, 
     RotateL, RotateR, FlipH, 
     LockSize, Gallery, 
-    Exif, RawToggle, FixExtension,
+    Exif, RawToggle,
     GamutWarning,
     Pin,
     CompareToggle,
@@ -53,7 +53,6 @@ struct ToolbarButton {
     D2D1_RECT_F rect;       // Runtime layout rect
     bool isEnabled = true;
     bool isToggled = false; // For Lock/Exif/Raw
-    bool isWarning = false; // For FixExtension
     bool isHovered = false;
     bool isPaired = false;  // [RAW+JPEG Pairing] RawToggle switches a pair
 };
@@ -96,7 +95,7 @@ public:
     void SetLockState(bool locked);
     void SetExifState(bool open);
     void SetRawState(bool isRaw, bool isFullDecode, bool isPaired = false);
-    void SetExtensionWarning(bool hasMismatch);
+    
     void SetGamutWarningAvailable(bool available);
     void SetGamutWarningActive(bool active);
     void SetCompareMode(bool enabled);

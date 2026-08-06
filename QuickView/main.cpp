@@ -3988,106 +3988,6 @@ bool SaveCurrentImage(bool saveAs) {
     }
 }
 
-struct FormatExtRule {
-    std::wstring_view format;
-    std::wstring_view primary;
-    std::wstring_view alt1 = {};
-    std::wstring_view alt2 = {};
-    std::wstring_view alt3 = {};
-    std::wstring_view alt4 = {};
-    std::wstring_view alt5 = {};
-};
-
-static constexpr FormatExtRule g_formatRules[] = {
-    // Specific compound/derived names first to avoid prefix/substring matches
-    { L"wbmp", L".wbmp" },
-    { L"jpeg xl", L".jxl" },
-    { L"jxl",  L".jxl" },
-    { L"libavif", L".avif" },
-    { L"tinyexr", L".exr" },
-    { L"jpeg (mmf)", L".jpg", L".jpeg", L".jpe", L".jfif" },
-
-    // Core formats
-    { L"jpeg", L".jpg", L".jpeg", L".jpe", L".jfif" },
-    { L"png",  L".png", L".apng" },
-    { L"webp", L".webp" },
-    { L"avif", L".avif", L".avifs" },
-    { L"gif",  L".gif" },
-    { L"bmp",  L".bmp", L".dib" },
-    { L"tiff", L".tiff", L".tif" },
-    { L"tif",  L".tiff", L".tif" },
-    { L"heif", L".heic", L".heif" },
-    { L"heic", L".heic", L".heif" },
-    { L"hif",  L".hif", L".heic", L".heif" },
-    { L"hdr",  L".hdr", L".pic" },
-    { L"psd",  L".psd", L".psb" },
-    { L"exr",  L".exr" },
-    { L"jxr",  L".jxr", L".wdp", L".hdp" },
-    { L"wdp",  L".wdp", L".jxr", L".hdp" },
-    { L"hdp",  L".hdp", L".wdp", L".jxr" },
-    { L"qoi",  L".qoi" },
-    { L"tga",  L".tga", L".icb", L".vda", L".vst" },
-    { L"pcx",  L".pcx" },
-    { L"svg",  L".svg" },
-    { L"ico",  L".ico" },
-    { L"pnm",  L".pnm", L".pgm", L".ppm", L".pbm" },
-    { L"pgm",  L".pgm", L".pnm", L".ppm", L".pbm" },
-    { L"ppm",  L".ppm", L".pnm", L".pgm", L".pbm" },
-    { L"pbm",  L".pbm", L".pnm", L".pgm", L".ppm" },
-    
-    // [v10.1] RAW: any extension in QuickView::RAW_EXTENSIONS is accepted
-    // (special-cased in CheckExtensionMismatch); .dng stays the rename target.
-    { L"raw",  L".dng" },
-    { L"dds",  L".dds" },
-};
-
-static std::wstring_view GetPrimaryExtensionForFormat(std::wstring_view format) {
-    if (format.empty()) return {};
-    std::wstring fmt(format);
-    std::transform(fmt.begin(), fmt.end(), fmt.begin(), ::towlower);
-    
-    for (const auto& rule : g_formatRules) {
-        if (fmt == rule.format || fmt.contains(rule.format)) return rule.primary;
-    }
-    return {};
-}
-
-// Helper: Check if file extension matches detected format
-bool CheckExtensionMismatch(std::wstring_view path, std::wstring_view format) {
-    if (path.empty() || format.empty()) return false;
-    
-    // Normalize format
-    std::wstring fmt(format);
-    std::transform(fmt.begin(), fmt.end(), fmt.begin(), ::towlower);
-    
-    // Skip .tmp files
-    if (path.ends_with(L".tmp")) return false;
-    
-    size_t lastDot = path.find_last_of(L'.');
-    if (lastDot == std::wstring_view::npos) return true;
-    
-    // Normalize extension
-    std::wstring extStr(path.substr(lastDot));
-    std::transform(extStr.begin(), extStr.end(), extStr.begin(), ::towlower);
-    std::wstring_view ext = extStr;
-    
-    for (const auto& rule : g_formatRules) {
-        if (fmt == rule.format || fmt.contains(rule.format)) {
-            // RAW covers 40+ extensions; defer to the central classification list
-            if (rule.format == L"raw" && QuickView::IsRawExtension(ext)) return false;
-            if (ext == rule.primary) return false;
-            if (!rule.alt1.empty() && ext == rule.alt1) return false;
-            if (!rule.alt2.empty() && ext == rule.alt2) return false;
-            if (!rule.alt3.empty() && ext == rule.alt3) return false;
-            if (!rule.alt4.empty() && ext == rule.alt4) return false;
-            if (!rule.alt5.empty() && ext == rule.alt5) return false;
-            return true;
-        }
-    }
-
-    return false;
-}
-
 // --- Persistence ---
 void ApplyWindowCornerPreference(HWND hwnd, bool enable) {
     DWM_WINDOW_CORNER_PREFERENCE preference = enable ? DWMWCP_ROUND : DWMWCP_DONOTROUND;
@@ -9351,7 +9251,6 @@ SKIP_EDGE_NAV:;
                     RequestRepaint(PaintLayer::Dynamic);
                     break;
                 }
-                case ToolbarButtonID::FixExtension: SendMessage(hwnd, WM_COMMAND, IDM_FIX_EXTENSION, 0); break;
                 case ToolbarButtonID::Pin: {
                     g_toolbar.TogglePin();
                     // [Fix] Force visible immediately if pinned
@@ -10338,9 +10237,8 @@ SKIP_EDGE_NAV:;
             RequestRepaint(PaintLayer::Image | PaintLayer::Static);
         }
         
-        bool hasImage = GetPaneContext(PaneSlot::Primary).resource;
-        bool extensionFixNeeded = false;
-        bool isRaw = false;
+bool hasImage = GetPaneContext(PaneSlot::Primary).resource;
+bool isRaw = false;
         bool renderRaw = g_runtime.ForceRawDecode;
         std::wstring targetPath = GetPaneContext(PaneSlot::Primary).path;
         std::wstring targetFmt = GetPaneContext(PaneSlot::Primary).metadata.Format;
@@ -10360,7 +10258,6 @@ SKIP_EDGE_NAV:;
         }
 
         if (hasImage && !targetPath.empty()) {
-             extensionFixNeeded = CheckExtensionMismatch(targetPath, targetFmt);
              isRaw = QuickView::IsRawPath(targetPath);
              // [RAW+JPEG Pairing] "Render RAW" also switches a paired item
              if (!isRaw && !IsCompareModeActive()) {
@@ -10381,7 +10278,7 @@ SKIP_EDGE_NAV:;
             g_gallery.ForceFinishTransition();
         }
 
-        ShowContextMenu(hwnd, pt, hasImage, extensionFixNeeded, g_runtime.LockWindowSize, g_runtime.ShowInfoPanel, g_runtime.InfoPanelExpanded, g_config.AlwaysOnTop, renderRaw, isRaw, IsZoomed(hwnd) != 0, g_runtime.CrossMonitorMode, IsCompareModeActive(), isPixelArtMode, menuCmsMode, menuEnableSoftProofing, menuSoftProofPath);
+        ShowContextMenu(hwnd, pt, hasImage, g_runtime.LockWindowSize, g_runtime.ShowInfoPanel, g_runtime.InfoPanelExpanded, g_config.AlwaysOnTop, renderRaw, isRaw, IsZoomed(hwnd) != 0, g_runtime.CrossMonitorMode, IsCompareModeActive(), isPixelArtMode, menuCmsMode, menuEnableSoftProofing, menuSoftProofPath);
         return 0;
     }
     
@@ -11431,60 +11328,6 @@ SKIP_EDGE_NAV:;
             break;
         }
 
-        case IDM_FIX_EXTENSION: {
-            if (!contextPath.empty() && !contextMeta.Format.empty()) {
-                std::wstring fmt = contextMeta.Format;
-                std::transform(fmt.begin(), fmt.end(), fmt.begin(), ::towlower);
-                
-                std::wstring_view newExt = GetPrimaryExtensionForFormat(fmt);
-                
-                if (!newExt.empty()) {
-                    size_t lastDot = contextPath.find_last_of(L'.');
-                    std::wstring basePath = (lastDot != std::wstring_view::npos) ? std::wstring(contextPath.substr(0, lastDot)) : std::wstring(contextPath);
-                    std::wstring newPath = basePath + std::wstring(newExt);
-                    
-                    std::wstring msg = L"Format detected: " + contextMeta.Format + L"\nChange extension to " + std::wstring(newExt) + L"?";
-                    
-                    std::vector<DialogButton> buttons = {
-                        { DialogResult::Yes, L"Rename", true },
-                        { DialogResult::Cancel, L"Cancel" }
-                    };
-                    
-                    DialogResult result = AppContext::GetInstance().DialogCtrl->ShowDialog(hwnd, L"Fix Extension", msg, D2D1::ColorF(D2D1::ColorF::Orange), buttons);
-                    if (result == DialogResult::Yes) {
-                        if (contextLeft) {
-                            if (MoveFileW(contextPath.c_str(), newPath.c_str())) {
-                                AppContext::GetInstance().CompareCtrl->LoadImageIntoLeftSlot(hwnd, newPath, [hwnd](bool success){
-                                    if (success) {
-                                        g_osd.Show(hwnd, L"Extension Fixed (Left)", false);
-                                        MarkCompareDirty();
-                                        RequestRepaint(PaintLayer::Image | PaintLayer::Static);
-                                    }
-                                });
-                            } else {
-                                g_osd.Show(hwnd, std::wstring(L"Rename Failed"), true);
-                            }
-                        } else {
-                            ReleaseImageResources();
-                            if (MoveFileW(contextPath.c_str(), newPath.c_str())) {
-                                GetPaneContext(PaneSlot::Primary).path = newPath;
-                                g_preservedViewState = GetPaneContext(PaneSlot::Primary).view;
-                                g_preserveViewStateOnNextLoad = true;
-                                LoadImageAsync(hwnd, newPath);
-                                g_osd.Show(hwnd, L"Extension Fixed", false);
-                            } else {
-                                g_preservedViewState = GetPaneContext(PaneSlot::Primary).view;
-                                g_preserveViewStateOnNextLoad = true;
-                                LoadImageAsync(hwnd, GetPaneContext(PaneSlot::Primary).path); // Reload old
-                                g_osd.Show(hwnd, std::wstring(L"Rename Failed"), true);
-                            }
-                        }
-                    }
-                    RequestRepaint(PaintLayer::All);
-                }
-            }
-            break;
-        }
         case IDM_SETTINGS: {
             if (g_settingsOverlay.IsVisible()) {
                 g_settingsOverlay.OpenTab(6);
@@ -11987,15 +11830,6 @@ void ProcessEngineEvents(HWND hwnd) {
                 // initial tile dispatch under Phase2 queue-drop flow.
                 if (GetPaneContext(PaneSlot::Primary).metadata.Width > 8192 || GetPaneContext(PaneSlot::Primary).metadata.Height > 8192) {
                     g_forceTitanTileReseed.store(true, std::memory_order_release);
-                }
-                
-                // [v9.9] Extension Mismatch Detection for Toolbar Button
-                // Uses Format field (e.g., "JPEG", "PNG") to detect if file extension is incorrect
-                if (!GetPaneContext(PaneSlot::Primary).metadata.Format.empty()) {
-                    bool mismatch = CheckExtensionMismatch(GetPaneContext(PaneSlot::Primary).path, GetPaneContext(PaneSlot::Primary).metadata.Format);
-                    g_toolbar.SetExtensionWarning(mismatch);
-                } else {
-                    g_toolbar.SetExtensionWarning(false);
                 }
                 
                 // Refresh Layout to recalculate Warning Icon bounds

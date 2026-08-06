@@ -60,7 +60,6 @@ enum ContextMenuCommand : UINT {
 
     // [File Operations] Group
     IDM_RENAME,
-    IDM_FIX_EXTENSION,
     IDM_DELETE,
     IDM_UNDO = 1099,
 
@@ -103,12 +102,11 @@ enum ContextMenuCommand : UINT {
 /// <param name="hwnd">Parent window handle</param>
 /// <param name="pt">Screen coordinates for menu position</param>
 /// <param name="hasImage">Whether an image is currently loaded</param>
-/// <param name="needsExtensionFix">Whether extension fix is available</param>
 /// <param name="isWindowLocked">Whether window size is locked</param>
 /// <param name="showInfoPanel">Whether info panel is shown</param>
 /// <param name="alwaysOnTop">Whether window is always on top</param>
 /// <param name="renderRaw">Whether Render RAW mode is active</param>
 /// <param name="isRawFile">Whether current file is RAW format</param>
-void ShowContextMenu(HWND hwnd, POINT pt, bool hasImage, bool needsExtensionFix, bool isWindowLocked, bool showInfoPanel, bool infoPanelExpanded, bool alwaysOnTop, bool renderRaw, bool isRawFile, bool isFullscreen, bool isCrossMonitor, bool isCompareMode, bool isPixelArtMode, int cmsMode, bool enableSoftProofing, const std::wstring& softProofProfilePath);
+void ShowContextMenu(HWND hwnd, POINT pt, bool hasImage, bool isWindowLocked, bool showInfoPanel, bool infoPanelExpanded, bool alwaysOnTop, bool renderRaw, bool isRawFile, bool isFullscreen, bool isCrossMonitor, bool isCompareMode, bool isPixelArtMode, int cmsMode, bool enableSoftProofing, const std::wstring& softProofProfilePath);
 
 void ShowGalleryContextMenu(HWND hwnd, POINT pt);

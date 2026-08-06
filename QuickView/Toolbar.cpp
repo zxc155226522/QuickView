@@ -29,7 +29,6 @@ Toolbar::Toolbar() {
 
       {ToolbarButtonID::Exif, Icons::Info, {}, true, false},
       {ToolbarButtonID::RawToggle, Icons::Raw, {}, false, false},
-      {ToolbarButtonID::FixExtension, Icons::Warning, {}, false, false, false},
       {ToolbarButtonID::GamutWarning, Icons::Warning, {}, false, false},
 
       {ToolbarButtonID::CompareToggle, Icons::CompareToggle, {}, true, false},
@@ -315,7 +314,7 @@ void Toolbar::UpdateLayout(float winW, float winH) {
     if (m_comicMode) {
       // In comic mode, we hide rotate and flip, raw, extension fix, and gamut warning
       if (btn.id == ToolbarButtonID::RotateL || btn.id == ToolbarButtonID::RotateR || btn.id == ToolbarButtonID::FlipH) return false;
-      if (btn.id == ToolbarButtonID::RawToggle || btn.id == ToolbarButtonID::FixExtension || btn.id == ToolbarButtonID::GamutWarning) return false;
+      if (btn.id == ToolbarButtonID::RawToggle || btn.id == ToolbarButtonID::GamutWarning) return false;
       if (isCompareButton(btn.id)) return false;
       if (isAnimButton(btn.id) || isOverlayButton(btn.id)) return false;
       return true;
@@ -332,8 +331,6 @@ void Toolbar::UpdateLayout(float winW, float winH) {
     if (btn.id == ToolbarButtonID::RawToggle && !btn.isEnabled)
       return false;
     if (btn.id == ToolbarButtonID::CompareRawToggle && !btn.isWarning)
-      return false;
-    if (btn.id == ToolbarButtonID::FixExtension && !btn.isWarning)
       return false;
     if (btn.id == ToolbarButtonID::GamutWarning && !btn.isEnabled)
       return false;
@@ -548,8 +545,6 @@ const wchar_t *GetTooltipText(const ToolbarButton &btn) {
     if (!btn.isEnabled) return nullptr;
     return btn.isToggled ? AppStrings::Toolbar_Tooltip_RawFull
                          : AppStrings::Toolbar_Tooltip_RawPreview;
-  case ToolbarButtonID::FixExtension:
-    return AppStrings::Toolbar_Tooltip_FixExtension;
   case ToolbarButtonID::GamutWarning:
     return AppStrings::Toolbar_Tooltip_GamutWarning;
   case ToolbarButtonID::Pin:
@@ -1307,10 +1302,6 @@ void Toolbar::SetExifState(bool open) {
 
 void Toolbar::SetRawState(bool isRaw, bool isFullDecode, bool isPaired) {
   for (auto &btn : m_buttons) { if (btn.id == ToolbarButtonID::RawToggle) { btn.isEnabled = isRaw; btn.isPaired = isRaw && isPaired; if (isRaw) { btn.isToggled = isFullDecode; } } }
-}
-
-void Toolbar::SetExtensionWarning(bool hasMismatch) {
-  for (auto &btn : m_buttons) { if (btn.id == ToolbarButtonID::FixExtension) { btn.isWarning = hasMismatch; } }
 }
 
 void Toolbar::SetGamutWarningAvailable(bool available) {
