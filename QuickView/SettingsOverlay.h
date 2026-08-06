@@ -6,10 +6,9 @@
 #include "GeekGlass.h"
 #include "GeekIconLibrary.h"
 #include "EditState.h"
-#include <dcomp.h>
+#include <dxgi1_2.h>
 #include <dwmapi.h>
 
-#pragma comment(lib, "dcomp.lib")
 #pragma comment(lib, "dwmapi.lib")
 
 // [Fix] Resolve Windows macro interference
@@ -266,12 +265,10 @@ private:
     static bool s_classRegistered;
     static constexpr const wchar_t* SETTINGS_CLASS_NAME = L"QuickViewSettingsClass";
 
-    // Private DComp device (never commits the main window's composition graph)
-    ComPtr<IDCompositionDesktopDevice> m_settingsDcompDevice;
+    // Private DXGI SwapChain + D2D pipeline for the settings window
+    ComPtr<IDXGISwapChain1> m_settingsSwapChain;
     ComPtr<ID2D1DeviceContext> m_settingsD2dContext;
-    ComPtr<IDCompositionTarget> m_settingsDcompTarget;
-    ComPtr<IDCompositionVisual2> m_settingsDcompVisual;
-    ComPtr<IDCompositionSurface> m_settingsDcompSurface;
+    ComPtr<ID2D1Bitmap1> m_settingsBitmap;
     ComPtr<IDWriteFactory> m_settingsDwriteFactory;
 
     UINT m_settingsDpi = 96;

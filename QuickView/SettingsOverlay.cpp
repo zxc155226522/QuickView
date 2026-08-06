@@ -1,4 +1,4 @@
-#include "CompareController.h"
+﻿#include "CompareController.h"
 #include "StringUtils.h"
 #include "SettingsOverlay.h"
 #include "ThemeSystem.h"
@@ -921,7 +921,7 @@ void SettingsOverlay::CreateSettingsWindow() {
     int y = rcMain.top + ((rcMain.bottom - rcMain.top) - physH) / 2;
 
     m_settingsHwnd = CreateWindowExW(
-        WS_EX_NOREDIRECTIONBITMAP,
+        0,  // No WS_EX_NOREDIRECTIONBITMAP — normal window with back buffer
         SETTINGS_CLASS_NAME,
         L"QuickView Settings",
         WS_POPUP,
@@ -934,39 +934,42 @@ void SettingsOverlay::CreateSettingsWindow() {
 
     if (!m_settingsHwnd) return;
 
-    // --- Create independent D3D / DComp / D2D pipeline ---
+    // --- Create independent D3D / DXGI SwapChain / D2D pipeline ---
+    do { // do-while(false) for break-on-failure pattern (avoids goto over init)
     ComPtr<ID3D11Device> d3dDevice;
     ComPtr<ID3D11DeviceContext> d3dCtx;
     D3D_FEATURE_LEVEL fl;
     HRESULT hr = D3D11CreateDevice(
         nullptr, D3D_DRIVER_TYPE_HARDWARE, 0, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
         nullptr, 0, D3D11_SDK_VERSION, &d3dDevice, &fl, &d3dCtx);
-    if (FAILED(hr) || !d3dDevice) return;
+    if (FAILED(hr) || !d3dDevice) break;
 
     ComPtr<IDXGIDevice> dxgiDevice;
-    if (FAILED(d3dDevice.As(&dxgiDevice)) || !dxgiDevice) return;
+    if (FAILED(d3dDevice.As(&dxgiDevice)) || !dxgiDevice) break;
 
-    // DComp device
-    if (FAILED(DCompositionCreateDevice(dxgiDevice.Get(), IID_PPV_ARGS(&m_settingsDcompDevice)))
-        || !m_settingsDcompDevice) return;
+    ComPtr<IDXGIAdapter> dxgiAdapter;
+    if (FAILED(dxgiDevice->GetAdapter(&dxgiAdapter)) || !dxgiAdapter) break;
+    ComPtr<IDXGIFactory2> dxgiFactory;
+    if (FAILED(dxgiAdapter->GetParent(IID_PPV_ARGS(&dxgiFactory))) || !dxgiFactory) break;
+
+    // Create DXGI SwapChain bound to the settings window
+    DXGI_SWAP_CHAIN_DESC1 scDesc = {};
+    scDesc.Width = physW;
+    scDesc.Height = physH;
+    scDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    scDesc.SampleDesc.Count = 1;
+    scDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    scDesc.BufferCount = 2;
+    scDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+    scDesc.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
+    if (FAILED(dxgiFactory->CreateSwapChainForHwnd(d3dDevice.Get(), m_settingsHwnd, &scDesc, nullptr, nullptr, &m_settingsSwapChain))
+        || !m_settingsSwapChain) break;
 
     // D2D device + context
     ComPtr<ID2D1Device> d2dDevice;
-    if (FAILED(D2D1CreateDevice(dxgiDevice.Get(), nullptr, &d2dDevice)) || !d2dDevice) return;
+    if (FAILED(D2D1CreateDevice(dxgiDevice.Get(), nullptr, &d2dDevice)) || !d2dDevice) break;
     if (FAILED(d2dDevice->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &m_settingsD2dContext))
-        || !m_settingsD2dContext) return;
-
-    // DComp target + visual + surface
-    if (FAILED(m_settingsDcompDevice->CreateTargetForHwnd(m_settingsHwnd, true, &m_settingsDcompTarget))
-        || !m_settingsDcompTarget) return;
-    if (FAILED(m_settingsDcompDevice->CreateVisual(&m_settingsDcompVisual)) || !m_settingsDcompVisual) return;
-    if (FAILED(m_settingsDcompDevice->CreateSurface((UINT)hudW, (UINT)hudH,
-        DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_ALPHA_MODE_PREMULTIPLIED, &m_settingsDcompSurface))
-        || !m_settingsDcompSurface) return;
-
-    m_settingsDcompVisual->SetContent(m_settingsDcompSurface.Get());
-    m_settingsDcompTarget->SetRoot(m_settingsDcompVisual.Get());
-    m_settingsDcompDevice->Commit();
+        || !m_settingsD2dContext) break;
 
     // Apply Mica/Acrylic backdrop
     ApplySettingsBackdrop();
@@ -979,6 +982,14 @@ void SettingsOverlay::CreateSettingsWindow() {
     m_initializing = false;
 
     PaintSettings();
+    return;
+    } while(false);
+
+    // FailCleanup: D3D/DXGI/D2D creation failed
+    if (m_settingsHwnd) { DestroyWindow(m_settingsHwnd); m_settingsHwnd = nullptr; }
+    m_settingsSwapChain.Reset();
+    m_settingsD2dContext.Reset();
+    return;
 }
 
 void SettingsOverlay::DestroySettingsWindow() {
@@ -1000,36 +1011,31 @@ void SettingsOverlay::DiscardSettingsResources() {
     m_brushSuccess.Reset();
     m_brushError.Reset();
     m_brushWhite.Reset();
+    m_settingsBitmap.Reset();
     m_settingsD2dContext.Reset();
-    m_settingsDcompSurface.Reset();
-    m_settingsDcompVisual.Reset();
-    m_settingsDcompTarget.Reset();
-    m_settingsDcompDevice.Reset();
+    m_settingsSwapChain.Reset();
     m_settingsResourcesCreated = false;
 }
 
 void SettingsOverlay::PaintSettings() {
-    if (!m_settingsHwnd || !m_settingsDcompSurface || !m_settingsD2dContext) return;
+    if (!m_settingsHwnd || !m_settingsSwapChain || !m_settingsD2dContext) return;
 
     ComPtr<IDXGISurface> dxgiSurface;
-    POINT offset{};
-    HRESULT hr = m_settingsDcompSurface->BeginDraw(nullptr, IID_PPV_ARGS(&dxgiSurface), &offset);
-    if (FAILED(hr)) return;
+    if (FAILED(m_settingsSwapChain->GetBuffer(0, IID_PPV_ARGS(&dxgiSurface))) || !dxgiSurface) return;
 
+    float dpiF = (float)m_settingsDpi;
     D2D1_BITMAP_PROPERTIES1 bp = D2D1::BitmapProperties1(
         D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
         D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
-        96.0f, 96.0f);
+        dpiF, dpiF);
 
-    ComPtr<ID2D1Bitmap1> bitmap;
-    if (FAILED(m_settingsD2dContext->CreateBitmapFromDxgiSurface(dxgiSurface.Get(), &bp, &bitmap)) || !bitmap) {
-        m_settingsDcompSurface->EndDraw();
-        return;
-    }
-    m_settingsD2dContext->SetTarget(bitmap.Get());
+    m_settingsBitmap.Reset();
+    if (FAILED(m_settingsD2dContext->CreateBitmapFromDxgiSurface(dxgiSurface.Get(), &bp, &m_settingsBitmap))
+        || !m_settingsBitmap) return;
+    m_settingsD2dContext->SetTarget(m_settingsBitmap.Get());
 
     m_settingsD2dContext->BeginDraw();
-    m_settingsD2dContext->Clear(D2D1::ColorF(0, 0, 0, 0)); // Transparent background
+    m_settingsD2dContext->Clear(D2D1::ColorF(0, 0, 0, 0));
 
     float s = m_uiScale;
     float hudW = HUD_WIDTH * s;
@@ -1037,8 +1043,9 @@ void SettingsOverlay::PaintSettings() {
     RenderInternal(m_settingsD2dContext.Get(), hudW, hudH);
 
     m_settingsD2dContext->EndDraw();
-    m_settingsDcompSurface->EndDraw();
-    m_settingsDcompDevice->Commit();
+
+    DXGI_PRESENT_PARAMETERS params = {};
+    m_settingsSwapChain->Present1(1, 0, &params);
 }
 
 void SettingsOverlay::RepaintSettings() {
@@ -1049,20 +1056,16 @@ void SettingsOverlay::RepaintSettings() {
 
 void SettingsOverlay::OnSettingsDpiChanged(UINT dpi) {
     m_settingsDpi = dpi;
+    float dpiScale = dpi / 96.0f;
     float s = m_uiScale;
-    float hudW = HUD_WIDTH * s;
-    float hudH = HUD_HEIGHT * s;
+    int physW = (int)(HUD_WIDTH * s * dpiScale);
+    int physH = (int)(HUD_HEIGHT * s * dpiScale);
 
-    // Recreate DComp surface at new logical size
-    if (m_settingsDcompSurface) {
-        m_settingsDcompSurface.Reset();
-        if (m_settingsDcompDevice) {
-            m_settingsDcompDevice->CreateSurface((UINT)hudW, (UINT)hudH,
-                DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_ALPHA_MODE_PREMULTIPLIED, &m_settingsDcompSurface);
-            if (m_settingsDcompVisual) {
-                m_settingsDcompVisual->SetContent(m_settingsDcompSurface.Get());
-            }
-            m_settingsDcompDevice->Commit();
+    if (m_settingsSwapChain) {
+        m_settingsBitmap.Reset();
+        m_settingsD2dContext->SetTarget(nullptr);
+        if (FAILED(m_settingsSwapChain->ResizeBuffers(0, physW, physH, DXGI_FORMAT_UNKNOWN, 0))) {
+            DiscardSettingsResources();
         }
     }
 
