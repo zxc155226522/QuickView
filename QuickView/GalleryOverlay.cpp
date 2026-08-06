@@ -442,11 +442,16 @@ void GalleryOverlay::Render(ID2D1DeviceContext *pDC, const D2D1_SIZE_F &size,
     float titleBarH = 36.0f * scale;
     float bottomBarH = (m_gridProgress > 0.5f) ? BOTTOM_BAR_HEIGHT * scale : 0.0f;
     float gridPad = 0.0f;
-    m_gridTopOffset = titleBarH + gridPad;
+    // Extra top margin: the selected/hovered thumbnail's outline and enlarged
+    // bounds must stay inside the clip region, otherwise the top border of the
+    // first row gets cropped. Thumbnails start below this margin; the panel/clip
+    // top sits at (m_gridTopOffset - thumbTopMargin).
+    float thumbTopMargin = 4.0f * scale;
+    m_gridTopOffset = titleBarH + gridPad + thumbTopMargin;
     m_gridBottomReserved = bottomBarH + gridPad;
     
     // Panel rect: in FullGrid mode, only cover the thumbnail container area (between title bar and bottom bar)
-    float pTop = m_gridTopOffset * m_gridProgress;
+    float pTop = (m_gridTopOffset - thumbTopMargin) * m_gridProgress;
     float pBottom = galleryH - m_gridBottomReserved * m_gridProgress;
     if (pBottom < pTop + 1.0f) pBottom = pTop + 1.0f;
     D2D1_RECT_F panelRect = D2D1::RectF(0.0f, pTop, size.width, pBottom);
@@ -644,7 +649,7 @@ void GalleryOverlay::Render(ID2D1DeviceContext *pDC, const D2D1_SIZE_F &size,
     // Add scaled buffer on left/right to ensure selection DodgerBlue outline is not clipped
     float currentLeftMargin = filmLeftMargin + (currentPadding - filmLeftMargin) * m_gridProgress;
     // In FullGrid mode, clip to the viewport between title bar and toolbar
-    float clipTop = m_gridTopOffset * m_gridProgress;
+    float clipTop = (m_gridTopOffset - thumbTopMargin) * m_gridProgress;
     float clipBottom = galleryH - m_gridBottomReserved * m_gridProgress;
     if (clipBottom < clipTop + 1.0f) clipBottom = clipTop + 1.0f;
     D2D1_RECT_F thumbsClip = D2D1::RectF(currentLeftMargin - 6.0f * scale, clipTop, size.width - currentLeftMargin + 6.0f * scale, clipBottom);
@@ -677,6 +682,20 @@ void GalleryOverlay::Render(ID2D1DeviceContext *pDC, const D2D1_SIZE_F &size,
             expandH = (std::min)(ch * 0.02f, maxExpandSelected);
         }
         
+        // Clamp the expansion so the selection outline / enlarged thumbnail never
+        // crosses the thumbsClip boundary (with clearance for the selection
+        // border). Prevents the top/bottom/side edges from cropping the selected
+        // or hovered thumbnail when it expands.
+        float borderClearance = 1.5f * scale + 1.0f * scale; // borderOffset 1.5 + half borderWidth 1.0
+        if (cellRect.top - thumbsClip.top < expandH + borderClearance)
+            expandH = std::max(0.0f, cellRect.top - thumbsClip.top - borderClearance);
+        if (thumbsClip.bottom - cellRect.bottom < expandH + borderClearance)
+            expandH = std::min(expandH, std::max(0.0f, thumbsClip.bottom - cellRect.bottom - borderClearance));
+        if (cellRect.left - thumbsClip.left < expandW + borderClearance)
+            expandW = std::max(0.0f, cellRect.left - thumbsClip.left - borderClearance);
+        if (thumbsClip.right - cellRect.right < expandW + borderClearance)
+            expandW = std::min(expandW, std::max(0.0f, thumbsClip.right - cellRect.right - borderClearance));
+
         if (expandW > 0.0f || expandH > 0.0f) {
             cellRect.left -= expandW;
             cellRect.top -= expandH;
