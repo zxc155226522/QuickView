@@ -23,28 +23,6 @@ extern void SaveConfig();
 extern D2D1_SIZE_F GetVisualImageSize();
 
 
-// Helper to center crop
-static D2D1_RECT_F GetCenterCropRect(D2D1_SIZE_F imgSize, D2D1_RECT_F destRect) {
-    float imgRatio = imgSize.width / imgSize.height;
-    float destW = destRect.right - destRect.left;
-    float destH = destRect.bottom - destRect.top;
-    float destRatio = destW / destH;
-    
-    D2D1_RECT_F srcRect;
-    if (imgRatio > destRatio) {
-        float scale = imgSize.height / destH;
-        float cropW = destW * scale;
-        float offset = (imgSize.width - cropW) / 2.0f;
-        srcRect = D2D1::RectF(offset, 0, offset + cropW, imgSize.height);
-    } else {
-        float scale = imgSize.width / destW;
-        float cropH = destH * scale;
-        float offset = (imgSize.height - cropH) / 2.0f;
-        srcRect = D2D1::RectF(0, offset, imgSize.width, offset + cropH);
-    }
-    return srcRect;
-}
-
 GalleryOverlay::GalleryOverlay() {}
 
 GalleryOverlay::~GalleryOverlay() {}
@@ -707,30 +685,44 @@ void GalleryOverlay::Render(ID2D1DeviceContext *pDC, const D2D1_SIZE_F &size,
         auto bmp = m_pThumbMgr->GetThumbnail(imgId, path.c_str(), pDC);
         
         if (bmp) {
-            // Use BitmapBrush to draw with elegant 6px rounded corners
-            ComPtr<ID2D1BitmapBrush> bmpBrush;
-            HRESULT hr = pDC->CreateBitmapBrush(bmp.Get(), &bmpBrush);
-            if (SUCCEEDED(hr) && bmpBrush) {
-                bmpBrush->SetExtendModeX(D2D1_EXTEND_MODE_CLAMP);
-                bmpBrush->SetExtendModeY(D2D1_EXTEND_MODE_CLAMP);
-                bmpBrush->SetInterpolationMode(D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
-                
-                D2D1_SIZE_F bmpSize = bmp->GetSize();
-                D2D1_RECT_F src = GetCenterCropRect(bmpSize, cellRect);
-                float scaleX = (cellRect.right - cellRect.left) / (src.right - src.left);
-                float scaleY = (cellRect.bottom - cellRect.top) / (src.bottom - src.top);
-                D2D1_MATRIX_3X2_F trans = D2D1::Matrix3x2F::Scale(scaleX, scaleY) * 
-                                          D2D1::Matrix3x2F::Translation(cellRect.left - src.left * scaleX, cellRect.top - src.top * scaleY);
-                bmpBrush->SetTransform(trans);
-                
-                pDC->FillRoundedRectangle(D2D1::RoundedRect(cellRect, 6.0f * scale, 6.0f * scale), bmpBrush.Get());
-            } else if (m_brushBg) {
-                // Fallback to placeholder box if CreateBitmapBrush fails
-                D2D1_COLOR_F phBase = isLight ? D2D1::ColorF(0.85f, 0.85f, 0.85f, 1.0f) : D2D1::ColorF(0.2f, 0.2f, 0.2f, 1.0f);
-                phBase.a *= m_transitionProgress;
-                m_brushBg->SetColor(phBase);
-                m_brushBg->SetOpacity(1.0f);
-                pDC->FillRoundedRectangle(D2D1::RoundedRect(cellRect, 6.0f * scale, 6.0f * scale), m_brushBg.Get());
+            D2D1_SIZE_F bmpSize = bmp->GetSize();
+            float cellW = cellRect.right - cellRect.left;
+            float cellH = cellRect.bottom - cellRect.top;
+
+            // 1. Fill cell background (for letterboxing / pillarboxing)
+            D2D1_COLOR_F bgClr = isLight ? D2D1::ColorF(0.85f, 0.85f, 0.85f, 1.0f) : D2D1::ColorF(0.2f, 0.2f, 0.2f, 1.0f);
+            bgClr.a *= m_transitionProgress;
+            m_brushBg->SetColor(bgClr);
+            m_brushBg->SetOpacity(1.0f);
+            pDC->FillRoundedRectangle(D2D1::RoundedRect(cellRect, 6.0f * scale, 6.0f * scale), m_brushBg.Get());
+
+            if (bmpSize.width > 0.0f && bmpSize.height > 0.0f) {
+                // 2. Calculate fit rect (contain mode - preserve aspect ratio)
+                float fitScaleVal = std::min(cellW / bmpSize.width, cellH / bmpSize.height);
+                float drawW = bmpSize.width * fitScaleVal;
+                float drawH = bmpSize.height * fitScaleVal;
+                float fitX = cellRect.left + (cellW - drawW) * 0.5f;
+                float fitY = cellRect.top + (cellH - drawH) * 0.5f;
+                D2D1_RECT_F fitRect = D2D1::RectF(fitX, fitY, fitX + drawW, fitY + drawH);
+
+                // 3. Draw bitmap with BitmapBrush for rounded corners
+                ComPtr<ID2D1BitmapBrush> bmpBrush;
+                HRESULT hr = pDC->CreateBitmapBrush(bmp.Get(), &bmpBrush);
+                if (SUCCEEDED(hr) && bmpBrush) {
+                    bmpBrush->SetExtendModeX(D2D1_EXTEND_MODE_CLAMP);
+                    bmpBrush->SetExtendModeY(D2D1_EXTEND_MODE_CLAMP);
+                    bmpBrush->SetInterpolationMode(D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+
+                    float scaleX = drawW / bmpSize.width;
+                    float scaleY = drawH / bmpSize.height;
+                    bmpBrush->SetTransform(D2D1::Matrix3x2F::Scale(scaleX, scaleY) *
+                                           D2D1::Matrix3x2F::Translation(fitX, fitY));
+
+                    // Proportionally scaled corner radius
+                    float cornerRatio = (std::min)(drawW / cellW, drawH / cellH);
+                    float fitRadius = 6.0f * scale * cornerRatio;
+                    pDC->FillRoundedRectangle(D2D1::RoundedRect(fitRect, fitRadius, fitRadius), bmpBrush.Get());
+                }
             }
         } else {
             // Draw placeholder box (matching 6px rounded corners)
