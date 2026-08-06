@@ -10300,11 +10300,10 @@ bool isRaw = false;
         UINT cmdId = LOWORD(wParam);
         UINT wmId = cmdId;
 
-        const bool contextLeft = IsCompareContextLeft();
-        const std::wstring& contextPath = contextLeft ? GetPaneContext(PaneSlot::Left).path : GetPaneContext(PaneSlot::Primary).path;
-        const CImageLoader::ImageMetadata& contextMeta = contextLeft ? GetPaneContext(PaneSlot::Left).metadata : GetPaneContext(PaneSlot::Primary).metadata;
+const bool contextLeft = IsCompareContextLeft();
+const std::wstring& contextPath = contextLeft ? GetPaneContext(PaneSlot::Left).path : GetPaneContext(PaneSlot::Primary).path;
 
-        // Soft Proofing Profile Dynamic Dispatch
+// Soft Proofing Profile Dynamic Dispatch
         if (cmdId >= IDM_SOFT_PROOF_BASE && cmdId <= IDM_SOFT_PROOF_BASE + 99) {
             extern std::vector<std::wstring>& GetSystemIccProfiles();
             std::vector<std::wstring>& profiles = GetSystemIccProfiles();
