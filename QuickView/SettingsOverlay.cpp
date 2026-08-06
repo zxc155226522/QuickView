@@ -2626,8 +2626,8 @@ void SettingsOverlay::SetVisible(bool visible) {
         SaveConfig();
         
         if (m_hwnd) {
-             extern void AdjustWindowForOverlay(HWND hwnd, bool isClosed);
-             if (!m_showUpdateToast) AdjustWindowForOverlay(m_hwnd, true);
+             extern void RestoreOverlayWindowState(HWND hwnd);
+             if (!m_showUpdateToast) RestoreOverlayWindowState(m_hwnd);
         }
     }
 }

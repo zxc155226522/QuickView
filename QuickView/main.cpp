@@ -1319,7 +1319,7 @@ DWORD g_lastOverlayCloseTime = 0;
 
 // Forward declarations for helper functions
 static void SaveOverlayWindowState(HWND hwnd);
-static void RestoreOverlayWindowState(HWND hwnd);
+void RestoreOverlayWindowState(HWND hwnd);
 static void ShowGallery(HWND hwnd);
 static bool OpenPathOrDirectory(HWND hwnd, const std::wstring& path, bool clearThumbCache = true);
 static std::wstring PickFolder(HWND hwnd, const std::wstring& initialPath = L"");
@@ -1399,7 +1399,7 @@ static void SaveOverlayWindowState(HWND hwnd) {
     g_savedState.isValid = true;
 }
 
-static void RestoreOverlayWindowState(HWND hwnd) {
+void RestoreOverlayWindowState(HWND hwnd) {
     if (!g_savedState.isValid) return;
     if (g_settingsOverlay.IsVisible() || g_helpOverlay.IsVisible() || g_gallery.IsVisible() || AppContext::GetInstance().Dialog.IsVisible) return;
     
