@@ -4291,13 +4291,11 @@ void UIRenderer::DrawNavIndicators(ID2D1DeviceContext* dc) {
     bool isFullGridGallery = g_gallery.IsVisible() && g_gallery.GetMode() == GalleryMode::FullGrid;
     if (g_settingsOverlay.IsVisible() || g_helpOverlay.IsVisible() || isFullGridGallery || g_imagePath.empty()) return;
     const float s = m_uiScale;
-    float circleRadius = 16.0f * s;
     float arrowSize = 8.0f * s;
     float strokeWidth = 2.0f * s;
     float margin = 32.0f * s;
 
     bool isLight = IsLightThemeActive();
-    float masterOpacity = g_config.GlassPanelsOpacity / 100.0f;
 
     ComPtr<ID2D1SolidColorBrush> brushArrow;
     D2D1_COLOR_F arrowColor = isLight ? D2D1::ColorF(0.12f, 0.12f, 0.14f, 0.95f) : D2D1::ColorF(0.98f, 0.98f, 0.98f, 0.95f);
@@ -4307,66 +4305,7 @@ void UIRenderer::DrawNavIndicators(ID2D1DeviceContext* dc) {
     dc->GetFactory(&factory);
     if (!factory) return;
 
-    auto drawArrow = [&](float arrowCenterX, float arrowCenterY, bool isLeft) {
-        D2D1_RECT_F circleBounds = D2D1::RectF(arrowCenterX - circleRadius, arrowCenterY - circleRadius, arrowCenterX + circleRadius, arrowCenterY + circleRadius);
-        D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(arrowCenterX, arrowCenterY), circleRadius, circleRadius);
-
-        ComPtr<ID2D1Layer> layer;
-        bool useLayer = false;
-        if (SUCCEEDED(dc->CreateLayer(&layer))) {
-            D2D1_LAYER_PARAMETERS params = D2D1::LayerParameters();
-            params.contentBounds = circleBounds;
-            float shadowMargin = 60.0f * s;
-            params.contentBounds.left -= shadowMargin;
-            params.contentBounds.top -= shadowMargin;
-            params.contentBounds.right += shadowMargin;
-            params.contentBounds.bottom += shadowMargin;
-            params.opacity = 1.0f;
-            dc->PushLayer(params, layer.Get());
-            useLayer = true;
-        }
-
-        if (m_bgCommandList) {
-            std::string key = isLeft ? "Arrow_Left" : "Arrow_Right";
-            auto& geekGlass = GetGlassEngine(key);
-            geekGlass.InitializeResources(dc);
-            QuickView::UI::GeekGlass::GeekGlassConfig config;
-            config.theme = isLight ? QuickView::UI::GeekGlass::ThemeMode::Light : QuickView::UI::GeekGlass::ThemeMode::Dark;
-            config.panelBounds = circleBounds;
-            config.cornerRadius = circleRadius;
-            config.enableGeekGlass = g_config.EnableGeekGlass;
-            config.tintProfile = g_config.GlassTintProfile;
-            config.customTintColor = D2D1::ColorF(g_config.GlassCustomTintR, g_config.GlassCustomTintG, g_config.GlassCustomTintB, g_config.GlassTintAlpha);
-            config.tintAlpha = g_config.GlassTintAlpha;
-            config.specularOpacity = g_config.GlassSpecularOpacity;
-            config.blurStandardDeviation = g_config.GlassBlurSigma * s;
-            config.opacity = masterOpacity;
-            if (g_config.EnableGeekGlass) {
-                config.opacity = masterOpacity;
-            }
-            config.strokeWeight = g_config.GetVectorStrokeWeight();
-            config.shadowOpacity = g_config.GlassShadowOpacity;
-            config.pBackgroundCommandList = m_bgCommandList.Get();
-            config.backgroundTransform = m_compEngine ? m_compEngine->GetScreenTransform() : D2D1::Matrix3x2F::Identity();
-            
-            geekGlass.DrawGeekGlassPanel(dc, config);
-
-            // [Material Booster Layer] Consistent with Toolbar & Window Controls
-            if (g_config.EnableGeekGlass) {
-                D2D1_COLOR_F fillerColor = isLight ? D2D1::ColorF(0.95f, 0.95f, 0.97f, 1.0f) : D2D1::ColorF(0.08f, 0.08f, 0.10f, 1.0f);
-                ComPtr<ID2D1SolidColorBrush> boosterBrush;
-                dc->CreateSolidColorBrush(D2D1::ColorF(fillerColor.r, fillerColor.g, fillerColor.b, masterOpacity), &boosterBrush);
-                dc->FillEllipse(ellipse, boosterBrush.Get());
-                
-                geekGlass.DrawGeekGlassToppings(dc, config);
-            }
-        } else {
-            ComPtr<ID2D1SolidColorBrush> fallbackBrush;
-            D2D1_COLOR_F fallbackColor = isLight ? D2D1::ColorF(0.95f, 0.95f, 0.97f, masterOpacity) : D2D1::ColorF(0.08f, 0.08f, 0.10f, masterOpacity);
-            dc->CreateSolidColorBrush(fallbackColor, &fallbackBrush);
-            dc->FillEllipse(ellipse, fallbackBrush.Get());
-        }
-
+    auto drawArrow = [&](float arrowCenterX, float arrowCenterY, [[maybe_unused]] bool isLeft) {
         ComPtr<ID2D1PathGeometry> path;
         factory->CreatePathGeometry(&path);
         ComPtr<ID2D1GeometrySink> sink;
@@ -4393,7 +4332,6 @@ void UIRenderer::DrawNavIndicators(ID2D1DeviceContext* dc) {
         factory->CreateStrokeStyle(strokeProps, nullptr, 0, &strokeStyle);
 
         dc->DrawGeometry(path.Get(), brushArrow.Get(), strokeWidth, strokeStyle.Get());
-        if (useLayer) dc->PopLayer();
     };
 
     if (g_viewState.CompareActive) {
