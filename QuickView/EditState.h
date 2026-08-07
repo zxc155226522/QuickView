@@ -600,7 +600,7 @@ bool SwatchIsCheckerboard[9] = {true, true, true, false, false, false, false, fa
     float BorderIndicatorCustomR = 0.20f;
     float BorderIndicatorCustomG = 0.60f;
     float BorderIndicatorCustomB = 1.00f;
-    int ShowNavigator = 0; // 0=Auto, 1=On, 2=Off
+    int ShowNavigator = 1; // 0=Auto, 1=On, 2=Off
     float NavigatorOffsetX = 12.0f;
     float NavigatorOffsetY = 12.0f;
     int NavigatorAlignX = 1; // 0=Left, 1=Right

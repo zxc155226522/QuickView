@@ -6121,7 +6121,26 @@ void UIRenderer::DrawNavigator(ID2D1DeviceContext* dc) {
             }
         }
         
-        // 鸟瞰图已锁死为整图缩略：不绘制随主图缩放/平移跳动的视口蓝框
+        // 视口蓝框：表示主窗口当前可见区域，其宽高比 = 主窗口比例（随主图缩放/平移平滑跟随）
+        float vpCenterX = orientedSize.width * 0.5f - pane.view.PanX / totalScale;
+        float vpCenterY = orientedSize.height * 0.5f - pane.view.PanY / totalScale;
+        float vpWInImg = vpW / totalScale;
+        float vpHInImg = vpH / totalScale;
+
+        D2D1_RECT_F viewRect = D2D1::RectF(
+            geo.imgDrawX + (vpCenterX - vpWInImg * 0.5f) * geo.fitScale,
+            geo.imgDrawY + (vpCenterY - vpHInImg * 0.5f) * geo.fitScale,
+            geo.imgDrawX + (vpCenterX + vpWInImg * 0.5f) * geo.fitScale,
+            geo.imgDrawY + (vpCenterY + vpHInImg * 0.5f) * geo.fitScale
+        );
+
+        ComPtr<ID2D1SolidColorBrush> viewRectBgBrush;
+        dc->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.47f, 0.83f, 0.15f), &viewRectBgBrush);
+        ComPtr<ID2D1SolidColorBrush> viewRectBorderBrush;
+        dc->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.47f, 0.83f, 0.85f), &viewRectBorderBrush);
+
+        dc->FillRectangle(viewRect, viewRectBgBrush.Get());
+        dc->DrawRectangle(viewRect, viewRectBorderBrush.Get(), 1.5f * s);
  
         ComPtr<ID2D1SolidColorBrush> closeBrush;
         if (minimap.isCloseHovered) {

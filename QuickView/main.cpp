@@ -4609,7 +4609,7 @@ g_config.AlwaysOnTop = GetPrivateProfileIntW(L"View", L"AlwaysOnTop", 0, iniPath
     g_config.BorderIndicatorCustomG = (float)_wtof(bufBICG);
     GetPrivateProfileStringW(L"View", L"BorderIndicatorCustomB", L"1.0", bufBICB, 32, iniPath.c_str());
     g_config.BorderIndicatorCustomB = (float)_wtof(bufBICB);
-    g_config.ShowNavigator = GetPrivateProfileIntW(L"View", L"ShowNavigator", 0, iniPath.c_str());
+    g_config.ShowNavigator = GetPrivateProfileIntW(L"View", L"ShowNavigator", 1, iniPath.c_str());
     wchar_t bufNavX[32], bufNavY[32];
     GetPrivateProfileStringW(L"View", L"NavigatorOffsetX", L"12.0", bufNavX, 32, iniPath.c_str());
     g_config.NavigatorOffsetX = (float)_wtof(bufNavX);
