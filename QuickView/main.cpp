@@ -7894,7 +7894,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
                       minimap.isCloseHovered = false;
                       repaintStatic = true;
                   }
-                  if (miniHit.isEdge) {
+                  if (miniHit.isResize) {
+                      g_currentCursor = LoadCursor(nullptr, IDC_SIZENWSE);
+                  } else if (miniHit.isEdge) {
                       minimap.isEdgeHovered = true;
                       g_currentCursor = LoadCursor(nullptr, IDC_SIZEALL);
                   } else if (miniHit.isInner) {

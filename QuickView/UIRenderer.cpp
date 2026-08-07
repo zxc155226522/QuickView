@@ -6008,17 +6008,20 @@ void UIRenderer::DrawNavigator(ID2D1DeviceContext* dc) {
         minimap.closeBtnRect = D2D1::RectF(minimap.layoutRect.right - closeBtnSize, minimap.layoutRect.top, minimap.layoutRect.right, minimap.layoutRect.top + closeBtnSize);
         minimap.innerRect = minimap.layoutRect;
 
-        // Resize grip at the free corner (opposite the align corner); avoid close button (top-right)
+        // Resize grip at the ALIGN corner (where the user intuitively drags to resize);
+        // only move to the opposite corner (bottom-left) when align is top-right to avoid the close button.
         {
-            float grip = 12.0f * s;
-            bool freeRight = (g_config.NavigatorAlignX == 0);
-            bool freeBottom = (g_config.NavigatorAlignY == 0);
-            if (freeRight && !freeBottom) freeRight = false; // align=left,bottom -> free=top-right conflicts with close btn
+            float grip = 16.0f * s;
+            bool alignRight  = (g_config.NavigatorAlignX == 1);
+            bool alignBottom = (g_config.NavigatorAlignY == 1);
+            bool useOpposite = (alignRight && !alignBottom); // align=top-right conflicts with close btn
+            bool gripRight  = useOpposite ? false : alignRight;
+            bool gripBottom = useOpposite ? true  : alignBottom;
             float gx0, gx1, gy0, gy1;
-            if (freeRight) { gx0 = minimap.layoutRect.right - grip; gx1 = minimap.layoutRect.right; }
-            else           { gx0 = minimap.layoutRect.left;          gx1 = minimap.layoutRect.left + grip; }
-            if (freeBottom){ gy0 = minimap.layoutRect.bottom - grip; gy1 = minimap.layoutRect.bottom; }
-            else           { gy0 = minimap.layoutRect.top;           gy1 = minimap.layoutRect.top + grip; }
+            if (gripRight)  { gx0 = minimap.layoutRect.right - grip;  gx1 = minimap.layoutRect.right; }
+            else            { gx0 = minimap.layoutRect.left;          gx1 = minimap.layoutRect.left + grip; }
+            if (gripBottom) { gy0 = minimap.layoutRect.bottom - grip; gy1 = minimap.layoutRect.bottom; }
+            else            { gy0 = minimap.layoutRect.top;           gy1 = minimap.layoutRect.top + grip; }
             minimap.resizeGripRect = D2D1::RectF(gx0, gy0, gx1, gy1);
         }
         
@@ -6039,12 +6042,15 @@ void UIRenderer::DrawNavigator(ID2D1DeviceContext* dc) {
         
         dc->FillRoundedRectangle(roundedRect, bgBrush.Get());
 
-        // Resize handle (two diagonal lines) at grip rect
+        // Resize handle: dark backing + white diagonal lines (visible on any background)
         {
-            ComPtr<ID2D1SolidColorBrush> gripBrush;
-            dc->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.65f), &gripBrush);
-            float lw = 1.5f * s;
             const D2D1_RECT_F& gr = minimap.resizeGripRect;
+            ComPtr<ID2D1SolidColorBrush> backBrush;
+            dc->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.30f), &backBrush);
+            dc->FillRectangle(gr, backBrush.Get());
+            ComPtr<ID2D1SolidColorBrush> gripBrush;
+            dc->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.9f), &gripBrush);
+            float lw = 1.5f * s;
             dc->DrawLine(D2D1::Point2F(gr.left + 2.0f * s, gr.bottom - 2.0f * s),
                          D2D1::Point2F(gr.right - 2.0f * s, gr.top + 2.0f * s), gripBrush.Get(), lw);
             dc->DrawLine(D2D1::Point2F(gr.left + 5.0f * s, gr.bottom - 2.0f * s),
