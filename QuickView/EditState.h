@@ -605,6 +605,7 @@ bool SwatchIsCheckerboard[9] = {true, true, true, false, false, false, false, fa
     float NavigatorOffsetY = 12.0f;
     int NavigatorAlignX = 1; // 0=Left, 1=Right
     int NavigatorAlignY = 1; // 0=Top, 1=Bottom
+    float NavigatorScale = 1.0f; // 鸟瞰图缩放倍率，1.0=基准150px，比例保持图像宽高比
 
     // --- Info Panel Position ---
     float InfoPanelX = 16.0f;

@@ -154,6 +154,8 @@ struct MinimapState {
     D2D1_RECT_F layoutRect = { 0.0f, 0.0f, 0.0f, 0.0f };
     D2D1_RECT_F closeBtnRect = { 0.0f, 0.0f, 0.0f, 0.0f };
     D2D1_RECT_F innerRect = { 0.0f, 0.0f, 0.0f, 0.0f };
+    bool isResizing = false;
+    D2D1_RECT_F resizeGripRect = { 0.0f, 0.0f, 0.0f, 0.0f };
 
     void ResetLayout() {
         closedByUser = false;
@@ -161,6 +163,7 @@ struct MinimapState {
         isDraggingView = false;
         isEdgeHovered = false;
         isCloseHovered = false;
+        isResizing = false;
     }
 };
 

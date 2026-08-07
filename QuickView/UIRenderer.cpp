@@ -5959,7 +5959,7 @@ void UIRenderer::DrawNavigator(ID2D1DeviceContext* dc) {
         
         if (!shouldShow) continue;
         
-        float maxDim = 150.0f * s;
+        float maxDim = 150.0f * s * g_config.NavigatorScale;
         float minimapW = maxDim;
         float minimapH = maxDim;
         float aspectRatio = orientedSize.width / orientedSize.height;
@@ -6007,6 +6007,20 @@ void UIRenderer::DrawNavigator(ID2D1DeviceContext* dc) {
         float closeBtnSize = 16.0f * s;
         minimap.closeBtnRect = D2D1::RectF(minimap.layoutRect.right - closeBtnSize, minimap.layoutRect.top, minimap.layoutRect.right, minimap.layoutRect.top + closeBtnSize);
         minimap.innerRect = minimap.layoutRect;
+
+        // Resize grip at the free corner (opposite the align corner); avoid close button (top-right)
+        {
+            float grip = 12.0f * s;
+            bool freeRight = (g_config.NavigatorAlignX == 0);
+            bool freeBottom = (g_config.NavigatorAlignY == 0);
+            if (freeRight && !freeBottom) freeRight = false; // align=left,bottom -> free=top-right conflicts with close btn
+            float gx0, gx1, gy0, gy1;
+            if (freeRight) { gx0 = minimap.layoutRect.right - grip; gx1 = minimap.layoutRect.right; }
+            else           { gx0 = minimap.layoutRect.left;          gx1 = minimap.layoutRect.left + grip; }
+            if (freeBottom){ gy0 = minimap.layoutRect.bottom - grip; gy1 = minimap.layoutRect.bottom; }
+            else           { gy0 = minimap.layoutRect.top;           gy1 = minimap.layoutRect.top + grip; }
+            minimap.resizeGripRect = D2D1::RectF(gx0, gy0, gx1, gy1);
+        }
         
         ComPtr<ID2D1Factory> factory;
         dc->GetFactory(&factory);
@@ -6024,6 +6038,18 @@ void UIRenderer::DrawNavigator(ID2D1DeviceContext* dc) {
         dc->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.5f), &borderShadowBrush);
         
         dc->FillRoundedRectangle(roundedRect, bgBrush.Get());
+
+        // Resize handle (two diagonal lines) at grip rect
+        {
+            ComPtr<ID2D1SolidColorBrush> gripBrush;
+            dc->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.65f), &gripBrush);
+            float lw = 1.5f * s;
+            const D2D1_RECT_F& gr = minimap.resizeGripRect;
+            dc->DrawLine(D2D1::Point2F(gr.left + 2.0f * s, gr.bottom - 2.0f * s),
+                         D2D1::Point2F(gr.right - 2.0f * s, gr.top + 2.0f * s), gripBrush.Get(), lw);
+            dc->DrawLine(D2D1::Point2F(gr.left + 5.0f * s, gr.bottom - 2.0f * s),
+                         D2D1::Point2F(gr.right - 2.0f * s, gr.top + 5.0f * s), gripBrush.Get(), lw);
+        }
         
         D2D1_MATRIX_3X2_F oldTransform{};
         dc->GetTransform(&oldTransform);

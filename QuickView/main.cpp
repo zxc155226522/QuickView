@@ -639,6 +639,7 @@ static int g_imageQualityLevel = 0;         // [v3.1] 0: Void, 1: Wiki/Scout, 2:
 static bool g_isImageScaled = false;         // True if current image was decoded at reduced resolution
 static constexpr UINT_PTR IDT_SVG_RERENDER = 44; // [SVG Lossless] Timer for lazy high-res re-render
 static constexpr UINT_PTR IDT_INTERACTION = 1001; // Interaction debounce for HQ redraw/surface upgrade
+static constexpr UINT_PTR IDT_NAVIGATOR_SAVE = 1002; // Navigator position/scale debounce (500ms)
 
 static constexpr UINT_PTR IDT_SMOOTH_WINDOW_ZOOM = 1002;
 
@@ -4285,6 +4286,7 @@ void SaveConfig() {
     WriteConfigInt(L"View", L"NavigatorOffsetY", g_config.NavigatorOffsetY, iniPath.c_str());
     WriteConfigInt(L"View", L"NavigatorAlignX", g_config.NavigatorAlignX, iniPath.c_str());
     WriteConfigInt(L"View", L"NavigatorAlignY", g_config.NavigatorAlignY, iniPath.c_str());
+    WriteConfigFloat(L"View", L"NavigatorScale", g_config.NavigatorScale, iniPath.c_str());
 
     WriteConfigInt(L"View", L"InfoPanelX", g_config.InfoPanelX, iniPath.c_str());
     WriteConfigInt(L"View", L"InfoPanelY", g_config.InfoPanelY, iniPath.c_str());
@@ -4615,6 +4617,9 @@ g_config.AlwaysOnTop = GetPrivateProfileIntW(L"View", L"AlwaysOnTop", 0, iniPath
     g_config.NavigatorOffsetY = (float)_wtof(bufNavY);
     g_config.NavigatorAlignX = GetPrivateProfileIntW(L"View", L"NavigatorAlignX", 1, iniPath.c_str());
     g_config.NavigatorAlignY = GetPrivateProfileIntW(L"View", L"NavigatorAlignY", 1, iniPath.c_str());
+    wchar_t bufNavScale[32];
+    GetPrivateProfileStringW(L"View", L"NavigatorScale", L"1.0", bufNavScale, 32, iniPath.c_str());
+    g_config.NavigatorScale = (float)_wtof(bufNavScale);
 
     wchar_t bufInfoX[32], bufInfoY[32];
     GetPrivateProfileStringW(L"View", L"InfoPanelX", L"16.0", bufInfoX, 32, iniPath.c_str());
@@ -6652,6 +6657,7 @@ struct MinimapHitResult {
     bool isClose = false;
     bool isInner = false;
     bool isEdge = false;
+    bool isResize = false;
 };
 
 static MinimapHitResult HitTestMinimaps(POINT pt) {
@@ -6673,12 +6679,17 @@ static MinimapHitResult HitTestMinimaps(POINT pt) {
             return res;
         }
         
-        // 2. Inner content area
+        // 2. Inner content area (grip takes priority over view-drag)
         if (pt.x >= minimap.innerRect.left && pt.x <= minimap.innerRect.right &&
             pt.y >= minimap.innerRect.top && pt.y <= minimap.innerRect.bottom) {
             MinimapHitResult res;
             res.minimapIdx = idx;
-            res.isInner = true;
+            if (pt.x >= minimap.resizeGripRect.left && pt.x <= minimap.resizeGripRect.right &&
+                pt.y >= minimap.resizeGripRect.top && pt.y <= minimap.resizeGripRect.bottom) {
+                res.isResize = true;
+            } else {
+                res.isInner = true;
+            }
             return res;
         }
         
@@ -7184,6 +7195,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
             } else {
                 KillTimer(hwnd, IDT_SLIDESHOW);
             }
+            return 0;
+        }
+
+        if (wParam == IDT_NAVIGATOR_SAVE) {
+            KillTimer(hwnd, IDT_NAVIGATOR_SAVE);
+            SaveConfig();
             return 0;
         }
 
@@ -7830,6 +7847,21 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
                   UpdatePanFromMinimapClick(idx, pt, hwnd);
                   isMinimapInteracting = true;
                   g_currentCursor = LoadCursor(nullptr, IDC_HAND);
+              } else if (minimap.isResizing) {
+                  float s = g_uiScale;
+                  float anchorX = (g_config.NavigatorAlignX == 0) ? minimap.layoutRect.left : minimap.layoutRect.right;
+                  float anchorY = (g_config.NavigatorAlignY == 0) ? minimap.layoutRect.top : minimap.layoutRect.bottom;
+                  float desiredW = std::abs((float)pt.x - anchorX);
+                  float desiredH = std::abs((float)pt.y - anchorY);
+                  float longEdge = (std::max)(desiredW, desiredH);
+                  float base = 150.0f * s;
+                  float scale = (std::max)(0.4f, (std::min)(longEdge / base, 4.0f));
+                  g_config.NavigatorScale = scale;
+                  RequestRepaint(PaintLayer::Static | PaintLayer::Dynamic);
+                  KillTimer(hwnd, IDT_NAVIGATOR_SAVE);
+                  SetTimer(hwnd, IDT_NAVIGATOR_SAVE, 500, nullptr);
+                  isMinimapInteracting = true;
+                  g_currentCursor = LoadCursor(nullptr, IDC_SIZENWSE);
               }
           }
 
@@ -8762,6 +8794,10 @@ SKIP_EDGE_NAV:;
                 minimap.closedByUser = true;
                 RequestRepaint(PaintLayer::Static | PaintLayer::Dynamic);
                 return 0;
+            } else if (miniHit.isResize) {
+                minimap.isResizing = true;
+                SetCapture(hwnd);
+                return 0;
             } else if (miniHit.isEdge) {
                 minimap.isDraggingWindow = true;
                 minimap.dragAnchor = pt;
@@ -9127,12 +9163,13 @@ SKIP_EDGE_NAV:;
         bool wasMinimapDragging = false;
         for (int idx : {0, 1}) {
             auto& minimap = AppContext::GetInstance().Minimaps[idx];
-            if (minimap.isDraggingWindow || minimap.isDraggingView) {
-                if (minimap.isDraggingWindow) {
+            if (minimap.isDraggingWindow || minimap.isDraggingView || minimap.isResizing) {
+                if (minimap.isDraggingWindow || minimap.isResizing) {
                     SaveConfig();
                 }
                 minimap.isDraggingWindow = false;
                 minimap.isDraggingView = false;
+                minimap.isResizing = false;
                 wasMinimapDragging = true;
             }
         }
