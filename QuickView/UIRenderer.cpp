@@ -6008,20 +6008,17 @@ void UIRenderer::DrawNavigator(ID2D1DeviceContext* dc) {
         minimap.closeBtnRect = D2D1::RectF(minimap.layoutRect.right - closeBtnSize, minimap.layoutRect.top, minimap.layoutRect.right, minimap.layoutRect.top + closeBtnSize);
         minimap.innerRect = minimap.layoutRect;
 
-        // Resize grip at the ALIGN corner (where the user intuitively drags to resize);
-        // only move to the opposite corner (bottom-left) when align is top-right to avoid the close button.
+        // Resize grip at the OPPOSITE (free) corner of the align corner; avoid close button (top-right).
         {
             float grip = 16.0f * s;
-            bool alignRight  = (g_config.NavigatorAlignX == 1);
-            bool alignBottom = (g_config.NavigatorAlignY == 1);
-            bool useOpposite = (alignRight && !alignBottom); // align=top-right conflicts with close btn
-            bool gripRight  = useOpposite ? false : alignRight;
-            bool gripBottom = useOpposite ? true  : alignBottom;
+            bool freeRight = (g_config.NavigatorAlignX == 0);
+            bool freeBottom = (g_config.NavigatorAlignY == 0);
+            if (freeRight && !freeBottom) freeRight = false; // align=left,bottom -> free=top-right conflicts with close btn
             float gx0, gx1, gy0, gy1;
-            if (gripRight)  { gx0 = minimap.layoutRect.right - grip;  gx1 = minimap.layoutRect.right; }
-            else            { gx0 = minimap.layoutRect.left;          gx1 = minimap.layoutRect.left + grip; }
-            if (gripBottom) { gy0 = minimap.layoutRect.bottom - grip; gy1 = minimap.layoutRect.bottom; }
-            else            { gy0 = minimap.layoutRect.top;           gy1 = minimap.layoutRect.top + grip; }
+            if (freeRight) { gx0 = minimap.layoutRect.right - grip; gx1 = minimap.layoutRect.right; }
+            else           { gx0 = minimap.layoutRect.left;          gx1 = minimap.layoutRect.left + grip; }
+            if (freeBottom){ gy0 = minimap.layoutRect.bottom - grip; gy1 = minimap.layoutRect.bottom; }
+            else           { gy0 = minimap.layoutRect.top;           gy1 = minimap.layoutRect.top + grip; }
             minimap.resizeGripRect = D2D1::RectF(gx0, gy0, gx1, gy1);
         }
         
