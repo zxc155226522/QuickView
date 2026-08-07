@@ -158,6 +158,7 @@ struct MinimapState {
     int resizeCorner = -1; // 当前拖动的缩放角: 0=TL(左上), 2=BR(右下)
     D2D1_RECT_F resizeGripRectTL = { 0.0f, 0.0f, 0.0f, 0.0f };
     D2D1_RECT_F resizeGripRectBR = { 0.0f, 0.0f, 0.0f, 0.0f };
+    bool hovered = false; // 鼠标是否悬停在该鸟瞰图上（控制双角手柄显隐）
 
     void ResetLayout() {
         closedByUser = false;
@@ -167,6 +168,7 @@ struct MinimapState {
         isCloseHovered = false;
         isResizing = false;
         resizeCorner = -1;
+        hovered = false;
     }
 };
 
