@@ -21,6 +21,7 @@ void ShowContextMenu(HWND hwnd, POINT pt, bool hasImage,
                      bool isCrossMonitor, bool isCompareMode, bool isPixelArtMode,
                      int cmsMode, bool enableSoftProofing, const std::wstring& softProofProfilePath) {
 
+    (void)isCompareMode; // 对比功能已禁用，参数保留以避免改动调用点
     std::vector<std::unique_ptr<std::wstring>> menuStrings;
     auto cacheStr = [&](std::wstring s) -> const wchar_t* {
         menuStrings.push_back(std::make_unique<std::wstring>(std::move(s)));
@@ -81,7 +82,6 @@ void ShowContextMenu(HWND hwnd, POINT pt, bool hasImage,
     // --- View Submenu ---
     {
         std::vector<MI> viewItems;
-        viewItems.push_back(MI::Check(IDM_COMPARE_MODE, AppStrings::Context_CompareMode, isCompareMode, GeekIcons::Compare, getHK(HotkeyAction::ToggleCompare)));
         bool isOverlay = (g_runtime.OverlayModeState != OverlayState::Normal);
         viewItems.push_back(MI::Check(IDM_OVERLAY_MODE, AppStrings::Context_OverlayMode, isOverlay, GeekIcons::Eye, getHK(HotkeyAction::ToggleOverlay)));
         viewItems.push_back(MI::Sep());
@@ -223,7 +223,6 @@ void ShowContextMenu(HWND hwnd, POINT pt, bool hasImage,
 // ============================================================
 void ShowGalleryContextMenu(HWND hwnd, POINT pt) {
     std::vector<MI> items;
-    items.push_back(MI::Normal(IDM_GALLERY_OPEN_COMPARE, AppStrings::Context_GalleryOpenCompare, GeekIcons::Compare));
     items.push_back(MI::Normal(IDM_GALLERY_OPEN_NEW_WINDOW, AppStrings::Context_GalleryOpenNewWindow, GeekIcons::Open));
     items.push_back(MI::Sep());
     items.push_back(MI::Normal(IDM_GALLERY_DELETE, AppStrings::Context_Delete, GeekIcons::Delete));

@@ -345,8 +345,6 @@ std::array<HotkeyBinding, static_cast<size_t>(HotkeyAction::Count)> g_hotkeys = 
     HotkeyBinding{ HotkeyAction::CopyImage, KeyCombo{ 'C', 1 }, KeyCombo{ 'C', 1 } }, // Ctrl + C
     HotkeyBinding{ HotkeyAction::CopyPath, KeyCombo{ 'C', 5 }, KeyCombo{ 'C', 5 } },  // Ctrl + Alt + C (1 | 4 = 5)
     HotkeyBinding{ HotkeyAction::ShowInExplorer, KeyCombo{ VK_RETURN, 1 }, KeyCombo{ VK_RETURN, 1 } }, // Ctrl + Enter
-    HotkeyBinding{ HotkeyAction::ToggleCompare, KeyCombo{ 'C', 0 }, KeyCombo{ 'C', 0 } },
-    HotkeyBinding{ HotkeyAction::ComparePair, KeyCombo{ 'C', 2 }, KeyCombo{ 'C', 2 } }, // Shift + C: rendered vs RAW
     HotkeyBinding{ HotkeyAction::AlwaysOnTop, KeyCombo{ 'T', 1 }, KeyCombo{ 'T', 1 } }, // Ctrl + T
     HotkeyBinding{ HotkeyAction::ToggleDebugHud, KeyCombo{ VK_F12, 0 }, KeyCombo{ VK_F12, 0 } },
     HotkeyBinding{ HotkeyAction::Print, KeyCombo{ 'P', 1 }, KeyCombo{ 'P', 1 } }, // Ctrl + P

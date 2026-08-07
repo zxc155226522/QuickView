@@ -30,20 +30,6 @@ Toolbar::Toolbar() {
       {ToolbarButtonID::RawToggle, Icons::Raw, {}, false, false},
       {ToolbarButtonID::GamutWarning, Icons::Warning, {}, false, false},
 
-      {ToolbarButtonID::CompareToggle, Icons::CompareToggle, {}, true, false},
-
-      // Compare mode buttons (hidden in normal mode)
-      {ToolbarButtonID::CompareOpen, Icons::Open, {}, true, false},
-      {ToolbarButtonID::CompareSwap, Icons::Swap, {}, true, false},
-      {ToolbarButtonID::CompareLayout, Icons::Layout, {}, true, false},
-      {ToolbarButtonID::CompareInfo, Icons::Info, {}, true, false},
-      {ToolbarButtonID::CompareRawToggle, Icons::Raw, {}, false, false},
-      {ToolbarButtonID::CompareDelete, Icons::Delete, {}, true, false},
-      {ToolbarButtonID::CompareZoomIn, Icons::ZoomIn, {}, true, false},
-      {ToolbarButtonID::CompareZoomOut, Icons::ZoomOut, {}, true, false},
-      {ToolbarButtonID::CompareSyncZoom, Icons::Link, {}, true, true},
-      {ToolbarButtonID::CompareSyncPan, Icons::Pan, {}, true, true},
-      {ToolbarButtonID::CompareExit, Icons::ExitToolbar, {}, true, false},
       // Animation mode buttons (hidden in normal mode)
       {ToolbarButtonID::AnimPrevFrame, Icons::SkipBack, {}, true, false},
       {ToolbarButtonID::AnimPlayPause, Icons::Play, {}, true, false},
