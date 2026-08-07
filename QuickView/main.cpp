@@ -3728,24 +3728,9 @@ static float CalculateTargetZoom(HWND hwnd, float delta, bool isFineInterval = f
 }
 
 static void ShowZoomOsd(HWND hwnd, float newTotalScale) {
-    D2D1_SIZE_F visualSize = GetVisualImageSize();
-    float osdScale = newTotalScale;
-    if (!GetPaneContext(PaneSlot::Primary).resource.isSvg && GetPaneContext(PaneSlot::Primary).metadata.Width > 0 && GetPaneContext(PaneSlot::Primary).metadata.Height > 0) {
-        VisualState vs = GetVisualState();
-        float originalDim = (float)(vs.IsRotated90 ? GetPaneContext(PaneSlot::Primary).metadata.Height : GetPaneContext(PaneSlot::Primary).metadata.Width);
-        if (originalDim > 0) {
-            osdScale = newTotalScale * (visualSize.width / originalDim);
-        }
-    }
-
-    int percent = (int)(std::round(osdScale * 100.0f));
-    bool is100 = (abs(osdScale - 1.0f) < 0.001f);
-
-    wchar_t zoomBuf[32];
-    swprintf_s(zoomBuf, L"%s%d%%", AppStrings::OSD_ZoomPrefix, percent);
-    D2D1_COLOR_F color = is100 ? D2D1::ColorF(0.4f, 1.0f, 0.4f)
-                               : D2D1::ColorF(D2D1::ColorF::White);
-    g_osd.Show(hwnd, zoomBuf, false, false, color);
+    // [Removed] 按需求不再显示缩放时的屏幕下方百分比提示(OSD)。
+    // 保留签名以兼容所有既有调用点（滚轮 / 按钮 / 快捷键 / 动画缩放）。
+    (void)hwnd; (void)newTotalScale;
 }
 
 static void PerformZoomFit(HWND hwnd, float maxScreenPct = 1.0f, bool allowResizeWindow = true) {
