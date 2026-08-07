@@ -604,7 +604,7 @@ bool SwatchIsCheckerboard[9] = {true, true, true, false, false, false, false, fa
     float NavigatorOffsetX = 12.0f;
     float NavigatorOffsetY = 12.0f;
     int NavigatorAlignX = 1; // 0=Left, 1=Right
-    int NavigatorAlignY = 0; // 0=Top, 1=Bottom
+    int NavigatorAlignY = 1; // 0=Top, 1=Bottom
 
     // --- Info Panel Position ---
     float InfoPanelX = 16.0f;

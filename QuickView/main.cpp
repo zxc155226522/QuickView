@@ -4614,7 +4614,7 @@ g_config.AlwaysOnTop = GetPrivateProfileIntW(L"View", L"AlwaysOnTop", 0, iniPath
     GetPrivateProfileStringW(L"View", L"NavigatorOffsetY", L"12.0", bufNavY, 32, iniPath.c_str());
     g_config.NavigatorOffsetY = (float)_wtof(bufNavY);
     g_config.NavigatorAlignX = GetPrivateProfileIntW(L"View", L"NavigatorAlignX", 1, iniPath.c_str());
-    g_config.NavigatorAlignY = GetPrivateProfileIntW(L"View", L"NavigatorAlignY", 0, iniPath.c_str());
+    g_config.NavigatorAlignY = GetPrivateProfileIntW(L"View", L"NavigatorAlignY", 1, iniPath.c_str());
 
     wchar_t bufInfoX[32], bufInfoY[32];
     GetPrivateProfileStringW(L"View", L"InfoPanelX", L"16.0", bufInfoX, 32, iniPath.c_str());

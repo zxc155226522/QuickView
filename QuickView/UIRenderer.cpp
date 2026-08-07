@@ -5799,6 +5799,95 @@ void UIRenderer::DrawWelcomeButton(ID2D1DeviceContext *dc, const D2D1_RECT_F &r,
   }
 }
 
+ComPtr<ID2D1Brush> UIRenderer::CreateCanvasBackgroundBrush(ID2D1DeviceContext* dc, float s) {
+    // Mirror the main canvas background resolution (main.cpp SyncDCompState / ResolveCanvasColor)
+    // so the navigator (bird's-eye view) backdrop matches the main view exactly.
+    bool checker = false;
+    D2D1_COLOR_F c1 = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
+    D2D1_COLOR_F c2 = D2D1::ColorF(0.80f, 0.80f, 0.80f, 1.0f);
+    D2D1_COLOR_F solid = D2D1::ColorF(0.18f, 0.18f, 0.18f, 1.0f);
+
+    if (g_config.CanvasColor == 5) {
+        int idx = g_config.SwatchColorIndex;
+        if (idx >= 0 && idx < 3) {
+            checker = true;
+            switch (idx) {
+                case 0: c1 = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f); c2 = D2D1::ColorF(0.80f, 0.80f, 0.80f, 1.0f); break;
+                case 1: c1 = D2D1::ColorF(0.10f, 0.10f, 0.10f, 1.0f); c2 = D2D1::ColorF(0.18f, 0.18f, 0.18f, 1.0f); break;
+                case 2: c1 = D2D1::ColorF(0.50f, 0.50f, 0.50f, 1.0f); c2 = D2D1::ColorF(0.60f, 0.60f, 0.60f, 1.0f); break;
+            }
+        } else if (idx >= 3 && idx < 9 && g_config.SwatchIsCheckerboard[idx]) {
+            checker = true;
+            float r = g_config.SwatchColors[idx][0];
+            float g = g_config.SwatchColors[idx][1];
+            float b = g_config.SwatchColors[idx][2];
+            float lum = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+            c1 = D2D1::ColorF(r, g, b, 1.0f);
+            c2 = (lum > 0.5f)
+                ? D2D1::ColorF(r * 0.82f, g * 0.82f, b * 0.82f, 1.0f)
+                : D2D1::ColorF((std::min)(r * 1.2f, 1.0f), (std::min)(g * 1.2f, 1.0f), (std::min)(b * 1.2f, 1.0f), 1.0f);
+        } else if (idx >= 3 && idx < 9) {
+            int a255 = static_cast<int>(std::round(g_config.SwatchColors[idx][3] * 255.0f));
+            a255 = (std::max)(0, (std::min)(255, a255));
+            float a = (a255 >= 255) ? 1.0f : static_cast<float>(a255) / 255.0f;
+            solid = D2D1::ColorF(g_config.SwatchColors[idx][0], g_config.SwatchColors[idx][1], g_config.SwatchColors[idx][2], a);
+        } else {
+            solid = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
+        }
+    } else {
+        // Non-swatch modes: solid colors (mirror ResolveCanvasColor)
+        switch (g_config.CanvasColor) {
+            case 0: solid = D2D1::ColorF(0.08f, 0.08f, 0.08f); break;
+            case 1: solid = D2D1::ColorF(0.95f, 0.95f, 0.95f); break;
+            case 2: solid = D2D1::ColorF(0.18f, 0.18f, 0.18f); break;
+            case 3: solid = D2D1::ColorF(g_config.CanvasCustomR, g_config.CanvasCustomG, g_config.CanvasCustomB); break;
+            case 4: solid = D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f); break; // Effects: transparent
+            default: solid = D2D1::ColorF(0.18f, 0.18f, 0.18f); break;
+        }
+    }
+
+    if (checker) {
+        // Build a 2x2 checkerboard tile and tile it via a bitmap brush.
+        float sq = (std::max)(8.0f, 12.0f) * s; // half-tile size in DIPs
+        int tile = static_cast<int>(sq * 2.0f + 0.5f);
+        if (tile < 2) tile = 2;
+        std::vector<BYTE> px(static_cast<size_t>(tile) * tile * 4);
+        for (int y = 0; y < tile; ++y) {
+            for (int x = 0; x < tile; ++x) {
+                bool first = ((x < tile / 2) == (y < tile / 2));
+                const D2D1_COLOR_F& col = first ? c1 : c2;
+                size_t o = (static_cast<size_t>(y) * tile + x) * 4;
+                px[o + 0] = static_cast<BYTE>(col.r * 255.0f + 0.5f);
+                px[o + 1] = static_cast<BYTE>(col.g * 255.0f + 0.5f);
+                px[o + 2] = static_cast<BYTE>(col.b * 255.0f + 0.5f);
+                px[o + 3] = static_cast<BYTE>(col.a * 255.0f + 0.5f);
+            }
+        }
+        D2D1_SIZE_U bmpSize = D2D1::SizeU(static_cast<UINT32>(tile), static_cast<UINT32>(tile));
+        D2D1_BITMAP_PROPERTIES props = {};
+        props.pixelFormat = D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED);
+        props.dpiX = 96.0f;
+        props.dpiY = 96.0f;
+        ComPtr<ID2D1Bitmap> bmp;
+        HRESULT hr = dc->CreateBitmap(bmpSize, px.data(), static_cast<UINT32>(tile) * 4, props, &bmp);
+        if (SUCCEEDED(hr) && bmp) {
+            ComPtr<ID2D1BitmapBrush> brush;
+            D2D1_BITMAP_BRUSH_PROPERTIES brushProps = D2D1::BitmapBrushProperties(D2D1_EXTEND_MODE_WRAP, D2D1_EXTEND_MODE_WRAP);
+            if (SUCCEEDED(dc->CreateBitmapBrush(bmp.Get(), brushProps, &brush)) && brush) {
+                return brush;
+            }
+        }
+        // Fallback to solid c1 if bitmap brush creation fails
+        ComPtr<ID2D1SolidColorBrush> fb;
+        dc->CreateSolidColorBrush(c1, &fb);
+        return fb;
+    }
+
+    ComPtr<ID2D1SolidColorBrush> solidBrush;
+    dc->CreateSolidColorBrush(solid, &solidBrush);
+    return solidBrush;
+}
+
 void UIRenderer::DrawNavigator(ID2D1DeviceContext* dc) {
     if (m_width <= 0 || m_height <= 0) return;
     const float s = m_uiScale;
@@ -5928,8 +6017,7 @@ void UIRenderer::DrawNavigator(ID2D1DeviceContext* dc) {
         ComPtr<ID2D1RoundedRectangleGeometry> roundedGeo;
         factory->CreateRoundedRectangleGeometry(roundedRect, &roundedGeo);
 
-        ComPtr<ID2D1SolidColorBrush> bgBrush;
-        dc->CreateSolidColorBrush(D2D1::ColorF(0.05f, 0.05f, 0.05f, 0.75f), &bgBrush);
+        ComPtr<ID2D1Brush> bgBrush = CreateCanvasBackgroundBrush(dc, s);
         ComPtr<ID2D1SolidColorBrush> borderBrush;
         dc->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.9f), &borderBrush);
         ComPtr<ID2D1SolidColorBrush> borderShadowBrush;

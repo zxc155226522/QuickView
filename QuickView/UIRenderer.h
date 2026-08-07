@@ -237,6 +237,9 @@ private:
     void DrawWindowControls(ID2D1DeviceContext* dc, HWND hwnd);
     void DrawBorderIndicators(ID2D1DeviceContext* dc);
     void DrawNavigator(ID2D1DeviceContext* dc);
+    // Build a brush matching the main canvas background (checkerboard or solid),
+    // used as the navigator / bird's-eye view backdrop so it stays visually consistent.
+    ComPtr<ID2D1Brush> CreateCanvasBackgroundBrush(ID2D1DeviceContext* dc, float uiScale);
     void DrawDebugHUD(ID2D1DeviceContext* dc);
     void EnsureTextFormats();
     float EstimateCanvasLuminance() const;
