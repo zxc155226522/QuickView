@@ -155,7 +155,9 @@ struct MinimapState {
     D2D1_RECT_F closeBtnRect = { 0.0f, 0.0f, 0.0f, 0.0f };
     D2D1_RECT_F innerRect = { 0.0f, 0.0f, 0.0f, 0.0f };
     bool isResizing = false;
-    D2D1_RECT_F resizeGripRect = { 0.0f, 0.0f, 0.0f, 0.0f };
+    int resizeCorner = -1; // 当前拖动的缩放角: 0=TL(左上), 2=BR(右下)
+    D2D1_RECT_F resizeGripRectTL = { 0.0f, 0.0f, 0.0f, 0.0f };
+    D2D1_RECT_F resizeGripRectBR = { 0.0f, 0.0f, 0.0f, 0.0f };
 
     void ResetLayout() {
         closedByUser = false;
@@ -164,6 +166,7 @@ struct MinimapState {
         isEdgeHovered = false;
         isCloseHovered = false;
         isResizing = false;
+        resizeCorner = -1;
     }
 };
 

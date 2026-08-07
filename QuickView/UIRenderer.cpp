@@ -6008,18 +6008,19 @@ void UIRenderer::DrawNavigator(ID2D1DeviceContext* dc) {
         minimap.closeBtnRect = D2D1::RectF(minimap.layoutRect.right - closeBtnSize, minimap.layoutRect.top, minimap.layoutRect.right, minimap.layoutRect.top + closeBtnSize);
         minimap.innerRect = minimap.layoutRect;
 
-        // Resize grip at the OPPOSITE (free) corner of the align corner; avoid close button (top-right).
+        // Resize grips at TOP-LEFT and BOTTOM-RIGHT corners (both draggable; TOP-RIGHT reserved for close button)
         {
             float grip = 16.0f * s;
-            bool freeRight = (g_config.NavigatorAlignX == 0);
-            bool freeBottom = (g_config.NavigatorAlignY == 0);
-            if (freeRight && !freeBottom) freeRight = false; // align=left,bottom -> free=top-right conflicts with close btn
-            float gx0, gx1, gy0, gy1;
-            if (freeRight) { gx0 = minimap.layoutRect.right - grip; gx1 = minimap.layoutRect.right; }
-            else           { gx0 = minimap.layoutRect.left;          gx1 = minimap.layoutRect.left + grip; }
-            if (freeBottom){ gy0 = minimap.layoutRect.bottom - grip; gy1 = minimap.layoutRect.bottom; }
-            else           { gy0 = minimap.layoutRect.top;           gy1 = minimap.layoutRect.top + grip; }
-            minimap.resizeGripRect = D2D1::RectF(gx0, gy0, gx1, gy1);
+            minimap.resizeGripRectTL = D2D1::RectF(
+                minimap.layoutRect.left,
+                minimap.layoutRect.top,
+                minimap.layoutRect.left + grip,
+                minimap.layoutRect.top + grip);
+            minimap.resizeGripRectBR = D2D1::RectF(
+                minimap.layoutRect.right - grip,
+                minimap.layoutRect.bottom - grip,
+                minimap.layoutRect.right,
+                minimap.layoutRect.bottom);
         }
         
         ComPtr<ID2D1Factory> factory;
@@ -6039,19 +6040,25 @@ void UIRenderer::DrawNavigator(ID2D1DeviceContext* dc) {
         
         dc->FillRoundedRectangle(roundedRect, bgBrush.Get());
 
-        // Resize handle: dark backing + white diagonal lines (visible on any background)
+        // Resize handles (TL + BR): dark backing + white diagonal lines (visible on any background)
         {
-            const D2D1_RECT_F& gr = minimap.resizeGripRect;
             ComPtr<ID2D1SolidColorBrush> backBrush;
             dc->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.30f), &backBrush);
-            dc->FillRectangle(gr, backBrush.Get());
             ComPtr<ID2D1SolidColorBrush> gripBrush;
             dc->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.9f), &gripBrush);
             float lw = 1.5f * s;
-            dc->DrawLine(D2D1::Point2F(gr.left + 2.0f * s, gr.bottom - 2.0f * s),
-                         D2D1::Point2F(gr.right - 2.0f * s, gr.top + 2.0f * s), gripBrush.Get(), lw);
-            dc->DrawLine(D2D1::Point2F(gr.left + 5.0f * s, gr.bottom - 2.0f * s),
-                         D2D1::Point2F(gr.right - 2.0f * s, gr.top + 5.0f * s), gripBrush.Get(), lw);
+            // Top-Left grip
+            dc->FillRectangle(minimap.resizeGripRectTL, backBrush.Get());
+            dc->DrawLine(D2D1::Point2F(minimap.resizeGripRectTL.left + 2.0f * s, minimap.resizeGripRectTL.bottom - 2.0f * s),
+                         D2D1::Point2F(minimap.resizeGripRectTL.right - 2.0f * s, minimap.resizeGripRectTL.top + 2.0f * s), gripBrush.Get(), lw);
+            dc->DrawLine(D2D1::Point2F(minimap.resizeGripRectTL.left + 5.0f * s, minimap.resizeGripRectTL.bottom - 2.0f * s),
+                         D2D1::Point2F(minimap.resizeGripRectTL.right - 2.0f * s, minimap.resizeGripRectTL.top + 5.0f * s), gripBrush.Get(), lw);
+            // Bottom-Right grip
+            dc->FillRectangle(minimap.resizeGripRectBR, backBrush.Get());
+            dc->DrawLine(D2D1::Point2F(minimap.resizeGripRectBR.left + 2.0f * s, minimap.resizeGripRectBR.bottom - 2.0f * s),
+                         D2D1::Point2F(minimap.resizeGripRectBR.right - 2.0f * s, minimap.resizeGripRectBR.top + 2.0f * s), gripBrush.Get(), lw);
+            dc->DrawLine(D2D1::Point2F(minimap.resizeGripRectBR.left + 5.0f * s, minimap.resizeGripRectBR.bottom - 2.0f * s),
+                         D2D1::Point2F(minimap.resizeGripRectBR.right - 2.0f * s, minimap.resizeGripRectBR.top + 5.0f * s), gripBrush.Get(), lw);
         }
         
         D2D1_MATRIX_3X2_F oldTransform{};

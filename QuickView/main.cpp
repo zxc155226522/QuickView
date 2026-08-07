@@ -6658,6 +6658,7 @@ struct MinimapHitResult {
     bool isInner = false;
     bool isEdge = false;
     bool isResize = false;
+    int resizeCorner = -1; // 命中的缩放角: 0=TL(左上), 2=BR(右下)
 };
 
 static MinimapHitResult HitTestMinimaps(POINT pt) {
@@ -6684,9 +6685,15 @@ static MinimapHitResult HitTestMinimaps(POINT pt) {
             pt.y >= minimap.innerRect.top && pt.y <= minimap.innerRect.bottom) {
             MinimapHitResult res;
             res.minimapIdx = idx;
-            if (pt.x >= minimap.resizeGripRect.left && pt.x <= minimap.resizeGripRect.right &&
-                pt.y >= minimap.resizeGripRect.top && pt.y <= minimap.resizeGripRect.bottom) {
+            const float grip = 16.0f * s;
+            bool inTL = (pt.x <= minimap.innerRect.left + grip && pt.y <= minimap.innerRect.top + grip);
+            bool inBR = (pt.x >= minimap.innerRect.right - grip && pt.y >= minimap.innerRect.bottom - grip);
+            if (inTL) {
                 res.isResize = true;
+                res.resizeCorner = 0; // 左上
+            } else if (inBR) {
+                res.isResize = true;
+                res.resizeCorner = 2; // 右下
             } else {
                 res.isInner = true;
             }
@@ -7849,10 +7856,28 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
                   g_currentCursor = LoadCursor(nullptr, IDC_HAND);
               } else if (minimap.isResizing) {
                   float s = g_uiScale;
-                  float anchorX = (g_config.NavigatorAlignX == 0) ? minimap.layoutRect.left : minimap.layoutRect.right;
-                  float anchorY = (g_config.NavigatorAlignY == 0) ? minimap.layoutRect.top : minimap.layoutRect.bottom;
-                  float desiredW = std::abs((float)pt.x - anchorX);
-                  float desiredH = std::abs((float)pt.y - anchorY);
+                  int corner = minimap.resizeCorner; // 0=TL, 2=BR
+                  RECT rcClient; GetClientRect(hwnd, &rcClient);
+                  float winW = (float)(rcClient.right - rcClient.left);
+                  float winH = (float)(rcClient.bottom - rcClient.top);
+                  float topOffset = 0.0f;
+                  if (winW >= (float)rcClient.right - 1.0f && g_showControls) topOffset += 32.0f * s;
+                  float fixedX = 0.0f, fixedY = 0.0f;
+                  if (corner == 0) {
+                      // 拖左上角 -> 以右下角为固定锚点 (对齐右下)，反算 offset 使右下角不跳变
+                      g_config.NavigatorAlignX = 1; g_config.NavigatorAlignY = 1;
+                      fixedX = minimap.layoutRect.right; fixedY = minimap.layoutRect.bottom;
+                      g_config.NavigatorOffsetX = (winW - fixedX) / s;
+                      g_config.NavigatorOffsetY = (winH - fixedY) / s;
+                  } else {
+                      // 拖右下角 -> 以左上角为固定锚点 (对齐左上)，反算 offset 使左上角不跳变
+                      g_config.NavigatorAlignX = 0; g_config.NavigatorAlignY = 0;
+                      fixedX = minimap.layoutRect.left; fixedY = minimap.layoutRect.top;
+                      g_config.NavigatorOffsetX = (fixedX - 0.0f) / s;
+                      g_config.NavigatorOffsetY = (fixedY - topOffset) / s;
+                  }
+                  float desiredW = std::abs((float)pt.x - fixedX);
+                  float desiredH = std::abs((float)pt.y - fixedY);
                   float longEdge = (std::max)(desiredW, desiredH);
                   float base = 150.0f * s;
                   float scale = (std::max)(0.4f, (std::min)(longEdge / base, 4.0f));
@@ -8798,6 +8823,7 @@ SKIP_EDGE_NAV:;
                 return 0;
             } else if (miniHit.isResize) {
                 minimap.isResizing = true;
+                minimap.resizeCorner = miniHit.resizeCorner;
                 SetCapture(hwnd);
                 return 0;
             } else if (miniHit.isEdge) {
