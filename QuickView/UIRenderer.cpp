@@ -5959,7 +5959,7 @@ void UIRenderer::DrawNavigator(ID2D1DeviceContext* dc) {
         
         if (!shouldShow) continue;
         
-        float maxDim = 100.0f * s * g_config.NavigatorScale;
+        float maxDim = 150.0f * s * g_config.NavigatorScale;
         float minimapW = maxDim;
         float minimapH = maxDim;
         float aspectRatio = orientedSize.width / orientedSize.height;
@@ -6041,8 +6041,7 @@ void UIRenderer::DrawNavigator(ID2D1DeviceContext* dc) {
         dc->FillRoundedRectangle(roundedRect, bgBrush.Get());
 
         // Resize handles (TL + BR): dark backing + white diagonal lines (visible on any background)
-        // Only shown when hovered or actively resizing (keeps the UI clean by default)
-        if (minimap.hovered || minimap.isResizing) {
+        {
             ComPtr<ID2D1SolidColorBrush> backBrush;
             dc->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.30f), &backBrush);
             ComPtr<ID2D1SolidColorBrush> gripBrush;

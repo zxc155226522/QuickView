@@ -7915,10 +7915,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
                   }
                   g_currentCursor = LoadCursor(nullptr, IDC_HAND);
               } else {
-                  if (!minimap.hovered) {
-                      minimap.hovered = true;
-                      repaintStatic = true;
-                  }
                   if (minimap.isCloseHovered) {
                       minimap.isCloseHovered = false;
                       repaintStatic = true;
@@ -7944,7 +7940,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
                   auto& m = AppContext::GetInstance().Minimaps[idx];
                   if (m.isCloseHovered) { m.isCloseHovered = false; repaintStatic = true; }
                   if (m.isEdgeHovered) { m.isEdgeHovered = false; }
-                  if (m.hovered) { m.hovered = false; repaintStatic = true; }
               }
               if (repaintStatic) {
                   RequestRepaint(PaintLayer::Static);
