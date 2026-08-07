@@ -4614,7 +4614,7 @@ g_config.AlwaysOnTop = GetPrivateProfileIntW(L"View", L"AlwaysOnTop", 0, iniPath
     // The custom title bar and its controls are always visible in windowed mode.
     g_config.AutoHideWindowControls = false;
     g_config.LockBottomToolbar = GetPrivateProfileIntW(L"View", L"LockBottomToolbar", 1, iniPath.c_str()) != 0;
-    g_config.ShowBorderIndicator = GetPrivateProfileIntW(L"View", L"ShowBorderIndicator", 1, iniPath.c_str());
+    g_config.ShowBorderIndicator = GetPrivateProfileIntW(L"View", L"ShowBorderIndicator", 0, iniPath.c_str());
     wchar_t bufBICR[32], bufBICG[32], bufBICB[32];
     GetPrivateProfileStringW(L"View", L"BorderIndicatorCustomR", L"0.2", bufBICR, 32, iniPath.c_str());
     g_config.BorderIndicatorCustomR = (float)_wtof(bufBICR);
