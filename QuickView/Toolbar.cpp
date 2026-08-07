@@ -24,7 +24,6 @@ Toolbar::Toolbar() {
       {ToolbarButtonID::RotateR, Icons::Transform, {}, true},
       {ToolbarButtonID::FlipH, Icons::Flip, {}, true},
 
-      {ToolbarButtonID::LockSize, Icons::Lock, {}, true, false},
       {ToolbarButtonID::Gallery, Icons::Gallery, {}, true},
 
       {ToolbarButtonID::Exif, Icons::Info, {}, true, false},
@@ -58,8 +57,6 @@ Toolbar::Toolbar() {
       // Slideshow mode buttons
       {ToolbarButtonID::SlideshowImmersiveToggle, Icons::Eye, {}, true, false},
       {ToolbarButtonID::SlideshowExit,            Icons::ExitToolbar, {}, true, false},
-      // Pin at the very end
-      {ToolbarButtonID::Pin, Icons::Pin, {}, true, false},
   };
 }
 
@@ -181,9 +178,7 @@ void Toolbar::UpdateLayout(float winW, float winH) {
   // Each table lists groups of buttons to hide in order of decreasing priority.
   // The LAST group in each table is the "core" group — if it can't fit, hide the entire toolbar.
   static constexpr ResponsiveHideGroup kNormalHideOrder[] = {
-      {ToolbarButtonID::Pin},
       {ToolbarButtonID::FlipH},
-      {ToolbarButtonID::LockSize},
       {ToolbarButtonID::Gallery},
       {ToolbarButtonID::CompareToggle},
       {ToolbarButtonID::Exif},
@@ -191,7 +186,6 @@ void Toolbar::UpdateLayout(float winW, float winH) {
       {ToolbarButtonID::Prev, ToolbarButtonID::Next},  // Core — hide => hide toolbar
   };
   static constexpr ResponsiveHideGroup kCompareHideOrder[] = {
-      {ToolbarButtonID::Pin},
       {ToolbarButtonID::CompareOpen},
       {ToolbarButtonID::CompareSwap},
       {ToolbarButtonID::CompareDelete},
@@ -204,8 +198,6 @@ void Toolbar::UpdateLayout(float winW, float winH) {
       {ToolbarButtonID::CompareExit},  // Core
   };
   static constexpr ResponsiveHideGroup kAnimHideOrder[] = {
-      {ToolbarButtonID::Pin},
-      {ToolbarButtonID::LockSize},
       {ToolbarButtonID::Exif},
       {ToolbarButtonID::AnimDirtyRect},
       {ToolbarButtonID::Prev, ToolbarButtonID::Next},
@@ -214,8 +206,6 @@ void Toolbar::UpdateLayout(float winW, float winH) {
       {ToolbarButtonID::AnimPlayPause},  // Core
   };
   static constexpr ResponsiveHideGroup kComicHideOrder[] = {
-      {ToolbarButtonID::Pin},
-      {ToolbarButtonID::LockSize},
       {ToolbarButtonID::Gallery},
       {ToolbarButtonID::CompareToggle},
       {ToolbarButtonID::Exif},
@@ -223,8 +213,6 @@ void Toolbar::UpdateLayout(float winW, float winH) {
   };
   // Overlay mode: minimal buttons, less likely to overflow but still covered
   static constexpr ResponsiveHideGroup kOverlayHideOrder[] = {
-      {ToolbarButtonID::Pin},
-      {ToolbarButtonID::LockSize},
       {ToolbarButtonID::CompareZoomIn, ToolbarButtonID::CompareZoomOut},
       {ToolbarButtonID::OverlayPassthrough},
       {ToolbarButtonID::OverlayAlphaUp, ToolbarButtonID::OverlayAlphaDown},
@@ -232,7 +220,6 @@ void Toolbar::UpdateLayout(float winW, float winH) {
   };
 
   static constexpr ResponsiveHideGroup kSlideshowHideOrder[] = {
-      {ToolbarButtonID::Pin},
       {ToolbarButtonID::Exif},
       {ToolbarButtonID::Gallery},
       {ToolbarButtonID::SlideshowImmersiveToggle},
@@ -292,7 +279,7 @@ void Toolbar::UpdateLayout(float winW, float winH) {
 
     if (m_slideshowMode) {
       // White-list slideshow controls (play group, immersive toggle, exit, gallery, exif, pin)
-      if (isSlideshowButton(btn.id) || btn.id == ToolbarButtonID::Gallery || btn.id == ToolbarButtonID::Exif || btn.id == ToolbarButtonID::Pin) {
+      if (isSlideshowButton(btn.id) || btn.id == ToolbarButtonID::Gallery || btn.id == ToolbarButtonID::Exif) {
         return btn.isEnabled;
       }
       return false;
@@ -300,13 +287,13 @@ void Toolbar::UpdateLayout(float winW, float winH) {
 
     if (m_overlayMode) {
       if (isOverlayButton(btn.id)) return true;
-      if (btn.id == ToolbarButtonID::CompareZoomIn || btn.id == ToolbarButtonID::CompareZoomOut || btn.id == ToolbarButtonID::LockSize) return true;
+      if (btn.id == ToolbarButtonID::CompareZoomIn || btn.id == ToolbarButtonID::CompareZoomOut) return true;
       if (isAlwaysVisible(btn.id)) return true;
       return false;
     }
     if (m_animMode || m_slideshowMode) {
       if (btn.id == ToolbarButtonID::AnimDirtyRect) return m_animMode && g_config.ShowDirtyRectButton;
-      if (btn.id == ToolbarButtonID::Prev || btn.id == ToolbarButtonID::Next || btn.id == ToolbarButtonID::Exif || btn.id == ToolbarButtonID::LockSize) return true;
+      if (btn.id == ToolbarButtonID::Prev || btn.id == ToolbarButtonID::Next || btn.id == ToolbarButtonID::Exif) return true;
       if (isAnimButton(btn.id)) return true;
       if (isAlwaysVisible(btn.id)) return true;
       return false;
