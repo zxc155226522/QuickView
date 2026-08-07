@@ -5959,15 +5959,9 @@ void UIRenderer::DrawNavigator(ID2D1DeviceContext* dc) {
         
         if (!shouldShow) continue;
         
-        float maxDim = 150.0f * s * g_config.NavigatorScale;
-        float minimapW = maxDim;
-        float minimapH = maxDim;
-        float aspectRatio = orientedSize.width / orientedSize.height;
-        if (aspectRatio > 1.0f) {
-            minimapH = maxDim / aspectRatio;
-        } else {
-            minimapW = maxDim * aspectRatio;
-        }
+        // 固定尺寸矩形：尺寸由 NavigatorW/H 记忆，不随图像比例变化；图像在框内等比内含（留白）
+        float minimapW = g_config.NavigatorW * s;
+        float minimapH = g_config.NavigatorH * s;
         minimapW = (std::max)(minimapW, 40.0f * s);
         minimapH = (std::max)(minimapH, 40.0f * s);
         

@@ -4286,7 +4286,8 @@ void SaveConfig() {
     WriteConfigInt(L"View", L"NavigatorOffsetY", g_config.NavigatorOffsetY, iniPath.c_str());
     WriteConfigInt(L"View", L"NavigatorAlignX", g_config.NavigatorAlignX, iniPath.c_str());
     WriteConfigInt(L"View", L"NavigatorAlignY", g_config.NavigatorAlignY, iniPath.c_str());
-    WriteConfigFloat(L"View", L"NavigatorScale", g_config.NavigatorScale, iniPath.c_str());
+    WriteConfigInt(L"View", L"NavigatorW", g_config.NavigatorW, iniPath.c_str());
+    WriteConfigInt(L"View", L"NavigatorH", g_config.NavigatorH, iniPath.c_str());
 
     WriteConfigInt(L"View", L"InfoPanelX", g_config.InfoPanelX, iniPath.c_str());
     WriteConfigInt(L"View", L"InfoPanelY", g_config.InfoPanelY, iniPath.c_str());
@@ -4617,9 +4618,18 @@ g_config.AlwaysOnTop = GetPrivateProfileIntW(L"View", L"AlwaysOnTop", 0, iniPath
     g_config.NavigatorOffsetY = (float)_wtof(bufNavY);
     g_config.NavigatorAlignX = GetPrivateProfileIntW(L"View", L"NavigatorAlignX", 1, iniPath.c_str());
     g_config.NavigatorAlignY = GetPrivateProfileIntW(L"View", L"NavigatorAlignY", 1, iniPath.c_str());
-    wchar_t bufNavScale[32];
-    GetPrivateProfileStringW(L"View", L"NavigatorScale", L"1.0", bufNavScale, 32, iniPath.c_str());
-    g_config.NavigatorScale = (float)_wtof(bufNavScale);
+    // 鸟瞰图固定尺寸（逻辑px）：优先读 NavigatorW/H；兼容旧版 NavigatorScale（等比单倍率）
+    int navW = GetPrivateProfileIntW(L"View", L"NavigatorW", 150, iniPath.c_str());
+    int navH = GetPrivateProfileIntW(L"View", L"NavigatorH", 150, iniPath.c_str());
+    if (navW == 150 && navH == 150) {
+        wchar_t bufNavScale[32];
+        GetPrivateProfileStringW(L"View", L"NavigatorScale", L"1.0", bufNavScale, 32, iniPath.c_str());
+        float legacy = (float)_wtof(bufNavScale);
+        if (legacy != 1.0f) { navW = (int)(150.0f * legacy); navH = (int)(150.0f * legacy); }
+    }
+    const int NAV_MIN = 60, NAV_MAX = 600;
+    g_config.NavigatorW = (std::max)(NAV_MIN, (std::min)(navW, NAV_MAX));
+    g_config.NavigatorH = (std::max)(NAV_MIN, (std::min)(navH, NAV_MAX));
 
     wchar_t bufInfoX[32], bufInfoY[32];
     GetPrivateProfileStringW(L"View", L"InfoPanelX", L"16.0", bufInfoX, 32, iniPath.c_str());
@@ -7812,8 +7822,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
                   float minimapW = minimap.layoutRect.right - minimap.layoutRect.left;
                   float minimapH = minimap.layoutRect.bottom - minimap.layoutRect.top;
                   float s = g_uiScale;
-                  if (minimapW <= 0.0f) minimapW = 150.0f * s;
-                  if (minimapH <= 0.0f) minimapH = 150.0f * s;
+                  if (minimapW <= 0.0f) minimapW = g_config.NavigatorW * s;
+                  if (minimapH <= 0.0f) minimapH = g_config.NavigatorH * s;
                   
                   float topOffset = 0.0f;
                   if (vpLeft + vpW >= winW - 1.0f && g_showControls) {
@@ -7876,12 +7886,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
                       g_config.NavigatorOffsetX = (fixedX - 0.0f) / s;
                       g_config.NavigatorOffsetY = (fixedY - topOffset) / s;
                   }
-                  float desiredW = std::abs((float)pt.x - fixedX);
-                  float desiredH = std::abs((float)pt.y - fixedY);
-                  float longEdge = (std::max)(desiredW, desiredH);
-                  float base = 150.0f * s;
-                  float scale = (std::max)(0.4f, (std::min)(longEdge / base, 4.0f));
-                  g_config.NavigatorScale = scale;
+                  // 自由尺寸：W/H 各自跟随鼠标，不锁比例；固定对面角不动
+                  const int NAV_MIN = 60, NAV_MAX = 600;
+                  int newW = (int)(std::abs((float)pt.x - fixedX) / s + 0.5f);
+                  int newH = (int)(std::abs((float)pt.y - fixedY) / s + 0.5f);
+                  g_config.NavigatorW = (std::max)(NAV_MIN, (std::min)(newW, NAV_MAX));
+                  g_config.NavigatorH = (std::max)(NAV_MIN, (std::min)(newH, NAV_MAX));
                   RequestRepaint(PaintLayer::Static | PaintLayer::Dynamic);
                   KillTimer(hwnd, IDT_NAVIGATOR_SAVE);
                   SetTimer(hwnd, IDT_NAVIGATOR_SAVE, 500, nullptr);
