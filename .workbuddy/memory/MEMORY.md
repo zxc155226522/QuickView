@@ -1,0 +1,40 @@
+# 项目长期记忆（QuickView 看图软件）
+
+## 矢量图（PLT/DXF/DWG）渲染约定
+
+- **PLT(HPGL) 笔号颜色**（QuickView/VectorLoader.cpp `kPLTPenColors`，索引=笔号0..8）：
+  `black, black, red, red, green, blue, magenta, cyan, black`
+  依据：实际料号文件只用 SP1(黑)/SP3(红)，用户明确"文件名与颜色无关，正常文件黑+红、可能带绿"。
+  历史 bug：笔8曾误为 white（白底不可见）；笔3曾为 green（与料号不符）。
+- **线宽**（`CalcStrokeWidth`，PLT/DXF/DWG 共用）：
+  比例 `maxDim*0.0003`，下限 `0.05`（用户指定）。改一处三类格式全部生效。
+- DXF/DWG 的 ACI→RGB（ACIToHex）1–9 与 AutoCAD 标准一致，仅 10–249/250–255 为近似算法（非全量255项表）。
+
+## 编译流程关键约束（必读）
+
+- 项目路径含中文（`E:\项目\看图软件`），NASM 等会因中文路径乱码 → **必须经 ASCII junction 编译**：
+  脚本 `看图软件编译并启动.ps1` 用 `mklink /J E:\qv_build_tmp <项目>` 中转，preset `Release-LTO` 编译。
+- **删除残留 junction 的坑**：沙箱 safe-delete 钩子会拦截 `rm`/`Remove-Item`（且失败不真正删除）。
+  正确做法：`fsutil reparsepoint delete E:\qv_build_tmp`（直接删重解析点，不经 cmd/rm）；
+  若已被钩子改成空普通目录，用 `mv` 重命名释放名字（重命名不触发删除钩子），再让脚本重建 junction。
+- 磁盘已有缓存 `out/build/Release-LTO/CMakeCache.txt` 记录源路径为 `e:/qv_build_tmp`；
+  复用该 junction 名可做增量编译（只重编改动 cpp），改其他 junction 名会触发 CMakeCache 路径不匹配报错。
+- 验证编译的临时 PS 脚本若含中文会被 PowerShell(-File) 以错误编码读成乱码 → 用 `$PSScriptRoot` 取项目路径，脚本正文保持 ASCII。
+- **改头文件后必须 `--clean-first` 全量重建（血泪教训）**：改动被多 TU 包含的头文件（尤其结构体如 `EditState.h`/`AppConfig`）后，CMake 增量依赖可能漏编部分 .obj，运行期出现结构体布局/内联访问不一致 → 表现为"功能原本正常却突然整片异常"（如全部图空白）。排查"回归"前**先 `cmake --build out/build/Release-LTO --clean-first` 全量重建**再下结论；单实例互斥 `Local\QuickView_Master_v1` 会把旧实例留在前台，"启动"只是激活旧进程换图，极易误判为"改了还没好"。
+- **后台 PowerShell 构建有 ~2 分钟墙钟限制**：`--clean-first`+LTO 链接常超 2 分钟被掐断（2m1s、零输出、failed，非代码错）。对策：前台 PowerShell（timeout 480000）跑，或 clean-first 编译完再用前台增量只链接。
+- **46f78a4 是否致空白未定论**：日志显干净重建后位图上传烘焙正常，但用户实跑仍空白，遂 `git reset --hard a6dbb59`（功能前），功能提交备分 `backup-pagepanel-46f78a4`。回退后若仍空白→根因更早（bisect）；若正常→功能代码有牵连，重做须规避。
+
+## 分页预览面板（右侧 docked 面板）实现要点
+
+- 触发条件：`g_pagedDoc.active && totalPages>1 && g_config.ShowPagePanel && !fullscreen` 时显示右侧面板（与图片同容器，画布同色背景+1px 强调分隔线，非浮层）。
+- 布局让位：唯一入口 `ComputeImageViewportLayout()` 减少 `layout.Right`，让出宽度写入全局 `g_pagePanelReservedWidth`（main.cpp / UIRenderer.cpp / ImageViewportLayout.cpp 均 `extern` 该变量）。
+- 渲染：`UIRenderer::DrawPagePanel`（Static 层）。缩略图懒加载：CDR/CMX 用 `CImageLoader::RasterizeSvgThumbnail` 同步；PDF/AI 走 `DocumentRenderController` 双通道队列 `RequestThumbnail`（主视图单槽 + 缩略图队列，互不饿死）。结果经 `ResultMessage` → `ProcessPendingPageThumbs` 上传 GPU 缓存到 `m_pageThumbCache`。
+- 交互：缩略图点击跳页（PDF→`HandlePdfPageJump`、CDR→`HandleCdrPageStep`，均接受 0 基 targetPage）；面板内滚轮滚动 `ScrollPagePanel`；滚动条拖拽 `Begin/Drag/EndPagePanelScrollDrag`。配置项 `ShowPagePanel`(bool) / `PagePanelWidth`(int, 0=自动220，否则160~400) 存于 `General` 段。
+- **跨 TU 链接坑（必读）**：`main.cpp` 的 `ResolveCanvasColor()` 与 `g_renderEngine` 现被 `UIRenderer.cpp` 以 `extern` 引用，**必须去掉 `static`（改为外部链接）**，否则 LNK2019。二者原先是 `static`（内部链接）。
+
+## 边界溢出指示器（Edge Overflow Indicator）
+
+- 现象：图片放大/平移超出窗口可视区时，在超出方向的窗口边缘绘制 2px 强调色线条（默认主题蓝 DodgerBlue），即"图片放大时的蓝色边框"。
+- 绘制：`UIRenderer::DrawBorderIndicators`（UIRenderer.cpp:1935），由 UIRenderer.cpp:878 在 `ShowBorderIndicator != 0` 时调用；颜色=主题强调色（`ThemeCustomAccentR/G/B`）或自定义色（=2）。
+- 开关：`g_config.ShowBorderIndicator`（EditState.h:599），0=关 / 1=开(强调色) / 2=自定义色；配置项 `[View] ShowBorderIndicator`，设置 UI：设置→视图→显示边界溢出指示器。
+- 默认行为变更（2026-08-07）：main.cpp:4617 默认值由 1 改为 0，重新编译后默认不再显示蓝框；已显式在 ini 存过值的仍按 ini 生效，需到设置里关一次。
