@@ -37,6 +37,11 @@ extern int   g_spinnerCx;
 extern int   g_spinnerCy;
 extern float g_spinnerR;
 
+// [加载环] 取消✕按钮命中几何（板右上角，由 UIRenderer 写入，main.cpp 鼠标命中测试读取）
+extern int   g_spinnerCancelX;
+extern int   g_spinnerCancelY;
+extern float g_spinnerCancelR;
+
 // 延迟门阈值：加载超过此时长(ms)才显示转圈环，快图(<~180ms)直接出图不闪
 constexpr uint64_t kLoadSpinnerDelayMs = 180;
 

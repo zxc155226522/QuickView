@@ -1770,20 +1770,50 @@ void UIRenderer::DrawLoadingSpinner(ID2D1DeviceContext* dc, HWND hwnd) {
     const float H = (m_height > 0) ? (float)m_height : 0.0f;
     if (W <= 0 || H <= 0) return;
 
-    // 缩略图在其后调暗
+    const float s = (m_uiScale > 0) ? m_uiScale : 1.0f;
+
+    // 缩略图在其后整体调暗，确保组件在任何背景图上可读
     ComPtr<ID2D1SolidColorBrush> dimBrush;
     dc->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.22f), &dimBrush);
     dc->FillRectangle(D2D1::RectF(0.0f, 0.0f, W, H), dimBrush.Get());
 
-    const float s = (m_uiScale > 0) ? m_uiScale : 1.0f;
     const float cx = W * 0.5f;
     const float cy = H * 0.5f;
-    const float R = 34.0f * s;
-    const float strokeW = 4.0f * s;
 
-    // 记录点击命中几何（供 main.cpp 鼠标命中测试）
-    g_spinnerCx = (int)cx;
-    g_spinnerCy = (int)cy;
+    // —— 半透明圆角背景板 + 阴影（适配不同背景图）——
+    const float bw = 210.0f * s;            // 板宽
+    const float bh = 178.0f * s;            // 板高
+    const float br = 16.0f * s;             // 圆角半径
+    const float bx0 = cx - bw * 0.5f;
+    const float by0 = cy - bh * 0.5f;
+
+    // 阴影层（向下偏移的半透明黑圆角矩形）
+    ComPtr<ID2D1SolidColorBrush> shadowBrush;
+    dc->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.35f), &shadowBrush);
+    dc->FillRoundedRectangle(D2D1::RoundedRect(
+        D2D1::RectF(bx0, by0 + 6.0f * s, bx0 + bw, by0 + bh + 6.0f * s), br, br), shadowBrush.Get());
+
+    // 主背景板（深色半透明：白字在亮/暗背景图上都清晰）
+    ComPtr<ID2D1SolidColorBrush> boardBrush;
+    dc->CreateSolidColorBrush(D2D1::ColorF(0.06f, 0.06f, 0.08f, 0.66f), &boardBrush);
+    dc->FillRoundedRectangle(D2D1::RoundedRect(
+        D2D1::RectF(bx0, by0, bx0 + bw, by0 + bh), br, br), boardBrush.Get());
+
+    // 细边框（精致感）
+    ComPtr<ID2D1SolidColorBrush> borderBrush;
+    dc->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.10f), &borderBrush);
+    dc->DrawRoundedRectangle(D2D1::RoundedRect(
+        D2D1::RectF(bx0, by0, bx0 + bw, by0 + bh), br, br), borderBrush.Get(), 1.0f * s);
+
+    // 环几何（板上偏上，与下方文字/右上角✕互不遮挡）
+    const float R = 32.0f * s;
+    const float strokeW = 4.0f * s;
+    const float ringCx = cx;
+    const float ringCy = by0 + 58.0f * s;
+
+    // 记录点击命中几何（供 main.cpp 鼠标命中测试：点环可取消）
+    g_spinnerCx = (int)ringCx;
+    g_spinnerCy = (int)ringCy;
     g_spinnerR = R;
 
     // 旋转相位
@@ -1796,7 +1826,7 @@ void UIRenderer::DrawLoadingSpinner(ID2D1DeviceContext* dc, HWND hwnd) {
     // 轨道底环
     ComPtr<ID2D1SolidColorBrush> trackBrush;
     dc->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.18f), &trackBrush);
-    dc->DrawEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), R, R), trackBrush.Get(), strokeW);
+    dc->DrawEllipse(D2D1::Ellipse(D2D1::Point2F(ringCx, ringCy), R, R), trackBrush.Get(), strokeW);
 
     ComPtr<ID2D1Factory> factory;
     dc->GetFactory(&factory);
@@ -1809,11 +1839,11 @@ void UIRenderer::DrawLoadingSpinner(ID2D1DeviceContext* dc, HWND hwnd) {
             if (SUCCEEDED(pg->Open(&sink))) {
                 const float startA = -3.14159265f / 2.0f;
                 const float endA = startA + pct * 2.0f * 3.14159265f;
-                const D2D1_POINT_2F p0 = { cx + R * cosf(startA), cy + R * sinf(startA) };
+                const D2D1_POINT_2F p0 = { ringCx + R * cosf(startA), ringCy + R * sinf(startA) };
                 sink->BeginFigure(p0, D2D1_FIGURE_BEGIN_HOLLOW);
                 const D2D1_ARC_SIZE arcSize = (pct >= 0.5f) ? D2D1_ARC_SIZE_LARGE : D2D1_ARC_SIZE_SMALL;
                 sink->AddArc(D2D1::ArcSegment(
-                    D2D1::Point2F(cx + R * cosf(endA), cy + R * sinf(endA)),
+                    D2D1::Point2F(ringCx + R * cosf(endA), ringCy + R * sinf(endA)),
                     D2D1::SizeF(R, R), 0.0f, D2D1_SWEEP_DIRECTION_CLOCKWISE, arcSize));
                 sink->EndFigure(D2D1_FIGURE_END_OPEN);
                 sink->Close();
@@ -1832,10 +1862,10 @@ void UIRenderer::DrawLoadingSpinner(ID2D1DeviceContext* dc, HWND hwnd) {
             if (SUCCEEDED(cg->Open(&sink))) {
                 const float a0 = m_spinnerPhase * 2.0f * 3.14159265f - 3.14159265f / 2.0f;
                 const float a1 = a0 + 0.55f;
-                const D2D1_POINT_2F c0 = { cx + R * cosf(a0), cy + R * sinf(a0) };
+                const D2D1_POINT_2F c0 = { ringCx + R * cosf(a0), ringCy + R * sinf(a0) };
                 sink->BeginFigure(c0, D2D1_FIGURE_BEGIN_HOLLOW);
                 sink->AddArc(D2D1::ArcSegment(
-                    D2D1::Point2F(cx + R * cosf(a1), cy + R * sinf(a1)),
+                    D2D1::Point2F(ringCx + R * cosf(a1), ringCy + R * sinf(a1)),
                     D2D1::SizeF(R, R), 0.0f, D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
                 sink->EndFigure(D2D1_FIGURE_END_OPEN);
                 sink->Close();
@@ -1869,23 +1899,46 @@ void UIRenderer::DrawLoadingSpinner(ID2D1DeviceContext* dc, HWND hwnd) {
     swprintf_s(pctBuf, L"%d%%", (int)(pct * 100.0f + 0.5f));
     ComPtr<ID2D1SolidColorBrush> textBrush;
     dc->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.96f), &textBrush);
-    const D2D1_RECT_F pctRect = D2D1::RectF(cx - R, cy - R * 0.6f, cx + R, cy + R * 0.6f);
+    const D2D1_RECT_F pctRect = D2D1::RectF(ringCx - R, ringCy - R * 0.6f, ringCx + R, ringCy + R * 0.6f);
     if (m_spinnerFormat) dc->DrawText(pctBuf, (UINT32)wcslen(pctBuf), m_spinnerFormat.Get(), pctRect, textBrush.Get());
 
     // 加载速度（环下方）
     wchar_t spdBuf[32];
     swprintf_s(spdBuf, L"%.1f MB/s", mbps);
-    const D2D1_RECT_F spdRect = D2D1::RectF(cx - R * 1.6f, cy + R * 0.55f, cx + R * 1.6f, cy + R * 0.55f + 20.0f * s);
+    const float spdY = ringCy + R + 14.0f * s;
+    const D2D1_RECT_F spdRect = D2D1::RectF(bx0, spdY, bx0 + bw, spdY + 20.0f * s);
     if (m_spinnerSubFormat) dc->DrawText(spdBuf, (UINT32)wcslen(spdBuf), m_spinnerSubFormat.Get(), spdRect, textBrush.Get());
 
     // 取消按钮（环下方的小 ✕）
-    const float bx = cx;
-    const float by = cy + R + 16.0f * s;
-    const float bh = 6.0f * s;
+    // 已加载 / 总大小（速度下方一行，自适应 MB/KB）
+    wchar_t sizeBuf[48];
+    const uint64_t totalBytes = g_loadProgress.fileSize;
+    const float totalMB = (float)totalBytes / (1024.0f * 1024.0f);
+    const float loadedMB = pct * totalMB;
+    if (totalMB >= 1.0f) {
+        swprintf_s(sizeBuf, L"%.1f / %.1f MB", loadedMB, totalMB);
+    } else {
+        swprintf_s(sizeBuf, L"%.0f / %.0f KB", loadedMB * 1024.0f, totalMB * 1024.0f);
+    }
+    const float sizeY = spdY + 22.0f * s;
+    const D2D1_RECT_F sizeRect = D2D1::RectF(bx0, sizeY, bx0 + bw, sizeY + 20.0f * s);
+    if (m_spinnerSubFormat) dc->DrawText(sizeBuf, (UINT32)wcslen(sizeBuf), m_spinnerSubFormat.Get(), sizeRect, textBrush.Get());
+
+    // 取消按钮（板右上角，环外，点击可取消）
+    const float xcx = bx0 + bw - 18.0f * s;
+    const float xcy = by0 + 18.0f * s;
+    const float xr = 11.0f * s;
+    g_spinnerCancelX = (int)xcx;
+    g_spinnerCancelY = (int)xcy;
+    g_spinnerCancelR = xr;
+    ComPtr<ID2D1SolidColorBrush> xBgBrush;
+    dc->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.14f), &xBgBrush);
+    dc->FillEllipse(D2D1::Ellipse(D2D1::Point2F(xcx, xcy), xr, xr), xBgBrush.Get());
     ComPtr<ID2D1SolidColorBrush> xBrush;
-    dc->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.7f), &xBrush);
-    dc->DrawLine(D2D1::Point2F(bx - bh, by - bh), D2D1::Point2F(bx + bh, by + bh), xBrush.Get(), 2.0f * s);
-    dc->DrawLine(D2D1::Point2F(bx + bh, by - bh), D2D1::Point2F(bx - bh, by + bh), xBrush.Get(), 2.0f * s);
+    dc->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.85f), &xBrush);
+    const float xh = 4.0f * s;
+    dc->DrawLine(D2D1::Point2F(xcx - xh, xcy - xh), D2D1::Point2F(xcx + xh, xcy + xh), xBrush.Get(), 2.0f * s);
+    dc->DrawLine(D2D1::Point2F(xcx + xh, xcy - xh), D2D1::Point2F(xcx - xh, xcy + xh), xBrush.Get(), 2.0f * s);
 }
 
 

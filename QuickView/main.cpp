@@ -6,6 +6,10 @@ QuickView::LoadProgressState g_loadProgress;
 int   g_spinnerCx = 0;
 int   g_spinnerCy = 0;
 float g_spinnerR  = 0.0f;
+// [加载环] 取消✕按钮命中几何（板右上角）
+int   g_spinnerCancelX = 0;
+int   g_spinnerCancelY = 0;
+float g_spinnerCancelR = 0.0f;
 
 // 前向声明
 static void CancelCurrentLoad(HWND hwnd);
@@ -8845,6 +8849,14 @@ SKIP_EDGE_NAV:;
             int dy = pt.y - g_spinnerCy;
             float rr = g_spinnerR + 12.0f;
             if (dx * dx + dy * dy <= rr * rr) {
+                CancelCurrentLoad(hwnd);
+                return 0;
+            }
+            // 点击取消✕按钮（板右上角）
+            int cdx = pt.x - g_spinnerCancelX;
+            int cdy = pt.y - g_spinnerCancelY;
+            float crr = g_spinnerCancelR + 6.0f;
+            if (cdx * cdx + cdy * cdy <= crr * crr) {
                 CancelCurrentLoad(hwnd);
                 return 0;
             }
