@@ -1775,17 +1775,17 @@ void UIRenderer::DrawLoadingSpinner(ID2D1DeviceContext* dc, HWND hwnd) {
     const float cx = W * 0.5f;
     const float cy = H * 0.5f;
 
-    // 整体内容横向居中宽度（仅用于文字对齐，不再画硬板）
-    const float bw = 220.0f * s;
+    // 整体内容横向居中宽度（仅用于文字对齐，需小于正圆直径避免出圆）
+    const float bw = 150.0f * s;
     const float bx0 = cx - bw * 0.5f;
 
-    // 环几何（偏上，给下方两行文字留空间；与右上角✕互不遮挡）
-    const float R = 32.0f * s;
-    const float strokeW = 4.0f * s;
+    // 环几何（正圆毛玻璃盘内偏上，给下方两行文字留空间；与右上角✕互不遮挡）
+    const float R = 36.0f * s;
+    const float strokeW = 5.0f * s;
     const float ringCx = cx;
-    const float ringCy = cy - 24.0f * s;
+    const float ringCy = cy - 22.0f * s;
 
-    // 柔和暗色光晕（替代硬板：羽化边缘、中心可读、不挡画面）
+    // 柔和暗色正圆光晕（圆形卡片：羽化边缘、中心可读、不挡画面）
     {
         ComPtr<ID2D1GradientStopCollection> glowStops;
         D2D1_GRADIENT_STOP gs[2] = {
@@ -1794,14 +1794,12 @@ void UIRenderer::DrawLoadingSpinner(ID2D1DeviceContext* dc, HWND hwnd) {
         };
         if (SUCCEEDED(dc->CreateGradientStopCollection(gs, 2, &glowStops))) {
             ComPtr<ID2D1RadialGradientBrush> glow;
-            const float glowCy = cy - 4.0f * s;
-            const float glowRx = 140.0f * s;
-            const float glowRy = 92.0f * s;
+            const float glowR = 82.0f * s;
             if (SUCCEEDED(dc->CreateRadialGradientBrush(
                     D2D1::RadialGradientBrushProperties(
-                        D2D1::Point2F(cx, glowCy), D2D1::Point2F(0.0f, 0.0f), glowRx, glowRy),
+                        D2D1::Point2F(cx, cy), D2D1::Point2F(0.0f, 0.0f), glowR, glowR),
                     glowStops.Get(), &glow))) {
-                dc->FillEllipse(D2D1::Ellipse(D2D1::Point2F(cx, glowCy), glowRx, glowRy), glow.Get());
+                dc->FillEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), glowR, glowR), glow.Get());
             }
         }
     }
@@ -1919,9 +1917,9 @@ void UIRenderer::DrawLoadingSpinner(ID2D1DeviceContext* dc, HWND hwnd) {
     const D2D1_RECT_F sizeRect = D2D1::RectF(bx0, sizeY, bx0 + bw, sizeY + 20.0f * s);
     if (m_spinnerSubFormat) dc->DrawText(sizeBuf, (UINT32)wcslen(sizeBuf), m_spinnerSubFormat.Get(), sizeRect, textBrush.Get());
 
-    // 取消按钮（光晕右上角，环外，点击可取消）
-    const float xcx = cx + 92.0f * s;
-    const float xcy = cy - 58.0f * s;
+    // 取消按钮（正圆光晕外右上角，环外，点击可取消）
+    const float xcx = cx + 62.0f * s;
+    const float xcy = cy - 62.0f * s;
     const float xr = 11.0f * s;
     g_spinnerCancelX = (int)xcx;
     g_spinnerCancelY = (int)xcy;
