@@ -1775,34 +1775,70 @@ void UIRenderer::DrawLoadingSpinner(ID2D1DeviceContext* dc, HWND hwnd) {
     const float cx = W * 0.5f;
     const float cy = H * 0.5f;
 
-    // 整体内容横向居中宽度（仅用于文字对齐，需小于正圆直径避免出圆）
-    const float bw = 150.0f * s;
-    const float bx0 = cx - bw * 0.5f;
+    // 圆角矩形卡片（替代圆形光晕：承载环与文字，柔和阴影投影以适配任意背景图）
+    const float cardW = 210.0f * s;
+    const float cardH = 188.0f * s;
+    const float radius = 18.0f * s;
+    const float cardX = cx - cardW * 0.5f;
+    const float cardY = cy - cardH * 0.5f;
+    const D2D1_ROUNDED_RECT cardRR = D2D1::RoundedRect(
+        D2D1::RectF(cardX, cardY, cardX + cardW, cardY + cardH), radius, radius);
 
-    // 环几何（正圆毛玻璃盘内偏上，给下方两行文字留空间；与右上角✕互不遮挡）
-    const float R = 36.0f * s;
-    const float strokeW = 5.0f * s;
-    const float ringCx = cx;
-    const float ringCy = cy - 22.0f * s;
-
-    // 柔和暗色正圆光晕（圆形卡片：羽化边缘、中心可读、不挡画面）
+    // 柔和投影：离屏录制白色圆角矩形作遮罩，经 D2D1Shadow 生成真实模糊落影
     {
-        ComPtr<ID2D1GradientStopCollection> glowStops;
-        D2D1_GRADIENT_STOP gs[2] = {
-            { 0.0f, D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.58f) },
-            { 1.0f, D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f) },
-        };
-        if (SUCCEEDED(dc->CreateGradientStopCollection(gs, 2, &glowStops))) {
-            ComPtr<ID2D1RadialGradientBrush> glow;
-            const float glowR = 82.0f * s;
-            if (SUCCEEDED(dc->CreateRadialGradientBrush(
-                    D2D1::RadialGradientBrushProperties(
-                        D2D1::Point2F(cx, cy), D2D1::Point2F(0.0f, 0.0f), glowR, glowR),
-                    glowStops.Get(), &glow))) {
-                dc->FillEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), glowR, glowR), glow.Get());
+        ComPtr<ID2D1Device> device;
+        dc->GetDevice(&device);
+        if (device) {
+            ComPtr<ID2D1DeviceContext> tempDC;
+            device->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &tempDC);
+            if (tempDC) {
+                float dpiX, dpiY;
+                dc->GetDpi(&dpiX, &dpiY);
+                tempDC->SetDpi(dpiX, dpiY);
+                ComPtr<ID2D1CommandList> mask;
+                if (SUCCEEDED(tempDC->CreateCommandList(&mask))) {
+                    tempDC->SetTarget(mask.Get());
+                    tempDC->BeginDraw();
+                    tempDC->Clear(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f));
+                    ComPtr<ID2D1SolidColorBrush> maskBrush;
+                    tempDC->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 1.0f), &maskBrush);
+                    tempDC->FillRoundedRectangle(D2D1::RoundedRect(
+                        D2D1::RectF(0.0f, 0.0f, cardW, cardH), radius, radius), maskBrush.Get());
+                    tempDC->EndDraw();
+                    if (SUCCEEDED(mask->Close())) {
+                        ComPtr<ID2D1Effect> shadow;
+                        if (SUCCEEDED(dc->CreateEffect(CLSID_D2D1Shadow, &shadow))) {
+                            shadow->SetInput(0, mask.Get());
+                            shadow->SetValue(D2D1_SHADOW_PROP_COLOR, D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.45f));
+                            shadow->SetValue(D2D1_SHADOW_PROP_BLUR_STANDARD_DEVIATION, 12.0f * s);
+                            D2D1_POINT_2F shadowPos = D2D1::Point2F(cardX, cardY + 6.0f * s);
+                            dc->DrawImage(shadow.Get(), shadowPos, D2D1_INTERPOLATION_MODE_LINEAR);
+                        }
+                    }
+                }
             }
         }
     }
+
+    // 卡片主体（半透明深色：白字/蓝环在亮或暗背景图上均清晰）
+    ComPtr<ID2D1SolidColorBrush> cardBrush;
+    dc->CreateSolidColorBrush(D2D1::ColorF(0.07f, 0.07f, 0.09f, 0.78f), &cardBrush);
+    dc->FillRoundedRectangle(cardRR, cardBrush.Get());
+
+    // 细边框（精致感）
+    ComPtr<ID2D1SolidColorBrush> cardBorder;
+    dc->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.10f), &cardBorder);
+    dc->DrawRoundedRectangle(cardRR, cardBorder.Get(), 1.0f * s);
+
+    // 整体内容横向居中宽度（仅用于文字对齐，需小于卡片宽避免出框）
+    const float bw = 170.0f * s;
+    const float bx0 = cx - bw * 0.5f;
+
+    // 环几何（卡片内偏上，给下方两行文字留空间；与右上角✕互不遮挡）
+    const float R = 36.0f * s;
+    const float strokeW = 5.0f * s;
+    const float ringCx = cx;
+    const float ringCy = cy - 26.0f * s;
 
     // 记录点击命中几何（供 main.cpp 鼠标命中测试：点环可取消）
     g_spinnerCx = (int)ringCx;
@@ -1917,15 +1953,15 @@ void UIRenderer::DrawLoadingSpinner(ID2D1DeviceContext* dc, HWND hwnd) {
     const D2D1_RECT_F sizeRect = D2D1::RectF(bx0, sizeY, bx0 + bw, sizeY + 20.0f * s);
     if (m_spinnerSubFormat) dc->DrawText(sizeBuf, (UINT32)wcslen(sizeBuf), m_spinnerSubFormat.Get(), sizeRect, textBrush.Get());
 
-    // 取消按钮（正圆光晕外右上角，环外，点击可取消）
-    const float xcx = cx + 62.0f * s;
-    const float xcy = cy - 62.0f * s;
-    const float xr = 11.0f * s;
+    // 取消按钮（卡片内右上角，点击可取消）
+    const float xcx = cardX + cardW - 20.0f * s;
+    const float xcy = cardY + 18.0f * s;
+    const float xr = 10.0f * s;
     g_spinnerCancelX = (int)xcx;
     g_spinnerCancelY = (int)xcy;
     g_spinnerCancelR = xr;
     ComPtr<ID2D1SolidColorBrush> xBgBrush;
-    dc->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.42f), &xBgBrush);
+    dc->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.18f), &xBgBrush);
     dc->FillEllipse(D2D1::Ellipse(D2D1::Point2F(xcx, xcy), xr, xr), xBgBrush.Get());
     ComPtr<ID2D1SolidColorBrush> xBrush;
     dc->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.85f), &xBrush);
