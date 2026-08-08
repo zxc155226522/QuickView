@@ -464,8 +464,10 @@ private:
                                    QuickView::Codec::DecodeResult &result);
 
   // Windows Shell Thumbnail Extractor
+  // cacheOnly=true: 仅取 Windows 已缓存的缩略图(SIIGBF_INCACHEONLY)，未缓存返回失败（瞬时、用于加载占位）
+  // cacheOnly=false: 缓存未命中时让 Shell 按需生成缩略图（与资源管理器一致，用于画廊）
   HRESULT LoadShellThumbnail(LPCWSTR filePath, int targetSize,
-                             ThumbData *pData);
+                             ThumbData *pData, bool cacheOnly = true);
 
   ComPtr<IWICImagingFactory> m_wicFactory;
 

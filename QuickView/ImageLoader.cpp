@@ -3586,7 +3586,7 @@ static void ApplyOrientationToThumbData(CImageLoader::ThumbData *pData,
 }
 
 HRESULT CImageLoader::LoadShellThumbnail(LPCWSTR filePath, int targetSize,
-                                         ThumbData *pData) {
+                                         ThumbData *pData, bool cacheOnly) {
   if (!filePath || !pData || !m_wicFactory)
     return E_INVALIDARG;
 
@@ -3599,20 +3599,20 @@ HRESULT CImageLoader::LoadShellThumbnail(LPCWSTR filePath, int targetSize,
   SIZE size = {targetSize, targetSize};
   HBITMAP hBitmap = nullptr;
 
+  // cacheOnly=true 仅取缓存(INCACHEONLY)；false 则允许 Shell 按需生成缩略图
+  const SIIGBF shellFlags = static_cast<SIIGBF>(
+      cacheOnly ? (SIIGBF_THUMBNAILONLY | SIIGBF_INCACHEONLY)
+                : SIIGBF_THUMBNAILONLY);
+
   // Step 1: Request from shell cache (exactly target size) and strictly NO Icon
   // fallback (SIIGBF_THUMBNAILONLY)
-  hr = imageFactory->GetImage(
-      size, static_cast<SIIGBF>(SIIGBF_THUMBNAILONLY | SIIGBF_INCACHEONLY),
-      &hBitmap);
+  hr = imageFactory->GetImage(size, shellFlags, &hBitmap);
 
   // Step 2: Fallback to System Large Icon Cache size (256) if the requested
   // size failed
   if (FAILED(hr) || !hBitmap) {
     SIZE fallbackSize = {256, 256};
-    hr = imageFactory->GetImage(
-        fallbackSize,
-        static_cast<SIIGBF>(SIIGBF_THUMBNAILONLY | SIIGBF_INCACHEONLY),
-        &hBitmap);
+    hr = imageFactory->GetImage(fallbackSize, shellFlags, &hBitmap);
   }
 
   if (FAILED(hr) || !hBitmap)
@@ -4252,7 +4252,14 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
         QuickView::ExtEqualsIgnoreCase(thumbExt, L".pdf") ||
         QuickView::ExtEqualsIgnoreCase(thumbExt, L".ai");
     if (!isVectorDoc) {
-      if (SUCCEEDED(LoadShellThumbnail(filePath, targetSize, pData))) {
+      if (SUCCEEDED(LoadShellThumbnail(filePath, targetSize, pData,
+                                       /*cacheOnly=*/true))) {
+        return S_OK;
+      }
+      // [New] 缓存未命中：让 Shell 按需生成系统缩略图（与资源管理器一致），
+      // 仍失败再走内嵌预览 / 完整解码缩放兜底。
+      if (SUCCEEDED(LoadShellThumbnail(filePath, targetSize, pData,
+                                       /*cacheOnly=*/false))) {
         return S_OK;
       }
     }
