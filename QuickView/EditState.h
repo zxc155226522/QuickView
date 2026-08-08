@@ -597,6 +597,8 @@ bool SwatchIsCheckerboard[9] = {true, true, true, false, false, false, false, fa
     bool UpscaleSmallImagesWhenLocked = false;
 
     int ShowBorderIndicator = 1; // 0=Off, 1=On (Accent Color), 2=Custom Color
+    int ShowTopProgressBar = 0;   // [加载环] 0=Off(默认不显示头顶进度条), 1=On
+    int LoadingSpinner = 1;       // [加载环] 0=Off, 1=On(默认显示中央转圈加载环)
     float BorderIndicatorCustomR = 0.20f;
     float BorderIndicatorCustomG = 0.60f;
     float BorderIndicatorCustomB = 1.00f;

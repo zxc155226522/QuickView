@@ -363,6 +363,11 @@ private:
     bool m_decodeWasActive = false;
     DWORD m_decodeFinishTime = 0;
     void DrawDecodingStatus(ID2D1DeviceContext* dc, HWND hwnd);
+    // [加载环] 中央转圈加载环
+    float m_spinnerPhase = 0.0f; // 旋转相位(每帧递增)
+    ComPtr<IDWriteTextFormat> m_spinnerFormat;   // 百分比文字格式(惰性创建)
+    ComPtr<IDWriteTextFormat> m_spinnerSubFormat; // 速度/提示文字格式(惰性创建)
+    void DrawLoadingSpinner(ID2D1DeviceContext* dc, HWND hwnd);
     void DrawWelcomeScreen(ID2D1DeviceContext* dc);
     void DrawWelcomeButton(ID2D1DeviceContext* dc, const D2D1_RECT_F& r, const wchar_t* text, const GeekIcons::VectorIcon& icon, int hoverState);
     

@@ -1,4 +1,14 @@
 #include "pch.h"
+#include "LoadProgress.h" // [加载环] 中央转圈加载环进度实体
+
+// [加载环] 全局进度状态与转圈环几何（供 UIRenderer 写入、鼠标命中测试读取）
+QuickView::LoadProgressState g_loadProgress;
+int   g_spinnerCx = 0;
+int   g_spinnerCy = 0;
+float g_spinnerR  = 0.0f;
+
+// 前向声明
+static void CancelCurrentLoad(HWND hwnd);
 #include "QuickViewETW.h"
 static constexpr const char* CURRENT_MODULE = "Main";
 #include "CoroutineTypes.h"
@@ -4276,6 +4286,8 @@ void SaveConfig() {
     WriteConfigBool(L"View", L"AutoHideWindowControls", g_config.AutoHideWindowControls, iniPath.c_str());
     WriteConfigBool(L"View", L"LockBottomToolbar", g_config.LockBottomToolbar, iniPath.c_str());
     WriteConfigInt(L"View", L"ShowBorderIndicator", g_config.ShowBorderIndicator, iniPath.c_str());
+    WriteConfigInt(L"View", L"ShowTopProgressBar", g_config.ShowTopProgressBar, iniPath.c_str());
+    WriteConfigInt(L"View", L"LoadingSpinner", g_config.LoadingSpinner, iniPath.c_str());
     WriteConfigFloat(L"View", L"BorderIndicatorCustomR", g_config.BorderIndicatorCustomR, iniPath.c_str());
     WriteConfigFloat(L"View", L"BorderIndicatorCustomG", g_config.BorderIndicatorCustomG, iniPath.c_str());
     WriteConfigFloat(L"View", L"BorderIndicatorCustomB", g_config.BorderIndicatorCustomB, iniPath.c_str());
@@ -4601,6 +4613,8 @@ g_config.AlwaysOnTop = GetPrivateProfileIntW(L"View", L"AlwaysOnTop", 0, iniPath
     g_config.AutoHideWindowControls = false;
     g_config.LockBottomToolbar = GetPrivateProfileIntW(L"View", L"LockBottomToolbar", 1, iniPath.c_str()) != 0;
     g_config.ShowBorderIndicator = GetPrivateProfileIntW(L"View", L"ShowBorderIndicator", 0, iniPath.c_str());
+    g_config.ShowTopProgressBar = GetPrivateProfileIntW(L"View", L"ShowTopProgressBar", 0, iniPath.c_str());
+    g_config.LoadingSpinner = GetPrivateProfileIntW(L"View", L"LoadingSpinner", 1, iniPath.c_str());
     wchar_t bufBICR[32], bufBICG[32], bufBICB[32];
     GetPrivateProfileStringW(L"View", L"BorderIndicatorCustomR", L"0.2", bufBICR, 32, iniPath.c_str());
     g_config.BorderIndicatorCustomR = (float)_wtof(bufBICR);
@@ -7398,6 +7412,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
         // Titan Base Decode UI Heartbeat (995)
         if (wParam == 995) {
             if (g_isLoading) {
+                // [加载环] 延迟门：加载超过阈值才显示转圈环，避免快图闪烁
+                if (g_loadProgress.active.load() && !g_loadProgress.visibleAfterDelay.load()) {
+                    if ((GetTickCount64() - g_loadProgress.startTimeMs.load()) >= kLoadSpinnerDelayMs) {
+                        g_loadProgress.visibleAfterDelay.store(true);
+                        RequestRepaint(PaintLayer::Static);
+                    }
+                }
                 RequestRepaint(PaintLayer::Dynamic);
             } else {
                 KillTimer(hwnd, 995);
@@ -8817,6 +8838,17 @@ SKIP_EDGE_NAV:;
 
     case WM_LBUTTONDOWN: {
         POINT pt = { (short)LOWORD(lParam), (short)HIWORD(lParam) };
+
+        // [加载环] 点击转圈环取消本次加载（环区域可点击）
+        if (g_loadProgress.visibleAfterDelay.load() && g_loadProgress.cancellable.load()) {
+            int dx = pt.x - g_spinnerCx;
+            int dy = pt.y - g_spinnerCy;
+            float rr = g_spinnerR + 12.0f;
+            if (dx * dx + dy * dy <= rr * rr) {
+                CancelCurrentLoad(hwnd);
+                return 0;
+            }
+        }
 
         if (QuickView::PrintPreviewUI::GetInstance().IsVisible()) {
             if (QuickView::PrintPreviewUI::GetInstance().OnLButtonDown(pt.x, pt.y)) return 0;
@@ -12021,6 +12053,7 @@ void ProcessEngineEvents(HWND hwnd) {
 
                 // Cleanup
                 g_isLoading = false;
+                ResetLoadProgress(); // [加载环] 隐藏转圈环
 
                 // [PDF/AI/CDR] Activate multi-page mode for documents with >1 pages
                 if (!isPreview) {
@@ -12103,6 +12136,7 @@ void ProcessEngineEvents(HWND hwnd) {
             
             if (evt.imageId != g_currentImageId.load()) break;
             g_isLoading = false;
+            ResetLoadProgress(); // [加载环] 隐藏转圈环
             needsRepaint = true;
             break;
         }
@@ -12525,10 +12559,12 @@ static void PrimePhase1Placeholder(HWND hwnd, const std::wstring& path, ImageID 
     {
         bool isTitan = g_isNavigatingToTitan;
         if (!isTitan) {
-            QV_LOG("Phase1_Route", TraceLoggingString("NonTitan Skip", "Action"));
-            // [Fix] Do not apply skeleton. Leave current image intact for visual continuity.
-            // Do not update metadata early to avoid DComp scaling artifacts on the old layer.
-            return; // No Shell/WIC extraction and NO skeleton for non-Titan images
+            // [加载环] 普通图：复用系统已有的缓存缩略图作为即时占位（没有则跳过，不闪、不阻塞）
+            std::shared_ptr<QuickView::RawImageFrame> shellFrame;
+            if (TryBuildPhase1ShellCachedFrame(path, &shellFrame)) {
+                ApplyPhase1PlaceholderFrame(hwnd, path, imageId, shellFrame, sourceW, sourceH, L"Shell Cache Thumbnail");
+            }
+            return; // 不套用骨架 / 不异步 WIC，避免额外闪烁
         }
     }
 
@@ -12825,7 +12861,10 @@ void StartNavigation(HWND hwnd, std::wstring path, [[maybe_unused]] bool showOSD
         fileSize = GetPaneContext(PaneSlot::Primary).navigator.GetFileSize(idx);
     }
     g_isNavigatingToTitan = ShouldUsePhase2TitanDebounce(path, fileSize);
-    
+
+    // [加载环] 初始化加载进度状态（用于中央转圈环的百分比/速度）
+    InitLoadProgress(path.c_str(), (uint64_t)fileSize);
+
     g_isCrossFading = false;
     g_ghostBitmap = nullptr; // Clear previous ghost
     g_isBlurry = true; // Reset for new image
@@ -12881,6 +12920,19 @@ void StartNavigation(HWND hwnd, std::wstring path, [[maybe_unused]] bool showOSD
     } else {
         DispatchNavigationToEngine(path, fileSize, myToken, idx, dir);
     }
+}
+
+// [加载环] 取消当前正在进行的加载（点击转圈环 / 加载中按 Esc）
+static void CancelCurrentLoad(HWND hwnd) {
+    if (!g_loadProgress.cancellable.load()) return;
+    g_loadProgress.cancelled.store(true);
+    g_loadProgress.cancellable.store(false);
+    g_loadProgress.visibleAfterDelay.store(false);
+    g_loadProgress.active.store(false);
+    if (g_imageEngine) g_imageEngine->CancelHeavy(); // 取消 HeavyLane 中的慢解码
+    g_isLoading = false;
+    KillTimer(hwnd, 995);
+    RequestRepaint(PaintLayer::All);
 }
 
 
@@ -15205,6 +15257,11 @@ bool HandleHotkeyAction(HWND hwnd, HotkeyAction action) {
         if (IsCompareModeActive()) {
             AppContext::GetInstance().CompareCtrl->ExitMode(hwnd);
             RequestRepaint(PaintLayer::All);
+            return true;
+        }
+        // [加载环] 加载中按 Esc = 取消本次加载；未加载时继续原有退出逻辑
+        if (g_loadProgress.cancellable.load()) {
+            CancelCurrentLoad(hwnd);
             return true;
         }
         if (IsZoomed(hwnd)) {

@@ -1,4 +1,5 @@
 #include "UIRenderer.h"
+#include "LoadProgress.h" // [加载环] 中央转圈加载环进度实体
 #include "StringUtils.h"
 #include "AppStrings.h"
 #include <Shlwapi.h>
@@ -1189,7 +1190,10 @@ void UIRenderer::RenderDynamicLayer(ID2D1DeviceContext* dc, HWND hwnd) {
     DrawLoupe(dc, hwnd);
 
     // [Edge Focus] Tile decode status line
-    DrawDecodingStatus(dc, hwnd);
+    if (g_config.ShowTopProgressBar) DrawDecodingStatus(dc, hwnd); // [加载环] 默认关闭头顶进度条
+
+    // [加载环] 中央转圈加载环（缩略图在其后调暗，可点击取消）
+    DrawLoadingSpinner(dc, hwnd);
 
     // Compare Info HUD
     DrawCompareInfoHUD(dc);
@@ -1756,6 +1760,132 @@ void UIRenderer::DrawDecodingStatus(ID2D1DeviceContext* dc, HWND hwnd) {
             dc->FillRectangle(headRect, headBrush.Get());
         }
     }
+}
+
+void UIRenderer::DrawLoadingSpinner(ID2D1DeviceContext* dc, HWND hwnd) {
+    (void)hwnd; // 仅与 DrawDecodingStatus 保持签名一致，本函数无需 hwnd
+    if (!g_config.LoadingSpinner || !g_loadProgress.visibleAfterDelay.load()) return;
+
+    const float W = (m_width > 0) ? (float)m_width : 0.0f;
+    const float H = (m_height > 0) ? (float)m_height : 0.0f;
+    if (W <= 0 || H <= 0) return;
+
+    // 缩略图在其后调暗
+    ComPtr<ID2D1SolidColorBrush> dimBrush;
+    dc->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.22f), &dimBrush);
+    dc->FillRectangle(D2D1::RectF(0.0f, 0.0f, W, H), dimBrush.Get());
+
+    const float s = (m_uiScale > 0) ? m_uiScale : 1.0f;
+    const float cx = W * 0.5f;
+    const float cy = H * 0.5f;
+    const float R = 34.0f * s;
+    const float strokeW = 4.0f * s;
+
+    // 记录点击命中几何（供 main.cpp 鼠标命中测试）
+    g_spinnerCx = (int)cx;
+    g_spinnerCy = (int)cy;
+    g_spinnerR = R;
+
+    // 旋转相位
+    m_spinnerPhase += 0.035f;
+    if (m_spinnerPhase > 1.0f) m_spinnerPhase -= 1.0f;
+
+    float pct = 0.0f, mbps = 0.0f;
+    QueryLoadProgress(&pct, &mbps);
+
+    // 轨道底环
+    ComPtr<ID2D1SolidColorBrush> trackBrush;
+    dc->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.18f), &trackBrush);
+    dc->DrawEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), R, R), trackBrush.Get(), strokeW);
+
+    ComPtr<ID2D1Factory> factory;
+    dc->GetFactory(&factory);
+
+    // 进度弧
+    if (factory && pct > 0.001f) {
+        ComPtr<ID2D1PathGeometry> pg;
+        if (SUCCEEDED(factory->CreatePathGeometry(&pg))) {
+            ComPtr<ID2D1GeometrySink> sink;
+            if (SUCCEEDED(pg->Open(&sink))) {
+                const float startA = -3.14159265f / 2.0f;
+                const float endA = startA + pct * 2.0f * 3.14159265f;
+                const D2D1_POINT_2F p0 = { cx + R * cosf(startA), cy + R * sinf(startA) };
+                sink->BeginFigure(p0, D2D1_FIGURE_BEGIN_HOLLOW);
+                const D2D1_ARC_SIZE arcSize = (pct >= 0.5f) ? D2D1_ARC_SIZE_LARGE : D2D1_ARC_SIZE_SMALL;
+                sink->AddArc(D2D1::ArcSegment(
+                    D2D1::Point2F(cx + R * cosf(endA), cy + R * sinf(endA)),
+                    D2D1::SizeF(R, R), 0.0f, D2D1_SWEEP_DIRECTION_CLOCKWISE, arcSize));
+                sink->EndFigure(D2D1_FIGURE_END_OPEN);
+                sink->Close();
+                ComPtr<ID2D1SolidColorBrush> arcBrush;
+                dc->CreateSolidColorBrush(D2D1::ColorF(0.25f, 0.65f, 1.0f, 0.95f), &arcBrush);
+                dc->DrawGeometry(pg.Get(), arcBrush.Get(), strokeW);
+            }
+        }
+    }
+
+    // 旋转彗星（持续转圈动效）
+    if (factory) {
+        ComPtr<ID2D1PathGeometry> cg;
+        if (SUCCEEDED(factory->CreatePathGeometry(&cg))) {
+            ComPtr<ID2D1GeometrySink> sink;
+            if (SUCCEEDED(cg->Open(&sink))) {
+                const float a0 = m_spinnerPhase * 2.0f * 3.14159265f - 3.14159265f / 2.0f;
+                const float a1 = a0 + 0.55f;
+                const D2D1_POINT_2F c0 = { cx + R * cosf(a0), cy + R * sinf(a0) };
+                sink->BeginFigure(c0, D2D1_FIGURE_BEGIN_HOLLOW);
+                sink->AddArc(D2D1::ArcSegment(
+                    D2D1::Point2F(cx + R * cosf(a1), cy + R * sinf(a1)),
+                    D2D1::SizeF(R, R), 0.0f, D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
+                sink->EndFigure(D2D1_FIGURE_END_OPEN);
+                sink->Close();
+                ComPtr<ID2D1SolidColorBrush> cometBrush;
+                dc->CreateSolidColorBrush(D2D1::ColorF(0.55f, 0.82f, 1.0f, 0.95f), &cometBrush);
+                dc->DrawGeometry(cg.Get(), cometBrush.Get(), strokeW);
+            }
+        }
+    }
+
+    // 文字格式（惰性创建）
+    if (!m_spinnerFormat && m_dwriteFactory) {
+        m_dwriteFactory->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD,
+            DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 22.0f * s, L"", &m_spinnerFormat);
+        if (m_spinnerFormat) {
+            m_spinnerFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+            m_spinnerFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        }
+    }
+    if (!m_spinnerSubFormat && m_dwriteFactory) {
+        m_dwriteFactory->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD,
+            DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 13.0f * s, L"", &m_spinnerSubFormat);
+        if (m_spinnerSubFormat) {
+            m_spinnerSubFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+            m_spinnerSubFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        }
+    }
+
+    // 百分比（中央）
+    wchar_t pctBuf[32];
+    swprintf_s(pctBuf, L"%d%%", (int)(pct * 100.0f + 0.5f));
+    ComPtr<ID2D1SolidColorBrush> textBrush;
+    dc->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.96f), &textBrush);
+    const D2D1_RECT_F pctRect = D2D1::RectF(cx - R, cy - R * 0.6f, cx + R, cy + R * 0.6f);
+    if (m_spinnerFormat) dc->DrawText(pctBuf, (UINT32)wcslen(pctBuf), m_spinnerFormat.Get(), pctRect, textBrush.Get());
+
+    // 加载速度（环下方）
+    wchar_t spdBuf[32];
+    swprintf_s(spdBuf, L"%.1f MB/s", mbps);
+    const D2D1_RECT_F spdRect = D2D1::RectF(cx - R * 1.6f, cy + R * 0.55f, cx + R * 1.6f, cy + R * 0.55f + 20.0f * s);
+    if (m_spinnerSubFormat) dc->DrawText(spdBuf, (UINT32)wcslen(spdBuf), m_spinnerSubFormat.Get(), spdRect, textBrush.Get());
+
+    // 取消按钮（环下方的小 ✕）
+    const float bx = cx;
+    const float by = cy + R + 16.0f * s;
+    const float bh = 6.0f * s;
+    ComPtr<ID2D1SolidColorBrush> xBrush;
+    dc->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.7f), &xBrush);
+    dc->DrawLine(D2D1::Point2F(bx - bh, by - bh), D2D1::Point2F(bx + bh, by + bh), xBrush.Get(), 2.0f * s);
+    dc->DrawLine(D2D1::Point2F(bx + bh, by - bh), D2D1::Point2F(bx - bh, by + bh), xBrush.Get(), 2.0f * s);
 }
 
 
