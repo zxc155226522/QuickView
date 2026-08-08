@@ -1772,44 +1772,39 @@ void UIRenderer::DrawLoadingSpinner(ID2D1DeviceContext* dc, HWND hwnd) {
 
     const float s = (m_uiScale > 0) ? m_uiScale : 1.0f;
 
-    // 缩略图在其后整体调暗，确保组件在任何背景图上可读
-    ComPtr<ID2D1SolidColorBrush> dimBrush;
-    dc->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.22f), &dimBrush);
-    dc->FillRectangle(D2D1::RectF(0.0f, 0.0f, W, H), dimBrush.Get());
-
     const float cx = W * 0.5f;
     const float cy = H * 0.5f;
 
-    // —— 半透明圆角背景板 + 阴影（适配不同背景图）——
-    const float bw = 210.0f * s;            // 板宽
-    const float bh = 178.0f * s;            // 板高
-    const float br = 16.0f * s;             // 圆角半径
+    // 整体内容横向居中宽度（仅用于文字对齐，不再画硬板）
+    const float bw = 220.0f * s;
     const float bx0 = cx - bw * 0.5f;
-    const float by0 = cy - bh * 0.5f;
 
-    // 阴影层（向下偏移的半透明黑圆角矩形）
-    ComPtr<ID2D1SolidColorBrush> shadowBrush;
-    dc->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.35f), &shadowBrush);
-    dc->FillRoundedRectangle(D2D1::RoundedRect(
-        D2D1::RectF(bx0, by0 + 6.0f * s, bx0 + bw, by0 + bh + 6.0f * s), br, br), shadowBrush.Get());
-
-    // 主背景板（深色半透明：白字在亮/暗背景图上都清晰）
-    ComPtr<ID2D1SolidColorBrush> boardBrush;
-    dc->CreateSolidColorBrush(D2D1::ColorF(0.06f, 0.06f, 0.08f, 0.66f), &boardBrush);
-    dc->FillRoundedRectangle(D2D1::RoundedRect(
-        D2D1::RectF(bx0, by0, bx0 + bw, by0 + bh), br, br), boardBrush.Get());
-
-    // 细边框（精致感）
-    ComPtr<ID2D1SolidColorBrush> borderBrush;
-    dc->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.10f), &borderBrush);
-    dc->DrawRoundedRectangle(D2D1::RoundedRect(
-        D2D1::RectF(bx0, by0, bx0 + bw, by0 + bh), br, br), borderBrush.Get(), 1.0f * s);
-
-    // 环几何（板上偏上，与下方文字/右上角✕互不遮挡）
+    // 环几何（偏上，给下方两行文字留空间；与右上角✕互不遮挡）
     const float R = 32.0f * s;
     const float strokeW = 4.0f * s;
     const float ringCx = cx;
-    const float ringCy = by0 + 58.0f * s;
+    const float ringCy = cy - 24.0f * s;
+
+    // 柔和暗色光晕（替代硬板：羽化边缘、中心可读、不挡画面）
+    {
+        ComPtr<ID2D1GradientStopCollection> glowStops;
+        D2D1_GRADIENT_STOP gs[2] = {
+            { 0.0f, D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.58f) },
+            { 1.0f, D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f) },
+        };
+        if (SUCCEEDED(dc->CreateGradientStopCollection(gs, 2, &glowStops))) {
+            ComPtr<ID2D1RadialGradientBrush> glow;
+            const float glowCy = cy - 4.0f * s;
+            const float glowRx = 140.0f * s;
+            const float glowRy = 92.0f * s;
+            if (SUCCEEDED(dc->CreateRadialGradientBrush(
+                    D2D1::RadialGradientBrushProperties(
+                        D2D1::Point2F(cx, glowCy), D2D1::Point2F(0.0f, 0.0f), glowRx, glowRy),
+                    glowStops.Get(), &glow))) {
+                dc->FillEllipse(D2D1::Ellipse(D2D1::Point2F(cx, glowCy), glowRx, glowRy), glow.Get());
+            }
+        }
+    }
 
     // 记录点击命中几何（供 main.cpp 鼠标命中测试：点环可取消）
     g_spinnerCx = (int)ringCx;
@@ -1924,15 +1919,15 @@ void UIRenderer::DrawLoadingSpinner(ID2D1DeviceContext* dc, HWND hwnd) {
     const D2D1_RECT_F sizeRect = D2D1::RectF(bx0, sizeY, bx0 + bw, sizeY + 20.0f * s);
     if (m_spinnerSubFormat) dc->DrawText(sizeBuf, (UINT32)wcslen(sizeBuf), m_spinnerSubFormat.Get(), sizeRect, textBrush.Get());
 
-    // 取消按钮（板右上角，环外，点击可取消）
-    const float xcx = bx0 + bw - 18.0f * s;
-    const float xcy = by0 + 18.0f * s;
+    // 取消按钮（光晕右上角，环外，点击可取消）
+    const float xcx = cx + 92.0f * s;
+    const float xcy = cy - 58.0f * s;
     const float xr = 11.0f * s;
     g_spinnerCancelX = (int)xcx;
     g_spinnerCancelY = (int)xcy;
     g_spinnerCancelR = xr;
     ComPtr<ID2D1SolidColorBrush> xBgBrush;
-    dc->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.14f), &xBgBrush);
+    dc->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.42f), &xBgBrush);
     dc->FillEllipse(D2D1::Ellipse(D2D1::Point2F(xcx, xcy), xr, xr), xBgBrush.Get());
     ComPtr<ID2D1SolidColorBrush> xBrush;
     dc->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.85f), &xBrush);
