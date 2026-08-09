@@ -80,13 +80,6 @@ enum class MouseAction {
     None, WindowDrag, PanImage, ExitApp, FitWindow
 };
 
-// Overlay (Tracing) Mode state machine
-enum class OverlayState {
-    Normal,                 // Standard image viewing
-    Overlay_Interactive,    // Transparent + topmost, mouse still operates on image
-    Overlay_Passthrough     // Transparent + topmost, mouse clicks pass through to underlying windows
-};
-
 enum class ColorSpaceMode {
     Unmanaged = 0,
     Auto = 1,
@@ -159,10 +152,10 @@ enum class HotkeyAction : uint8_t {
     AlwaysOnTop,       // Toggle Always on Top
     ToggleDebugHud,    // Toggle Debug Performance HUD
     Print,             // Print Image
-    ToggleOverlay,     // Toggle Tracing Mode (Overlay Mode)
-    OverlayAlphaUp,    // Adjust Overlay Alpha Up
-    OverlayAlphaDown,  // Adjust Overlay Alpha Down
-    OverlayTogglePassthrough, // Toggle Passthrough Mode
+    ToggleOverlay,     // [Removed Overlay] Placeholder (keep for g_hotkeys index alignment)
+    OverlayAlphaUp,    // [Removed Overlay] Placeholder
+    OverlayAlphaDown,  // [Removed Overlay] Placeholder
+    OverlayTogglePassthrough, // [Removed Overlay] Placeholder
     Help,              // Toggle Help Overlay
     Exit,              // Exit App / Restore Screen
     Undo,              // Undo last operation (Ctrl+Z)
@@ -218,10 +211,6 @@ inline std::wstring_view HotkeyActionToString(HotkeyAction action) noexcept {
         case HotkeyAction::AlwaysOnTop: return L"AlwaysOnTop";
         case HotkeyAction::ToggleDebugHud: return L"ToggleDebugHud";
         case HotkeyAction::Print: return L"Print";
-        case HotkeyAction::ToggleOverlay: return L"ToggleOverlay";
-        case HotkeyAction::OverlayAlphaUp: return L"OverlayAlphaUp";
-        case HotkeyAction::OverlayAlphaDown: return L"OverlayAlphaDown";
-        case HotkeyAction::OverlayTogglePassthrough: return L"OverlayTogglePassthrough";
         case HotkeyAction::Help: return L"Help";
         case HotkeyAction::ToggleSlideshow: return L"ToggleSlideshow";
         case HotkeyAction::Exit: return L"Exit";
@@ -275,10 +264,6 @@ inline HotkeyAction StringToHotkeyAction(std::wstring_view sv) noexcept {
     if (sv == L"AlwaysOnTop") return HotkeyAction::AlwaysOnTop;
     if (sv == L"ToggleDebugHud") return HotkeyAction::ToggleDebugHud;
     if (sv == L"Print") return HotkeyAction::Print;
-    if (sv == L"ToggleOverlay") return HotkeyAction::ToggleOverlay;
-    if (sv == L"OverlayAlphaUp") return HotkeyAction::OverlayAlphaUp;
-    if (sv == L"OverlayAlphaDown") return HotkeyAction::OverlayAlphaDown;
-    if (sv == L"OverlayTogglePassthrough") return HotkeyAction::OverlayTogglePassthrough;
     if (sv == L"Help") return HotkeyAction::Help;
     if (sv == L"ToggleSlideshow") return HotkeyAction::ToggleSlideshow;
     if (sv == L"Exit") return HotkeyAction::Exit;
@@ -531,7 +516,7 @@ struct AppConfig {
     float GlassSpecularOpacity = 0.15f;    // Diagonal highlight intensity (0.0 - 0.5)
     float GlassShadowOpacity = 0.45f;      // Drop shadow intensity (0.0 - 1.0)
     float GlassOsdOpacity = 15.0f;         // OSD Level (0-100 %)
-    float GlassPanelsOpacity = 45.0f;      // Toolbar & Panels Level (0-100 %)
+    float GlassPanelsOpacity = 100.0f;     // Toolbar & Panels Level (0-100 %, 100=opaque)
     float GlassModalsOpacity = 55.0f;      // Modals & Settings Level (0-100 %)
     float GlassMenusOpacity = 15.0f;       // Context Menus Level (0-100 %)
     int GlassVectorStrokeWeightIndex = 0;  // 0: Standard (1.5px), 1: Fine (1.0px)
@@ -542,7 +527,7 @@ struct AppConfig {
     float GlassSpecularOpacityBackup = 0.15f;
     float GlassShadowOpacityBackup = 0.45f;
     float GlassOsdOpacityBackup = 15.0f;
-    float GlassPanelsOpacityBackup = 45.0f;
+    float GlassPanelsOpacityBackup = 100.0f;
     float GlassModalsOpacityBackup = 55.0f;
     float GlassMenusOpacityBackup = 15.0f;
 
@@ -578,7 +563,6 @@ bool SwatchIsCheckerboard[9] = {true, true, true, false, false, false, false, fa
     bool LockWindowSize = true; // [Requirement] 默认锁定窗口大小，不跟随图片缩放
     bool ShowOSD = true;
     bool AutoHideWindowControls = false;
-    bool LockBottomToolbar = false;
     bool EnableCrossMonitor = false; // [Phase 2] Cross-Monitor Spanning
     int ExifPanelMode = 0;              // 0=Off, 1=Lite, 2=Full (startup default)
     int ToolbarInfoDefault = 0;         // 0=Lite, 1=Full (toolbar button default)
@@ -982,11 +966,6 @@ struct RuntimeConfig {
     float InfoPanelY = 32.0f;
     int InfoPanelAlignX = 0; // 0=Left, 1=Right
     int InfoPanelAlignY = 0; // 0=Top, 1=Bottom
-
-    // Overlay (Tracing) Mode
-    OverlayState OverlayModeState = OverlayState::Normal;
-    BYTE OverlayAlpha = 128;           // Current opacity (0-255), default ~50%
-    bool WasAlwaysOnTopBeforeOverlay = false; // Restore topmost state on exit
 
     // Verification Flags (Phase 5)
     bool EnableScout = true;

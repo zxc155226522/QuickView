@@ -1553,22 +1553,6 @@ void SettingsOverlay::BuildMenu() {
 
     tabVisuals.items.push_back({ AppStrings::Settings_Header_Panel, OptionType::Header });
     
-    // [Fix] Lock Toolbar: Update runtime state immediately
-    SettingsItem itemToolbar = { AppStrings::Settings_Label_LockToolbar, OptionType::Toggle, &g_config.LockBottomToolbar };
-    itemToolbar.onChange = []([[maybe_unused]] SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) {
-        g_toolbar.SetPinned(g_config.LockBottomToolbar);
-        
-        // [Fix] Update Layout to refresh Pin Button Icon state
-        HWND hwnd = GetActiveWindow();
-        if (hwnd) {
-            RECT rc; GetClientRect(hwnd, &rc);
-            g_toolbar.UpdateLayout((float)rc.right, (float)rc.bottom);
-        }
-
-        if (g_config.LockBottomToolbar) g_toolbar.SetVisible(true);
-    };
-    tabVisuals.items.push_back(itemToolbar);
-    
     // Exif Panel Mode (Syncs to Runtime ShowInfoPanel)
     SettingsItem itemExif = { AppStrings::Settings_Label_ExifMode, OptionType::Segment, nullptr, nullptr, BindEnum(&g_config.ExifPanelMode), nullptr, 0, 0, {AppStrings::Settings_Option_Off, AppStrings::Settings_Option_Lite, AppStrings::Settings_Option_Full} };
     itemExif.onChange = []([[maybe_unused]] SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) {
@@ -1890,6 +1874,11 @@ void SettingsOverlay::BuildMenu() {
         if (action == HotkeyAction::Undo) {
             continue; // Placed manually under EditFile
         }
+        // [Removed Overlay] Skip removed overlay hotkey actions (keep enum for index alignment)
+        if (action == HotkeyAction::ToggleOverlay || action == HotkeyAction::OverlayAlphaUp ||
+            action == HotkeyAction::OverlayAlphaDown || action == HotkeyAction::OverlayTogglePassthrough) {
+            continue;
+        }
 
         // Category Group Headers
         if (action == HotkeyAction::NavNext) {
@@ -1906,8 +1895,6 @@ void SettingsOverlay::BuildMenu() {
             tabKeys.items.push_back({ isChinese ? L"视图模式" : L"View Modes", OptionType::Header });
         } else if (action == HotkeyAction::OpenFile) {
             tabKeys.items.push_back({ isChinese ? L"文件操作" : L"File Operations", OptionType::Header });
-        } else if (action == HotkeyAction::ToggleOverlay) {
-            tabKeys.items.push_back({ isChinese ? L"临摹模式" : L"Tracing (Overlay) Mode", OptionType::Header });
         }
 
         std::wstring name = AppStrings::GetHotkeyActionName(action);

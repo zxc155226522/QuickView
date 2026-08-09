@@ -35,11 +35,6 @@ Toolbar::Toolbar() {
       {ToolbarButtonID::AnimPlayPause, Icons::Play, {}, true, false},
       {ToolbarButtonID::AnimNextFrame, Icons::SkipFwd, {}, true, false},
       {ToolbarButtonID::AnimDirtyRect, Icons::Diagnostic, {}, true, false},
-      // Overlay mode buttons (hidden in normal mode)
-      {ToolbarButtonID::OverlayAlphaUp,     Icons::ComboUp,    {}, true, false},
-      {ToolbarButtonID::OverlayAlphaDown,   Icons::ComboDown,  {}, true, false},
-      {ToolbarButtonID::OverlayPassthrough, Icons::Passthrough,{}, true, false},
-      {ToolbarButtonID::OverlayExit,        Icons::ExitToolbar,  {}, true, false},
       // Slideshow mode buttons
       {ToolbarButtonID::SlideshowImmersiveToggle, Icons::Eye, {}, true, false},
       {ToolbarButtonID::SlideshowExit,            Icons::ExitToolbar, {}, true, false},
@@ -137,13 +132,6 @@ void Toolbar::UpdateLayout(float winW, float winH) {
     return id == ToolbarButtonID::Pin;
   };
 
-  auto isOverlayButton = [](ToolbarButtonID id) {
-    return id == ToolbarButtonID::OverlayAlphaUp ||
-           id == ToolbarButtonID::OverlayAlphaDown ||
-           id == ToolbarButtonID::OverlayPassthrough ||
-           id == ToolbarButtonID::OverlayExit;
-  };
-
   auto isAnimButton = [](ToolbarButtonID id) {
     if (id == ToolbarButtonID::AnimPlayPause ||
         id == ToolbarButtonID::AnimPrevFrame ||
@@ -197,14 +185,6 @@ void Toolbar::UpdateLayout(float winW, float winH) {
       {ToolbarButtonID::Exif},
       {ToolbarButtonID::Prev, ToolbarButtonID::Next},  // Core
   };
-  // Overlay mode: minimal buttons, less likely to overflow but still covered
-  static constexpr ResponsiveHideGroup kOverlayHideOrder[] = {
-      {ToolbarButtonID::CompareZoomIn, ToolbarButtonID::CompareZoomOut},
-      {ToolbarButtonID::OverlayPassthrough},
-      {ToolbarButtonID::OverlayAlphaUp, ToolbarButtonID::OverlayAlphaDown},
-      {ToolbarButtonID::OverlayExit},  // Core
-  };
-
   static constexpr ResponsiveHideGroup kSlideshowHideOrder[] = {
       {ToolbarButtonID::Exif},
       {ToolbarButtonID::Gallery},
@@ -217,10 +197,7 @@ void Toolbar::UpdateLayout(float winW, float winH) {
   // Select the appropriate hide table for the current mode
   const ResponsiveHideGroup* hideOrder = kNormalHideOrder;
   int hideOrderCount = (int)std::size(kNormalHideOrder);
-  if (m_overlayMode) {
-      hideOrder = kOverlayHideOrder;
-      hideOrderCount = (int)std::size(kOverlayHideOrder);
-  } else if (m_slideshowMode) {
+  if (m_slideshowMode) {
       hideOrder = kSlideshowHideOrder;
       hideOrderCount = (int)std::size(kSlideshowHideOrder);
   } else if (m_animMode) {
@@ -271,12 +248,6 @@ void Toolbar::UpdateLayout(float winW, float winH) {
       return false;
     }
 
-    if (m_overlayMode) {
-      if (isOverlayButton(btn.id)) return true;
-      if (btn.id == ToolbarButtonID::CompareZoomIn || btn.id == ToolbarButtonID::CompareZoomOut) return true;
-      if (isAlwaysVisible(btn.id)) return true;
-      return false;
-    }
     if (m_animMode || m_slideshowMode) {
       if (btn.id == ToolbarButtonID::AnimDirtyRect) return m_animMode && g_config.ShowDirtyRectButton;
       if (btn.id == ToolbarButtonID::Prev || btn.id == ToolbarButtonID::Next || btn.id == ToolbarButtonID::Exif) return true;
@@ -289,7 +260,7 @@ void Toolbar::UpdateLayout(float winW, float winH) {
       if (btn.id == ToolbarButtonID::RotateL || btn.id == ToolbarButtonID::RotateR || btn.id == ToolbarButtonID::FlipH) return false;
       if (btn.id == ToolbarButtonID::RawToggle || btn.id == ToolbarButtonID::GamutWarning) return false;
       if (isCompareButton(btn.id)) return false;
-      if (isAnimButton(btn.id) || isOverlayButton(btn.id)) return false;
+      if (isAnimButton(btn.id)) return false;
       return true;
     }
 
@@ -299,7 +270,7 @@ void Toolbar::UpdateLayout(float winW, float winH) {
       return true;
     }
 
-    if (isCompareButton(btn.id) || isAnimButton(btn.id) || isOverlayButton(btn.id))
+    if (isCompareButton(btn.id) || isAnimButton(btn.id))
       return false;
     if (btn.id == ToolbarButtonID::RawToggle && !btn.isEnabled)
       return false;
@@ -314,10 +285,10 @@ void Toolbar::UpdateLayout(float winW, float winH) {
   auto calcTotalWidth = [&]() -> float {
     int count = 0;
     bool hasZoom = false;
-    bool hasSpeed = (m_animMode || m_slideshowMode) && !m_overlayMode;
+    bool hasSpeed = (m_animMode || m_slideshowMode);
     for (const auto &btn : m_buttons) {
       if (isVisibleButton(btn)) count++;
-      if ((m_compareMode || m_overlayMode) && (btn.id == ToolbarButtonID::CompareZoomIn || btn.id == ToolbarButtonID::CompareZoomOut)) {
+      if (m_compareMode && (btn.id == ToolbarButtonID::CompareZoomIn || btn.id == ToolbarButtonID::CompareZoomOut)) {
         if (isVisibleButton(btn)) hasZoom = true;
       }
     }
@@ -326,7 +297,7 @@ void Toolbar::UpdateLayout(float winW, float winH) {
 
     float w = padX * 2 + (count * buttonSize);
     if (count > 1) w += (count - 1) * gap;
-    if ((m_compareMode || m_overlayMode) && hasZoom) {
+    if (m_compareMode && hasZoom) {
       const float zoomGap = 2.0f * m_uiScale;
       w += (56.0f * m_uiScale) + (zoomGap * 2.0f) - gap;
     }
@@ -361,7 +332,7 @@ void Toolbar::UpdateLayout(float winW, float winH) {
   }
 
   // [Swatch] Calculate swatch section within toolbar capsule
-  bool showSwatches = !m_compareMode && !m_animMode && !m_slideshowMode && !m_overlayMode && !m_comicMode;
+  bool showSwatches = !m_compareMode && !m_animMode && !m_slideshowMode && !m_comicMode;
   const float swatchDiameter = 14.0f * m_uiScale;
   const float swatchGap = 3.0f * m_uiScale;
   const float swatchSeparatorGap = 12.0f * m_uiScale;
@@ -429,7 +400,7 @@ void Toolbar::UpdateLayout(float winW, float winH) {
       btn.rect = D2D1::RectF(cx, cy, cx + buttonSize, cy + buttonSize);
       cx += buttonSize + gap;
 
-      if ((m_compareMode || m_overlayMode) && btn.id == ToolbarButtonID::CompareZoomIn && !stepInserted) {
+      if (m_compareMode && btn.id == ToolbarButtonID::CompareZoomIn && !stepInserted) {
         cx -= gap; // Backtrack to remove standard gap
         cx += zoomGap; // Padding before capsule
         m_compareStepRect = D2D1::RectF(cx, stepY, cx + stepW, stepY + stepH);
@@ -556,14 +527,6 @@ const wchar_t *GetTooltipText(const ToolbarButton &btn) {
     return AppStrings::Toolbar_Tooltip_AnimNext;
   case ToolbarButtonID::AnimDirtyRect:
     return btn.isToggled ? AppStrings::Toolbar_Tooltip_AnimDirtyOn : AppStrings::Toolbar_Tooltip_AnimDirtyOff;
-  case ToolbarButtonID::OverlayAlphaUp:
-    return AppStrings::Toolbar_Tooltip_OverlayAlphaUp;
-  case ToolbarButtonID::OverlayAlphaDown:
-    return AppStrings::Toolbar_Tooltip_OverlayAlphaDown;
-  case ToolbarButtonID::OverlayPassthrough:
-    return btn.isToggled ? AppStrings::Toolbar_Tooltip_OverlayPassthroughOff : AppStrings::Toolbar_Tooltip_OverlayPassthroughOn;
-  case ToolbarButtonID::OverlayExit:
-    return AppStrings::Toolbar_Tooltip_OverlayExit;
   default:
     return nullptr;
   }
@@ -815,7 +778,7 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
     }
 
 
-    if ((m_compareMode || m_overlayMode) && m_compareStepRect.right > m_compareStepRect.left) {
+    if (m_compareMode && m_compareStepRect.right > m_compareStepRect.left) {
       D2D1_ROUNDED_RECT stepRect = D2D1::RoundedRect(
           m_compareStepRect, 6.0f * m_uiScale, 6.0f * m_uiScale);
       pRT->FillRoundedRectangle(stepRect, m_brushHover.Get());
@@ -1093,14 +1056,14 @@ bool Toolbar::OnMouseMove(float x, float y) {
     btn.isHovered = (btn.rect.right > 0 && x >= btn.rect.left && x < btn.rect.right && y >= btn.rect.top && y < btn.rect.bottom);
     if (btn.isHovered != wasHovered) changed = true;
   }
-  if ((m_compareMode || m_overlayMode) && m_compareStepRect.right > m_compareStepRect.left) {
+  if (m_compareMode && m_compareStepRect.right > m_compareStepRect.left) {
     if (x >= m_compareStepRect.left && x < m_compareStepRect.right && y >= m_compareStepRect.top && y < m_compareStepRect.bottom) {
       stepHover = true;
       if (x >= m_compareStepUpRect.left && x < m_compareStepUpRect.right && y >= m_compareStepUpRect.top && y < m_compareStepUpRect.bottom) stepUpHover = true;
       else if (x >= m_compareStepDownRect.left && x < m_compareStepDownRect.right && y >= m_compareStepDownRect.top && y < m_compareStepDownRect.bottom) stepDownHover = true;
     }
   }
-  if (!(m_compareMode || m_overlayMode)) { stepHover = stepUpHover = stepDownHover = false; }
+  if (!m_compareMode) { stepHover = stepUpHover = stepDownHover = false; }
   if (stepHover != m_compareStepHover || stepUpHover != m_compareStepUpHover || stepDownHover != m_compareStepDownHover) {
     changed = true;
     m_compareStepHover = stepHover; m_compareStepUpHover = stepUpHover; m_compareStepDownHover = stepDownHover;
@@ -1176,7 +1139,7 @@ bool Toolbar::OnClick(float x, float y, ToolbarButtonID &outId) {
   }
 
   if (HitTest(x, y)) {
-    if ((m_compareMode || m_overlayMode) && m_compareStepRect.right > m_compareStepRect.left) {
+    if (m_compareMode && m_compareStepRect.right > m_compareStepRect.left) {
       if (x >= m_compareStepUpRect.left && x < m_compareStepUpRect.right && y >= m_compareStepUpRect.top && y < m_compareStepUpRect.bottom) {
         m_compareZoomStepPercent = (std::min)(5.0f, m_compareZoomStepPercent + 0.1f);
         outId = ToolbarButtonID::None; return true;
@@ -1325,10 +1288,6 @@ void Toolbar::SetCompareRawState(bool anyRaw, bool selectedIsRaw, bool isFullDec
       if (selectedIsRaw) { btn.isToggled = isFullDecode; }
     }
   }
-}
-
-void Toolbar::SetOverlayMode(bool enabled) {
-  m_overlayMode = enabled;
 }
 
 void Toolbar::SetSlideshowMode(bool enabled, bool playing) {

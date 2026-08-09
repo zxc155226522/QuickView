@@ -35,7 +35,6 @@ static constexpr const char* CURRENT_MODULE = "Main";
 using namespace ColorMath;
 
 // --- Controller Refactoring Constants & Declarations ---
-static void ExitPassthroughMode(HWND hwnd);
 static D2D1_MATRIX_3X2_F CombineWithCurrentTransform(ID2D1DeviceContext* ctx, const D2D1_MATRIX_3X2_F& transform);
 static UINT GetSvgSurfaceSizeLimit();
 
@@ -774,17 +773,7 @@ void MarkCompareDirty();
 
 
 
-// Overlay (Tracing) Mode
-static void EnterOverlayMode(HWND hwnd);
-static void ExitOverlayMode(HWND hwnd);
-static void EnterPassthroughMode(HWND hwnd);
-static void ExitPassthroughMode(HWND hwnd);
-static void AdjustOverlayAlpha(HWND hwnd, int delta);
-static bool IsOverlayModeActive();
-static bool IsPassthroughModeActive();
-static constexpr int HOTKEY_ID_EXIT_PASSTHROUGH = 0x0001;
-static constexpr int HOTKEY_ID_ALPHA_UP = 0x0002;
-static constexpr int HOTKEY_ID_ALPHA_DOWN = 0x0003;
+// [Removed Overlay] All overlay/tracing mode functions removed
 
 
 
@@ -1885,196 +1874,7 @@ void SnapWindowToCompareImages(HWND hwnd) {
 
 
 
-// ============================================================================
-// Overlay (Tracing) Mode
-// ============================================================================
-static bool IsOverlayModeActive() {
-    return g_runtime.OverlayModeState != OverlayState::Normal;
-}
-
-static bool IsPassthroughModeActive() {
-    return g_runtime.OverlayModeState == OverlayState::Overlay_Passthrough;
-}
-
-static void EnterOverlayMode(HWND hwnd) {
-    if (IsOverlayModeActive()) return;
-
-    // Mutual exclusion: exit fullscreen and compare mode first
-    if (g_isFullScreen) {
-        SendMessage(hwnd, WM_COMMAND, IDM_FULLSCREEN, 0);
-    }
-    if (IsCompareModeActive()) {
-        AppContext::GetInstance().CompareCtrl->ExitMode(hwnd);
-    }
-
-    // Save current topmost state for restoration
-    g_runtime.WasAlwaysOnTopBeforeOverlay = g_config.AlwaysOnTop;
-
-    // Set state
-    g_runtime.OverlayModeState = OverlayState::Overlay_Interactive;
-    if (g_runtime.OverlayAlpha == 0) g_runtime.OverlayAlpha = 128; // Default 50%
-
-    // Force topmost
-    if (!g_config.AlwaysOnTop) {
-        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
-    }
-
-    // DComp native transparency (NEVER use SetLayeredWindowAttributes with DComp!)
-    float opacity = g_runtime.OverlayAlpha / 255.0f;
-    g_compEngine->SetRootOpacity(opacity);
-
-    // Clear background to fully transparent so user can see through
-    g_compEngine->UpdateBackground((float)g_compEngine->GetWidth(), (float)g_compEngine->GetHeight(),
-                                   D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f), false);
-    g_compEngine->Commit();
-
-    // Disable DWM system backdrop and frame extension in overlay mode to eliminate system background color
-    ApplyWindowTheme(hwnd);
-    MARGINS margins = { 0, 0, 0, 0 };
-    DwmExtendFrameIntoClientArea(hwnd, &margins);
-
-    // Switch toolbar to overlay mode
-    g_toolbar.SetOverlayMode(true);
-    g_toolbar.SetOverlayAlpha(g_runtime.OverlayAlpha);
-    RECT rc{};
-    GetClientRect(hwnd, &rc);
-    g_toolbar.UpdateLayout((float)rc.right, (float)rc.bottom);
-
-    int percent = (int)(g_runtime.OverlayAlpha * 100.0f / 255.0f + 0.5f);
-    wchar_t buf[64];
-    swprintf_s(buf, L"%s: ON (%d%%)", AppStrings::OSD_OverlayModeOn, percent);
-    g_osd.Show(hwnd, buf, false);
-
-    InvalidateRect(hwnd, nullptr, FALSE);
-}
-
-static void ExitOverlayMode(HWND hwnd) {
-    if (!IsOverlayModeActive()) return;
-
-    // If in passthrough, exit that first
-    if (IsPassthroughModeActive()) {
-        ExitPassthroughMode(hwnd);
-    }
-
-    // Restore opacity to 100%
-    g_compEngine->SetRootOpacity(1.0f);
-    g_compEngine->Commit();
-
-    // Restore topmost state
-    if (!g_runtime.WasAlwaysOnTopBeforeOverlay) {
-        g_config.AlwaysOnTop = false;
-        SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
-    }
-
-    // Restore toolbar
-    g_toolbar.SetOverlayMode(false);
-    RECT rc{};
-    GetClientRect(hwnd, &rc);
-    g_toolbar.UpdateLayout((float)rc.right, (float)rc.bottom);
-
-    g_runtime.OverlayModeState = OverlayState::Normal;
-
-    // [Fix] ApplyWindowTheme handles dynamic DWM frame extension based on canvas opacity.
-    // Do NOT hardcode DwmExtendFrameIntoClientArea here — it would override the
-    // {0,0,0,0} margins set for opaque canvas colors, causing DWM background bleed.
-    ApplyWindowTheme(hwnd);
-
-    // Force background redraw with normal canvas color
-    RECT bgRc{};
-    GetClientRect(hwnd, &bgRc);
-    SyncDCompState(hwnd, (float)bgRc.right, (float)bgRc.bottom);
-    g_compEngine->Commit();
-
-    g_osd.Show(hwnd, AppStrings::OSD_OverlayModeOff, false);
-    InvalidateRect(hwnd, nullptr, FALSE);
-}
-
-static void AdjustOverlayAlpha(HWND hwnd, int delta) {
-    if (!IsOverlayModeActive() || IsPassthroughModeActive()) return;
-
-    int newAlpha = (int)g_runtime.OverlayAlpha + delta;
-    newAlpha = std::clamp(newAlpha, 25, 255); // 10% to 100%
-    g_runtime.OverlayAlpha = (BYTE)newAlpha;
-
-    float opacity = newAlpha / 255.0f;
-    g_compEngine->SetRootOpacity(opacity);
-    g_compEngine->Commit();
-
-    g_toolbar.SetOverlayAlpha(g_runtime.OverlayAlpha);
-
-    int percent = (int)(newAlpha * 100.0f / 255.0f + 0.5f);
-    wchar_t buf[64];
-    swprintf_s(buf, L"%s: %d%%", AppStrings::OSD_Opacity, percent);
-    g_osd.Show(hwnd, buf, true);
-
-    InvalidateRect(hwnd, nullptr, FALSE);
-}
-
-static void EnterPassthroughMode(HWND hwnd) {
-    if (!IsOverlayModeActive() || IsPassthroughModeActive()) return;
-
-    // Show confirmation dialog using custom dialog system
-
-    DialogResult result = AppContext::GetInstance().DialogCtrl->ShowDialog(hwnd,
-        AppStrings::Dialog_PassthroughTitle,
-        AppStrings::Dialog_PassthroughContent,
-        D2D1::ColorF(D2D1::ColorF::DodgerBlue),
-        { { DialogResult::Yes, AppStrings::Dialog_ButtonContinue, true }, { DialogResult::Cancel, AppStrings::Dialog_Cancel } });
-
-    if (result != DialogResult::Yes) return;
-
-    // Hide toolbar immediately
-    g_toolbar.HideImmediately();
-    g_toolbar.SetPinned(false);
-
-    // Add WS_EX_LAYERED | WS_EX_TRANSPARENT for mouse passthrough
-    // CRITICAL: Do NOT call SetLayeredWindowAttributes — it breaks DComp!
-    LONG_PTR exStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
-    SetWindowLongPtr(hwnd, GWL_EXSTYLE, exStyle | WS_EX_LAYERED | WS_EX_TRANSPARENT);
-
-    // Register global hotkey (Shift+Esc default or customized OverlayTogglePassthrough) — only way to exit since we lose focus
-    const auto& binding = g_hotkeys[static_cast<size_t>(HotkeyAction::OverlayTogglePassthrough)];
-    UINT fsModifiers = 0;
-    if (binding.combo.modifiers & 1) fsModifiers |= MOD_CONTROL;
-    if (binding.combo.modifiers & 2) fsModifiers |= MOD_SHIFT;
-    if (binding.combo.modifiers & 4) fsModifiers |= MOD_ALT;
-    UINT vk = binding.combo.virtualKey;
-    if (vk == 0) {
-        fsModifiers = MOD_SHIFT;
-        vk = VK_ESCAPE;
-    }
-    RegisterHotKey(hwnd, HOTKEY_ID_EXIT_PASSTHROUGH, fsModifiers, vk);
-
-    g_runtime.OverlayModeState = OverlayState::Overlay_Passthrough;
-
-    g_osd.Show(hwnd, AppStrings::OSD_PassthroughOn, false);
-    InvalidateRect(hwnd, nullptr, FALSE);
-}
-
-static void ExitPassthroughMode(HWND hwnd) {
-    if (!IsPassthroughModeActive()) return;
-
-    // Remove WS_EX_TRANSPARENT (and WS_EX_LAYERED) to restore input
-    LONG_PTR exStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
-    exStyle &= ~(WS_EX_TRANSPARENT | WS_EX_LAYERED);
-    SetWindowLongPtr(hwnd, GWL_EXSTYLE, exStyle);
-
-    // Unregister global hotkey
-    UnregisterHotKey(hwnd, HOTKEY_ID_EXIT_PASSTHROUGH);
-
-
-    // Restore toolbar
-    g_toolbar.SetVisible(true);
-
-    g_runtime.OverlayModeState = OverlayState::Overlay_Interactive;
-
-    // Bring window back to foreground
-    SetForegroundWindow(hwnd);
-
-    g_osd.Show(hwnd, AppStrings::OSD_PassthroughOff, false);
-    InvalidateRect(hwnd, nullptr, FALSE);
-}
-
+// [Removed Overlay] All overlay/tracing/passthrough functions removed
 // Helper: Check if panning makes sense (image exceeds viewport OR window exceeds screen)
 bool CanPan([[maybe_unused]] HWND hwnd) {
     if (IsCompareModeActive()) {
@@ -4050,8 +3850,7 @@ void ApplyWindowTheme(HWND hwnd) {
 #endif
 
     // DWM_SYSTEMBACKDROP_TYPE: 2=Mica, 3=Acrylic (Transient), 4=Mica Alt (Tabbed)
-    // In Overlay (Tracing) mode, backdrop must be disabled so window is 100% transparent to desktop
-    if (!IsOverlayModeActive() && g_config.CanvasColor == 4) {
+    if (g_config.CanvasColor == 4) {
         int backdropType = DWMSBT_DISABLE;
         if (g_config.CanvasEffectStyle == 0) backdropType = DWMSBT_MAINWINDOW;      // Mica
         else if (g_config.CanvasEffectStyle == 1) backdropType = DWMSBT_TABBEDWINDOW; // Mica Alt
@@ -4104,7 +3903,7 @@ void ApplyWindowTheme(HWND hwnd) {
     // Must be called AFTER SetWindowPos(SWP_FRAMECHANGED) which may reset frame margins.
     {
         D2D1_COLOR_F canvasColor = ResolveCanvasColor();
-        bool canvasOpaque = (canvasColor.a >= 0.999f) && !IsOverlayModeActive() &&
+        bool canvasOpaque = (canvasColor.a >= 0.999f) &&
                             !(g_slideshowState.IsActive && g_config.SlideshowImmersiveMode == 1) &&
                             (g_config.CanvasColor != 4);
         MARGINS margins = canvasOpaque ? MARGINS{0, 0, 0, 0} : MARGINS{0, 0, 0, 1};
@@ -4288,7 +4087,6 @@ void SaveConfig() {
     WriteConfigBool(L"View", L"LockWindowSize", g_config.LockWindowSize, iniPath.c_str());
     WriteConfigBool(L"View", L"ShowOSD", g_config.ShowOSD, iniPath.c_str());
     WriteConfigBool(L"View", L"AutoHideWindowControls", g_config.AutoHideWindowControls, iniPath.c_str());
-    WriteConfigBool(L"View", L"LockBottomToolbar", g_config.LockBottomToolbar, iniPath.c_str());
     WriteConfigInt(L"View", L"ShowBorderIndicator", g_config.ShowBorderIndicator, iniPath.c_str());
     WriteConfigInt(L"View", L"ShowTopProgressBar", g_config.ShowTopProgressBar, iniPath.c_str());
     WriteConfigInt(L"View", L"LoadingSpinner", g_config.LoadingSpinner, iniPath.c_str());
@@ -4513,7 +4311,7 @@ void LoadConfig() {
     GetPrivateProfileStringW(L"GeekGlass", L"GlassSpecularOpacity", L"0.15", bufGGSO, 32, iniPath.c_str());
     GetPrivateProfileStringW(L"GeekGlass", L"GlassShadowOpacity", L"0.45", bufGGSH, 32, iniPath.c_str());
     GetPrivateProfileStringW(L"GeekGlass", L"GlassOsdOpacity", L"15.0", bufGGO, 32, iniPath.c_str());
-    GetPrivateProfileStringW(L"GeekGlass", L"GlassPanelsOpacity", L"45.0", bufGGP, 32, iniPath.c_str());
+    GetPrivateProfileStringW(L"GeekGlass", L"GlassPanelsOpacity", L"100.0", bufGGP, 32, iniPath.c_str());
     GetPrivateProfileStringW(L"GeekGlass", L"GlassModalsOpacity", L"75.0", bufGGM, 32, iniPath.c_str());
     GetPrivateProfileStringW(L"GeekGlass", L"GlassMenusOpacity", L"85.0", bufGGMenu, 32, iniPath.c_str());
     g_config.GlassBlurSigma = (float)_wtof(bufGGB);
@@ -4534,7 +4332,7 @@ void LoadConfig() {
     GetPrivateProfileStringW(L"GeekGlass", L"GlassSpecularOpacityBackup", L"0.15", bufGGSB, 32, iniPath.c_str());
     GetPrivateProfileStringW(L"GeekGlass", L"GlassShadowOpacityBackup", L"0.45", bufGGSHB, 32, iniPath.c_str());
     GetPrivateProfileStringW(L"GeekGlass", L"GlassOsdOpacityBackup", L"15.0", bufGGOB, 32, iniPath.c_str());
-    GetPrivateProfileStringW(L"GeekGlass", L"GlassPanelsOpacityBackup", L"45.0", bufGGPB, 32, iniPath.c_str());
+    GetPrivateProfileStringW(L"GeekGlass", L"GlassPanelsOpacityBackup", L"100.0", bufGGPB, 32, iniPath.c_str());
     GetPrivateProfileStringW(L"GeekGlass", L"GlassModalsOpacityBackup", L"55.0", bufGGMB, 32, iniPath.c_str());
     GetPrivateProfileStringW(L"GeekGlass", L"GlassMenusOpacityBackup", L"15.0", bufGGMenuB, 32, iniPath.c_str());
     
@@ -4615,7 +4413,6 @@ g_config.AlwaysOnTop = GetPrivateProfileIntW(L"View", L"AlwaysOnTop", 0, iniPath
     }
     // The custom title bar and its controls are always visible in windowed mode.
     g_config.AutoHideWindowControls = false;
-    g_config.LockBottomToolbar = GetPrivateProfileIntW(L"View", L"LockBottomToolbar", 1, iniPath.c_str()) != 0;
     g_config.ShowBorderIndicator = GetPrivateProfileIntW(L"View", L"ShowBorderIndicator", 0, iniPath.c_str());
     g_config.ShowTopProgressBar = GetPrivateProfileIntW(L"View", L"ShowTopProgressBar", 0, iniPath.c_str());
     g_config.LoadingSpinner = GetPrivateProfileIntW(L"View", L"LoadingSpinner", 1, iniPath.c_str());
@@ -5546,15 +5343,8 @@ void SyncDCompState([[maybe_unused]] HWND hwnd, float winW, float winH, bool ani
 
     // 1. Update Background (Independent of image state)
     D2D1_COLOR_F bgColor = ResolveCanvasColor();
-    // [Overlay Mode] Use fully transparent background so user sees through to desktop
-    if (IsOverlayModeActive()) {
-        bgColor = D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f);
-    }
     bool showGrid = (g_config.CanvasColor == 2 || g_config.CanvasShowGrid);
     if (g_slideshowState.IsActive && g_config.SlideshowImmersiveMode == 1) {
-        showGrid = false;
-    }
-    if (IsOverlayModeActive()) {
         showGrid = false;
     }
 // [Swatch] Set checkerboard mode for PS-style presets
@@ -6582,7 +6372,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, [[maybe_unused]] LPWSTR lpCm
     // Sync toolbar button states from runtime config (which was synced from AppConfig)
     g_toolbar.SetLockState(g_runtime.LockWindowSize);
     g_toolbar.SetExifState(g_runtime.ShowInfoPanel);
-    g_toolbar.SetPinned(g_config.LockBottomToolbar); // Lock toolbar from config
+    g_toolbar.SetPinned(true); // [A块] Toolbar always pinned
     
     if (deferStartupShow) {
         SetTimer(hwnd, TIMER_ID_STARTUP_SHOW, 150, nullptr);
@@ -7208,14 +6998,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
     }
 
     case WM_HOTKEY: {
-        if (wParam == HOTKEY_ID_EXIT_PASSTHROUGH) {
-            ExitPassthroughMode(hwnd);
-            RequestRepaint(PaintLayer::All);
-        } else if (wParam == HOTKEY_ID_ALPHA_UP) {
-            AdjustOverlayAlpha(hwnd, 25);
-        } else if (wParam == HOTKEY_ID_ALPHA_DOWN) {
-            AdjustOverlayAlpha(hwnd, -25);
-        }
         return 0;
     }
 
@@ -7723,10 +7505,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
     }
     
     case WM_CLOSE: {
-        // [Overlay] Cleanup global hotkey if still registered
-        if (IsPassthroughModeActive()) {
-            UnregisterHotKey(hwnd, HOTKEY_ID_EXIT_PASSTHROUGH);
-        }
         if (!CheckUnsavedChanges(hwnd)) return 0;
 
         // Save Last Window Size
@@ -9418,21 +9196,6 @@ SKIP_EDGE_NAV:;
                     ReturnToPairFaceAfterCompareExit(hwnd);
                     RequestRepaint(PaintLayer::All);
                     break;
-                case ToolbarButtonID::OverlayAlphaUp:
-                    AdjustOverlayAlpha(hwnd, +25);
-                    break;
-                case ToolbarButtonID::OverlayAlphaDown:
-                    AdjustOverlayAlpha(hwnd, -25);
-                    break;
-                case ToolbarButtonID::OverlayPassthrough:
-                    if (!IsPassthroughModeActive()) EnterPassthroughMode(hwnd);
-                    else ExitPassthroughMode(hwnd);
-                    RequestRepaint(PaintLayer::All);
-                    break;
-                case ToolbarButtonID::OverlayExit:
-                    ExitOverlayMode(hwnd);
-                    RequestRepaint(PaintLayer::All);
-                    break;
                 case ToolbarButtonID::SlideshowImmersiveToggle:
                     if (g_slideshowState.IsActive) {
                         g_config.SlideshowImmersiveMode = (g_config.SlideshowImmersiveMode == 0) ? 1 : 0;
@@ -9525,9 +9288,6 @@ SKIP_EDGE_NAV:;
                         float stepPercent = g_toolbar.GetCompareZoomStepPercent();
                         float stepDelta = (stepPercent / 10.0f) * (zoomIn ? 1.0f : -1.0f);
                         AppContext::GetInstance().CompareCtrl->ApplyZoomStep(hwnd, stepDelta, false);
-                    } else if (IsOverlayModeActive()) {
-                        const bool zoomIn = (tbId == ToolbarButtonID::CompareZoomIn);
-                        SendMessage(hwnd, WM_KEYDOWN, zoomIn ? VK_ADD : VK_SUBTRACT, 0);
                     }
                     break;
                 case ToolbarButtonID::CompareSyncZoom:
@@ -11154,13 +10914,6 @@ const std::wstring& contextPath = contextLeft ? GetPaneContext(PaneSlot::Left).p
             } else {
                 AppContext::GetInstance().CompareCtrl->EnterMode(hwnd);
             }
-            RequestRepaint(PaintLayer::All);
-            break;
-        }
-
-        case IDM_OVERLAY_MODE: {
-            if (IsOverlayModeActive()) ExitOverlayMode(hwnd);
-            else EnterOverlayMode(hwnd);
             RequestRepaint(PaintLayer::All);
             break;
         }
@@ -15183,32 +14936,11 @@ bool HandleHotkeyAction(HWND hwnd, HotkeyAction action) {
         return true;
 
     case HotkeyAction::ToggleOverlay:
-        if (IsOverlayModeActive()) {
-            ExitOverlayMode(hwnd);
-        } else {
-            EnterOverlayMode(hwnd);
-        }
-        RequestRepaint(PaintLayer::All);
-        return true;
-
     case HotkeyAction::OverlayAlphaUp:
-        AdjustOverlayAlpha(hwnd, 25);
-        return true;
-
     case HotkeyAction::OverlayAlphaDown:
-        AdjustOverlayAlpha(hwnd, -25);
-        return true;
-
     case HotkeyAction::OverlayTogglePassthrough:
-        if (IsOverlayModeActive()) {
-            if (IsPassthroughModeActive()) {
-                ExitPassthroughMode(hwnd);
-            } else {
-                EnterPassthroughMode(hwnd);
-            }
-            RequestRepaint(PaintLayer::All);
-        }
-        return true;
+        // [Removed Overlay] No-op placeholders (keep enum for index alignment)
+        return false;
 
     case HotkeyAction::Help:
         if (!g_helpOverlay.IsVisible()) {
@@ -15261,11 +14993,6 @@ bool HandleHotkeyAction(HWND hwnd, HotkeyAction action) {
         return true;
 
     case HotkeyAction::Exit:
-        if (IsOverlayModeActive()) {
-            ExitOverlayMode(hwnd);
-            RequestRepaint(PaintLayer::All);
-            return true;
-        }
         if (IsCompareModeActive()) {
             AppContext::GetInstance().CompareCtrl->ExitMode(hwnd);
             RequestRepaint(PaintLayer::All);

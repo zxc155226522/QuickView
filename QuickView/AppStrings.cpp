@@ -6567,40 +6567,6 @@ std::wstring GetHotkeyActionName(HotkeyAction action) {
     case HotkeyAction::Print:
         raw = AppStrings::Context_Print;
         break;
-    case HotkeyAction::ToggleOverlay:
-        raw = AppStrings::Context_OverlayMode;
-        break;
-    case HotkeyAction::OverlayAlphaUp: {
-        needsCleaning = false;
-        switch (GetActiveLanguage()) {
-        case AppStrings::Language::ChineseSimplified:  raw = L"增加透明度"; break;
-        case AppStrings::Language::ChineseTraditional: raw = L"增加透明度"; break;
-        case AppStrings::Language::Japanese:           raw = L"不透明度を上げる"; break;
-        case AppStrings::Language::Russian:            raw = L"Увеличить непрозрачность"; break;
-        case AppStrings::Language::German:             raw = L"Deckkraft erhöhen"; break;
-        case AppStrings::Language::Spanish:            raw = L"Aumentar opacidad"; break;
-        case AppStrings::Language::French:             raw = L"Augmenter l'opacité"; break;
-        default:                                       raw = L"Increase Opacity"; break;
-        }
-        break;
-    }
-    case HotkeyAction::OverlayAlphaDown: {
-        needsCleaning = false;
-        switch (GetActiveLanguage()) {
-        case AppStrings::Language::ChineseSimplified:  raw = L"减少透明度"; break;
-        case AppStrings::Language::ChineseTraditional: raw = L"減少透明度"; break;
-        case AppStrings::Language::Japanese:           raw = L"不透明度を下げる"; break;
-        case AppStrings::Language::Russian:            raw = L"Уменьшить непрозрачность"; break;
-        case AppStrings::Language::German:             raw = L"Deckkraft verringern"; break;
-        case AppStrings::Language::Spanish:            raw = L"Disminuir opacidad"; break;
-        case AppStrings::Language::French:             raw = L"Diminuer l'opacité"; break;
-        default:                                       raw = L"Decrease Opacity"; break;
-        }
-        break;
-    }
-    case HotkeyAction::OverlayTogglePassthrough:
-        raw = AppStrings::Menu_ExitPassthrough;
-        break;
     case HotkeyAction::Help:
         raw = AppStrings::Settings_Link_Hotkeys;
         break;

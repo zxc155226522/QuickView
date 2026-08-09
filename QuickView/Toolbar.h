@@ -35,7 +35,7 @@ enum class ToolbarButtonID {
     AnimSpeedUp,
     AnimSpeedDown,
     AnimSeek,
-    // Overlay (Tracing) mode
+    // [Removed Overlay] Placeholder (keep enum for index alignment)
     OverlayAlphaUp,
     OverlayAlphaDown,
     OverlayPassthrough,
@@ -85,9 +85,9 @@ public:
     void SetVisible(bool visible); // Triggers animation logic external to this class?
     // actually, we can just set a target state and let UpdateAnimation be called by Timer.
     void HideImmediately() { m_opacity = 0.0f; m_targetVisible = false; }
-    bool IsPinned() const { return m_isPinned; }
-    void TogglePin() { m_isPinned = !m_isPinned; }
-    void SetPinned(bool pinned) { m_isPinned = pinned; }
+    bool IsPinned() const { return true; } // [A块] Always pinned
+    void TogglePin() { m_isPinned = true; } // [A块] No-op, always pinned
+    void SetPinned(bool /*pinned*/) { m_isPinned = true; } // [A块] Always pinned regardless of argument
     
     // Animation Step (returns true if still animating)
     bool UpdateAnimation(); 
@@ -124,9 +124,9 @@ public:
     void SetDraggingProgress(bool dragging) { m_isDraggingProgress = dragging; }
 
     // [Overlay Mode]
-    void SetOverlayMode(bool enabled);
-    bool IsOverlayMode() const { return m_overlayMode; }
-    void SetOverlayAlpha(BYTE alpha) { m_overlayAlphaPercent = (int)(alpha * 100.0f / 255.0f + 0.5f); }
+    void SetOverlayMode(bool enabled); // [Removed Overlay] no-op stub
+    bool IsOverlayMode() const { return false; }
+    void SetOverlayAlpha(BYTE /*alpha*/) {} // [Removed Overlay] no-op stub
     
     // [Phase 3] Get minimum required width for toolbar
     float GetMinWidth() const { return m_minRequiredWidth > 0.0f ? m_minRequiredWidth : (PADDING_X * 2 + 8 * BUTTON_SIZE + 7 * GAP) * m_uiScale; }
@@ -159,7 +159,7 @@ private:
     float m_uiFontScale = 0.0f;
 
     bool m_targetVisible = false;
-    bool m_isPinned = false;
+    bool m_isPinned = true; // [A块] Always pinned - toolbar never auto-hides
     bool m_windowTooNarrow = false; // True only when even the last-priority buttons can't fit
     uint64_t m_responsiveHiddenSet = 0; // Bitmask of ToolbarButtonID values hidden by responsive layout
     bool m_compareMode = false;
@@ -168,8 +168,7 @@ private:
     bool m_slideshowMode = false;
     bool m_animPlaying = true;
     bool m_animDirtyRect = false;
-    bool m_overlayMode = false;
-    int  m_overlayAlphaPercent = 50;
+    // [Removed Overlay] m_overlayMode/m_overlayAlphaPercent removed
     float m_animProgress = 0.0f;
     uint32_t m_currentFrame = 0;
     uint32_t m_totalFrames = 0;
