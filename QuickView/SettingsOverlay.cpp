@@ -340,7 +340,6 @@ bool SettingsOverlay::RegisterAssociations() {
     std::wstring exePathStr = exePath;
 
     HKEY hKey;
-    LONG r;
 
     // Build the list of extensions to register from user selection.
     // If FileAssocExts is empty, register all (backward compat).
@@ -353,53 +352,35 @@ bool SettingsOverlay::RegisterAssociations() {
         }
     }
 
-    // 1. Register ProgID command
+    // 1. Register ProgID command (for QuickView.Image only — used by Capabilities)
     std::wstring cmd = L"\"" + exePathStr + L"\" \"%1\"";
     SafeRegSetString(HKEY_CURRENT_USER, L"Software\\Classes\\QuickView.Image\\shell\\open\\command", NULL, cmd);
 
-    // 2. Set DefaultIcon to a generic Windows file icon (NOT the QuickView exe).
-    // If this is omitted, Windows falls back to the icon of the exe in
-    // shell\open\command, making ALL associated files show the QuickView logo.
-    SafeRegSetString(HKEY_CURRENT_USER, L"Software\\Classes\\QuickView.Image\\DefaultIcon", NULL, L"shell32.dll,0");
+    // 2. Do NOT set DefaultIcon on QuickView.Image — let it use exe icon
+    // (QuickView.Image is only used when user explicitly sets QuickView as default)
 
     // 3. Register FriendlyTypeName
     SafeRegSetString(HKEY_CURRENT_USER, L"Software\\Classes\\QuickView.Image", L"FriendlyTypeName", L"QuickView Image Viewer");
 
-    // 4. Register specific ProgIDs and OpenWith
+    // 4. For each extension: use OpenWithList (NOT OpenWithProgids).
+    // OpenWithList stores the exe filename, which does NOT create a ProgID
+    // association and therefore does NOT affect the file's icon in Explorer.
+    // OpenWithProgids creates a ProgID link that overrides the native icon.
     for (const auto& extStr : selectedExts) {
-        std::wstring baseExt = (extStr.size() > 1) ? extStr.substr(1) : extStr;
-
-        // Generate ProgID: QuickView.EXT (e.g. QuickView.jpg)
+        // Clean up old ProgID-based registrations from previous versions
         std::wstring progId = L"QuickView" + extStr;
+        RegDeleteTreeW(HKEY_CURRENT_USER, (L"Software\\Classes\\" + progId).c_str());
 
-        // Generate Description: "EXT File" (e.g. "JPG File")
-        std::wstring desc = baseExt;
-        std::transform(desc.begin(), desc.end(), desc.begin(), ::towupper);
-        desc += L" File";
-
-        // Create ProgID Key
-        SafeRegSetString(HKEY_CURRENT_USER, (L"Software\\Classes\\" + progId).c_str(), L"FriendlyTypeName", desc);
-
-        // Command
-        std::wstring cmd = L"\"" + exePathStr + L"\" \"%1\"";
-        SafeRegSetString(HKEY_CURRENT_USER, (L"Software\\Classes\\" + progId + L"\\shell\\open\\command").c_str(), NULL, cmd);
-
-        // Set DefaultIcon to generic Windows file icon to prevent exe icon fallback.
-        SafeRegSetString(HKEY_CURRENT_USER, (L"Software\\Classes\\" + progId + L"\\DefaultIcon").c_str(), NULL, L"shell32.dll,0");
-
-        // Add to OpenWithProgids
-        std::wstring keyPath = L"Software\\Classes\\" + extStr + L"\\OpenWithProgids";
-        r = RegCreateKeyExW(HKEY_CURRENT_USER, keyPath.c_str(), 0, NULL, 0, KEY_WRITE, NULL, &hKey, NULL);
-        if (r == ERROR_SUCCESS) {
-            // Use Empty String ("") instead of NULL for safety
-            RegSetValueExW(hKey, progId.c_str(), 0, REG_SZ, (const BYTE*)L"", sizeof(wchar_t));
+        // Remove stale OpenWithProgids entries
+        HKEY hKey;
+        std::wstring owpPath = L"Software\\Classes\\" + extStr + L"\\OpenWithProgids";
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, owpPath.c_str(), 0, KEY_WRITE, &hKey) == ERROR_SUCCESS) {
+            RegDeleteValueW(hKey, progId.c_str());
+            RegDeleteValueW(hKey, L"QuickView.Image");
             RegCloseKey(hKey);
         }
 
-        // [Fix] Clear the .ext default value if it points to a QuickView ProgID.
-        // A previous registration may have set .ext -> QuickView.ext as the
-        // default handler, which makes Explorer show the QuickView exe icon.
-        // We only want to be in "Open with", not the default handler.
+        // Clear .ext default value if it points to a QuickView ProgID
         {
             HKEY hExtKey;
             std::wstring extKeyPath = L"Software\\Classes\\" + extStr;
@@ -410,12 +391,19 @@ bool SettingsOverlay::RegisterAssociations() {
                 if (RegQueryValueExW(hExtKey, NULL, NULL, &valType, (LPBYTE)curVal, &valLen) == ERROR_SUCCESS) {
                     std::wstring curStr(curVal);
                     if (curStr.rfind(L"QuickView", 0) == 0) {
-                        // Default value points to a QuickView ProgID — delete it
                         RegDeleteValueW(hExtKey, NULL);
                     }
                 }
                 RegCloseKey(hExtKey);
             }
+        }
+
+        // Add to OpenWithList — this only adds QuickView to the "Open with" menu
+        // without affecting the file's icon.
+        std::wstring owlPath = L"Software\\Classes\\" + extStr + L"\\OpenWithList";
+        if (RegCreateKeyExW(HKEY_CURRENT_USER, owlPath.c_str(), 0, NULL, 0, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS) {
+            RegSetValueExW(hKey, L"QuickView.exe", 0, REG_SZ, (const BYTE*)L"", sizeof(wchar_t));
+            RegCloseKey(hKey);
         }
     }
     
@@ -447,8 +435,10 @@ bool SettingsOverlay::RegisterAssociations() {
     std::wstring capKey = L"Software\\QuickView\\Capabilities\\FileAssociations";
     if (RegCreateKeyExW(HKEY_CURRENT_USER, capKey.c_str(), 0, NULL, 0, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS) {
         for (const auto& extStr : selectedExts) {
-            std::wstring progId = L"QuickView" + extStr;
-            RegSetValueExW(hKey, extStr.c_str(), 0, REG_SZ, (const BYTE*)progId.c_str(), (DWORD)(progId.size() + 1) * sizeof(wchar_t));
+            // Use QuickView.Image as the ProgID for all extensions.
+            // This is only used when the user explicitly sets QuickView as
+            // the default app via Windows Settings.
+            RegSetValueExW(hKey, extStr.c_str(), 0, REG_SZ, (const BYTE*)L"QuickView.Image", sizeof(L"QuickView.Image"));
         }
         RegCloseKey(hKey);
     }
@@ -497,6 +487,13 @@ void SettingsOverlay::UnregisterAssociations() {
         if (RegOpenKeyExW(HKEY_CURRENT_USER, keyPath.c_str(), 0, KEY_WRITE, &hKey) == ERROR_SUCCESS) {
             RegDeleteValueW(hKey, progId.c_str());           // Remove QuickView.jpg
             RegDeleteValueW(hKey, L"QuickView.Image");       // Remove QuickView.Image
+            RegCloseKey(hKey);
+        }
+
+        // Remove from OpenWithList
+        std::wstring owlPath = L"Software\\Classes\\" + extStr + L"\\OpenWithList";
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, owlPath.c_str(), 0, KEY_WRITE, &hKey) == ERROR_SUCCESS) {
+            RegDeleteValueW(hKey, L"QuickView.exe");
             RegCloseKey(hKey);
         }
     }
