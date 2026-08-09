@@ -3618,12 +3618,15 @@ HRESULT CImageLoader::LoadShellThumbnail(LPCWSTR filePath, int targetSize,
   if (FAILED(hr) || !hBitmap)
     return E_FAIL;
 
-  // Reject standard icon sizes to avoid meaningless fallback
+  // Reject standard icon sizes to avoid meaningless fallback.
+  // [Fix] Also reject 256: Windows may return a 256×256 file-type icon for
+  // formats without a thumbnail handler, which would otherwise be mistaken
+  // for a real thumbnail and skip the LoadToFrame rasterization fallback.
   BITMAP bm;
   if (GetObject(hBitmap, sizeof(bm), &bm)) {
     if (bm.bmWidth == bm.bmHeight &&
         (bm.bmWidth == 16 || bm.bmWidth == 32 || bm.bmWidth == 48 ||
-         bm.bmWidth == 64 || bm.bmWidth == 128)) {
+         bm.bmWidth == 64 || bm.bmWidth == 128 || bm.bmWidth == 256)) {
       DeleteObject(hBitmap);
       return E_FAIL; // It's an icon, reject it
     }
@@ -4237,22 +4240,32 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
 
   // 0. Highest Priority: Windows Shell Thumbnail Cache (Insanely fast for
   // pre-cached heavy RAWs)
-  // 0. Highest Priority: Windows Shell Thumbnail Cache (Insanely fast for
-  // pre-cached heavy RAWs, and ALL formats incl. vector/document types).
-  // When a system thumbnail handler exists (Corel for CDR/CMX, or any installed
-  // viewer for PDF/AI/DXF/DWG/PLT), Shell returns the real thumbnail; when none
-  // exists it fails (SIIGBF_THUMBNAILONLY blocks file-icon fallback) and we
-  // fall back to LoadToFrame below — safe for every format.
+  // [Fix] Skip Shell cache for vector/document formats (CDR/CMX/PLT/DXF/DWG/
+  // PDF/AI) because Windows may return a file-type icon (256×256) that passes
+  // the icon-size rejection (256 not in 16/32/48/64/128 list) but is NOT a real
+  // thumbnail. These formats must always go through LoadToFrame for proper
+  // rasterization.
   {
-    if (SUCCEEDED(LoadShellThumbnail(filePath, targetSize, pData,
-                                     /*cacheOnly=*/true))) {
-      return S_OK;
-    }
-    // 缓存未命中：让 Shell 按需生成系统缩略图（与资源管理器一致），
-    // 仍失败再走内嵌预览 / 完整解码缩放兜底。
-    if (SUCCEEDED(LoadShellThumbnail(filePath, targetSize, pData,
-                                     /*cacheOnly=*/false))) {
-      return S_OK;
+    std::wstring_view thumbExt = QuickView::ExtensionOf(filePath);
+    const bool isVectorDoc =
+        QuickView::ExtEqualsIgnoreCase(thumbExt, L".cdr") ||
+        QuickView::ExtEqualsIgnoreCase(thumbExt, L".cmx") ||
+        QuickView::ExtEqualsIgnoreCase(thumbExt, L".plt") ||
+        QuickView::ExtEqualsIgnoreCase(thumbExt, L".dxf") ||
+        QuickView::ExtEqualsIgnoreCase(thumbExt, L".dwg") ||
+        QuickView::ExtEqualsIgnoreCase(thumbExt, L".pdf") ||
+        QuickView::ExtEqualsIgnoreCase(thumbExt, L".ai");
+    if (!isVectorDoc) {
+      if (SUCCEEDED(LoadShellThumbnail(filePath, targetSize, pData,
+                                       /*cacheOnly=*/true))) {
+        return S_OK;
+      }
+      // 缓存未命中：让 Shell 按需生成系统缩略图（与资源管理器一致），
+      // 仍失败再走内嵌预览 / 完整解码缩放兜底。
+      if (SUCCEEDED(LoadShellThumbnail(filePath, targetSize, pData,
+                                       /*cacheOnly=*/false))) {
+        return S_OK;
+      }
     }
   }
   const ImageHeaderInfo headerInfo = PeekHeader(filePath);
