@@ -840,9 +840,6 @@ struct ViewState {
         RightDragZoomStartTotalScale = 1.0f;
         RightDragZoomStartComparePrimaryZoom = 1.0f;
         RightDragZoomStartCompareSecondaryZoom = 1.0f;
-        EdgeHoverState = 0;
-        EdgeHoverLeft = 0;
-        EdgeHoverRight = 0;
         CompareSplitRatio = 0.5f;
         CompareActive = false;
         ExifOrientation = 1;

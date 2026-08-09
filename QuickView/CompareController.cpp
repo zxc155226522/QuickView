@@ -893,6 +893,19 @@ int HitTestNavButtonInPane(POINT pt, const D2D1_RECT_F& paneRect) {
     if (hitCircle(leftX)) return -1;
     const float rightX = paneRect.right - margin;
     if (hitCircle(rightX)) return 1;
+
+    // Also allow clicking anywhere in the semicircle overlay zone (width = margin*2 at each edge)
+    {
+        extern ImageViewportLayout ComputeImageViewportLayout(float windowWidth, float windowHeight);
+        ImageViewportLayout vp = ComputeImageViewportLayout(paneRect.right - paneRect.left, paneRect.bottom - paneRect.top);
+        float imgTop = paneRect.top + vp.Top;
+        float imgBottom = paneRect.top + vp.Bottom;
+        if (pt.y >= imgTop && pt.y <= imgBottom) {
+            if (pt.x >= paneRect.left && pt.x <= paneRect.left + margin * 2.0f) return -1;
+            if (pt.x >= paneRect.right - margin * 2.0f && pt.x <= paneRect.right) return 1;
+        }
+    }
+
     return 0;
 }
 
