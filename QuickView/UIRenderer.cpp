@@ -4678,13 +4678,44 @@ void UIRenderer::DrawNavIndicators(ID2D1DeviceContext* dc) {
         return;
     }
 
-    // Only draw the arrow for the edge the mouse is currently hovering over
-    {
+    // Draw translucent overlay + arrow for the edge the mouse is currently hovering over
+    if (g_viewState.EdgeHoverState != 0) {
+        float edgeMargin = 64.0f * s;
+        float topY = m_height * 0.20f;
+        float bottomY = m_height * 0.80f;
+
+        D2D1_RECT_F zoneRect;
+        if (g_viewState.EdgeHoverState == -1) {
+            zoneRect = D2D1::RectF(0.0f, topY, edgeMargin, bottomY);
+        } else {
+            zoneRect = D2D1::RectF(m_width - edgeMargin, topY, m_width, bottomY);
+        }
+
+        // Translucent fill
+        ComPtr<ID2D1SolidColorBrush> overlayBrush;
+        D2D1_COLOR_F overlayColor = isLight
+            ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.06f)
+            : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.08f);
+        dc->CreateSolidColorBrush(overlayColor, &overlayBrush);
+        if (overlayBrush) {
+            dc->FillRectangle(zoneRect, overlayBrush.Get());
+        }
+
+        // Subtle border to delineate the zone
+        ComPtr<ID2D1SolidColorBrush> borderBrush;
+        D2D1_COLOR_F borderColor = isLight
+            ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.10f)
+            : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.12f);
+        dc->CreateSolidColorBrush(borderColor, &borderBrush);
+        if (borderBrush) {
+            dc->DrawRectangle(zoneRect, borderBrush.Get(), 1.0f * s);
+        }
+
         float arrowCenterY = m_height * 0.5f;
         if (g_viewState.EdgeHoverState == -1) {
             // Left arrow (previous)
             drawArrow(margin, arrowCenterY, true);
-        } else if (g_viewState.EdgeHoverState == 1) {
+        } else {
             // Right arrow (next)
             drawArrow(m_width - margin, arrowCenterY, false);
         }

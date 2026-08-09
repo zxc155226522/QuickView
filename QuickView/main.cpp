@@ -9527,7 +9527,8 @@ SKIP_EDGE_NAV:;
             return 0;
         }
 
-        if (g_config.ThumbWheelMode == 0) { // Navigate
+        // [Edge Nav] In edge zone, thumb wheel always navigates regardless of ThumbWheelMode
+        if (g_config.ThumbWheelMode == 0 || g_viewState.EdgeHoverState != 0) { // Navigate
             int direction = (delta > 0.0f) ? 1 : -1; // Positive is usually right, negative is left
             if (delta != 0.0f && CheckUnsavedChanges(hwnd)) {
                 Navigate(hwnd, direction);
@@ -9750,7 +9751,8 @@ SKIP_EDGE_NAV:;
             return 0;
         }
 
-        if (isAlt) {
+        // [Edge Nav] Skip Alt zoom-speed adjustment when hovering over edge zone
+        if (isAlt && g_viewState.EdgeHoverState == 0) {
             if (!g_config.UseFixedZoom) {
                 g_config.WheelZoomSpeed += (delta > 0) ? 5.0f : -5.0f;
                 g_config.WheelZoomSpeed = std::max(5.0f, std::min(50.0f, g_config.WheelZoomSpeed));
@@ -9767,8 +9769,8 @@ SKIP_EDGE_NAV:;
         // Alt + Wheel (when UseFixedZoom is true) ALWAYS means "Regular Zoom".
         // If WheelActionMode is Navigate (1), then Wheel (without Ctrl/Alt) means Navigate.
         // If WheelActionMode is Zoom (0), then Wheel (without Ctrl/Alt) means Smart Zoom.
-        // [Edge Nav] When mouse hovers over left/right edge zone, wheel also navigates.
-        bool shouldNavigate = ((g_config.WheelActionMode == 1) || (g_viewState.EdgeHoverState != 0)) && !isCtrl && !isAlt;
+        // [Edge Nav] When mouse hovers over left/right edge zone, wheel ALWAYS navigates (no zoom).
+        bool shouldNavigate = (g_viewState.EdgeHoverState != 0) || ((g_config.WheelActionMode == 1) && !isCtrl && !isAlt);
 
         if (IsCompareModeActive()) {
             if (shouldNavigate) {
