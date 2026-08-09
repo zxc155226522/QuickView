@@ -4696,7 +4696,7 @@ void UIRenderer::DrawNavIndicators(ID2D1DeviceContext* dc) {
         D2D1_ARC_SEGMENT arcSeg = {};
         arcSeg.rotationAngle = 0.0f;
         arcSeg.arcSize = D2D1_ARC_SIZE_SMALL;
-        arcSeg.size = D2D1::SizeF(margin, imgH * 0.5f);
+        arcSeg.size = D2D1::SizeF(margin * 2.0f, imgH * 0.5f);
 
         if (g_viewState.EdgeHoverState == -1) {
             // Left: semicircle from (0,imgTop) to (0,imgBottom) bulging right
@@ -4734,13 +4734,13 @@ void UIRenderer::DrawNavIndicators(ID2D1DeviceContext* dc) {
             dc->CreateLinearGradientBrush(
                 D2D1::LinearGradientBrushProperties(
                     D2D1::Point2F(0.0f, centerY),
-                    D2D1::Point2F(margin, centerY)),
+                    D2D1::Point2F(margin * 2.0f, centerY)),
                 gradStops.Get(), &gradBrush);
         } else {
             dc->CreateLinearGradientBrush(
                 D2D1::LinearGradientBrushProperties(
                     D2D1::Point2F(m_width, centerY),
-                    D2D1::Point2F(m_width - margin, centerY)),
+                    D2D1::Point2F(m_width - margin * 2.0f, centerY)),
                 gradStops.Get(), &gradBrush);
         }
 
