@@ -4635,6 +4635,26 @@ g_config.AlwaysOnTop = GetPrivateProfileIntW(L"View", L"AlwaysOnTop", 0, iniPath
     g_config.FileAssocExts = bufAssocExts;
     if (g_config.FileAssocExts.empty()) {
         g_config.FileAssocExts = QuickView::GetAllExtensionsString();
+    } else {
+        // [Fix] Upgrade migration: auto-add newly supported extensions that are
+        // missing from the saved INI config (e.g. .cdr/.cmx added after upgrade).
+        auto exts = QuickView::SplitAndTrimCSV(g_config.FileAssocExts);
+        bool changed = false;
+        for (const auto& supp : QuickView::SUPPORTED_EXTENSIONS) {
+            bool found = false;
+            for (const auto& e : exts) {
+                if (QuickView::ExtEqualsIgnoreCase(e, supp)) { found = true; break; }
+            }
+            if (!found) { exts.emplace_back(supp); changed = true; }
+        }
+        if (changed) {
+            std::wstring merged;
+            for (size_t i = 0; i < exts.size(); ++i) {
+                merged += exts[i];
+                if (i < exts.size() - 1) merged += L",";
+            }
+            g_config.FileAssocExts = merged;
+        }
     }
 
     // Load Hotkeys
