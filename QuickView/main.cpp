@@ -4634,13 +4634,16 @@ g_config.AlwaysOnTop = GetPrivateProfileIntW(L"View", L"AlwaysOnTop", 0, iniPath
     GetPrivateProfileStringW(L"Registry", L"FileAssocExts", L"", bufAssocExts, 2048, iniPath.c_str());
     g_config.FileAssocExts = bufAssocExts;
     if (g_config.FileAssocExts.empty()) {
-        g_config.FileAssocExts = QuickView::GetAllExtensionsString();
+        // Default: associate all formats EXCEPT .cdr/.cmx (user must opt-in).
+        g_config.FileAssocExts = QuickView::GetDefaultAssocExtensionsString();
     } else {
         // [Fix] Upgrade migration: auto-add newly supported extensions that are
-        // missing from the saved INI config (e.g. .cdr/.cmx added after upgrade).
+        // missing from the saved INI config, EXCEPT non-default formats (.cdr/.cmx)
+        // which the user must explicitly opt-in via Settings.
         auto exts = QuickView::SplitAndTrimCSV(g_config.FileAssocExts);
         bool changed = false;
         for (const auto& supp : QuickView::SUPPORTED_EXTENSIONS) {
+            if (QuickView::IsNonDefaultAssocExtension(supp)) continue;
             bool found = false;
             for (const auto& e : exts) {
                 if (QuickView::ExtEqualsIgnoreCase(e, supp)) { found = true; break; }

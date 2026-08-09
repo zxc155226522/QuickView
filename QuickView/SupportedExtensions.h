@@ -204,12 +204,39 @@ inline std::wstring GetSupportedExtensionsFilter() {
 }
 
 // Generate a comma-separated string of all supported extensions (e.g. ".jpg,.png,...")
-// Used for initializing FileAssocExts to "all selected" by default.
+// Used for "Select All" button in Settings — includes ALL formats.
 inline std::wstring GetAllExtensionsString() {
     std::wstring result;
     for (size_t i = 0; i < std::size(SUPPORTED_EXTENSIONS); ++i) {
         result += SUPPORTED_EXTENSIONS[i];
         if (i < std::size(SUPPORTED_EXTENSIONS) - 1) result += L",";
+    }
+    return result;
+}
+
+// Extensions that are NOT associated by default (user must opt-in via Settings).
+// These are niche vector/document formats that most users don't want as default.
+inline constexpr std::array<std::wstring_view, 2> NON_DEFAULT_ASSOC_EXTENSIONS = {
+    L".cdr", L".cmx"
+};
+
+constexpr bool IsNonDefaultAssocExtension(std::wstring_view ext) {
+    for (const auto& nd : NON_DEFAULT_ASSOC_EXTENSIONS) {
+        if (ExtEqualsIgnoreCase(ext, nd)) return true;
+    }
+    return false;
+}
+
+// Generate a comma-separated string of extensions that are associated by default.
+// Excludes NON_DEFAULT_ASSOC_EXTENSIONS (e.g. .cdr/.cmx) — user must opt-in.
+inline std::wstring GetDefaultAssocExtensionsString() {
+    std::wstring result;
+    bool first = true;
+    for (size_t i = 0; i < std::size(SUPPORTED_EXTENSIONS); ++i) {
+        if (IsNonDefaultAssocExtension(SUPPORTED_EXTENSIONS[i])) continue;
+        if (!first) result += L",";
+        result += SUPPORTED_EXTENSIONS[i];
+        first = false;
     }
     return result;
 }
