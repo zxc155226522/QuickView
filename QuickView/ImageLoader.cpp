@@ -4088,15 +4088,58 @@ static HRESULT RasterizeSvgThumbnail(const std::vector<uint8_t> &xmlData,
     processedXml.assign(xmlStr.begin(), xmlStr.end());
   }
 
-  UINT creationFlags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
-  D3D_FEATURE_LEVEL fl = D3D_FEATURE_LEVEL_11_0;
-  ComPtr<ID3D11Device> d3dDevice;
-  ComPtr<ID3D11DeviceContext> d3dContext;
-  HRESULT hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr,
-                                 creationFlags, &fl, 1, D3D11_SDK_VERSION,
-                                 &d3dDevice, nullptr, &d3dContext);
-  if (FAILED(hr))
-    return hr;
+  // [Perf] Reuse D3D/D2D device across calls (thread_local) to avoid
+  // creating a WARP device per thumbnail — which froze the system when
+  // processing 70+ vector files in rapid succession.
+  struct SvgRasterDevice {
+    ComPtr<ID3D11Device> d3dDevice;
+    ComPtr<ID3D11DeviceContext> d3dContext;
+    ComPtr<ID2D1Factory1> d2dFactory;
+    ComPtr<ID2D1Device> d2dDevice;
+    ComPtr<ID2D1DeviceContext5> d2dContext5;
+    bool init = false;
+  };
+  thread_local SvgRasterDevice t_dev;
+
+  if (!t_dev.init) {
+    UINT creationFlags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
+    D3D_FEATURE_LEVEL fl = D3D_FEATURE_LEVEL_11_0;
+    HRESULT hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr,
+                                   creationFlags, &fl, 1, D3D11_SDK_VERSION,
+                                   &t_dev.d3dDevice, nullptr, &t_dev.d3dContext);
+    if (FAILED(hr))
+      return hr;
+
+    D2D1_FACTORY_OPTIONS options = {};
+    hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED,
+                           __uuidof(ID2D1Factory1), &options,
+                           reinterpret_cast<void **>(t_dev.d2dFactory.GetAddressOf()));
+    if (FAILED(hr))
+      return hr;
+
+    ComPtr<IDXGIDevice> dxgiDevice;
+    hr = t_dev.d3dDevice.As(&dxgiDevice);
+    if (FAILED(hr))
+      return hr;
+
+    hr = t_dev.d2dFactory->CreateDevice(dxgiDevice.Get(), &t_dev.d2dDevice);
+    if (FAILED(hr))
+      return hr;
+
+    ComPtr<ID2D1DeviceContext> d2dCtx;
+    hr = t_dev.d2dDevice->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE,
+                                              &d2dCtx);
+    if (FAILED(hr))
+      return hr;
+
+    hr = d2dCtx.As(&t_dev.d2dContext5);
+    if (FAILED(hr))
+      return hr;
+
+    t_dev.init = true;
+  }
+
+  HRESULT hr = S_OK;
 
   D3D11_TEXTURE2D_DESC texDesc = {};
   texDesc.Width = outW;
@@ -4109,41 +4152,12 @@ static HRESULT RasterizeSvgThumbnail(const std::vector<uint8_t> &xmlData,
   texDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
 
   ComPtr<ID3D11Texture2D> renderTex;
-  hr = d3dDevice->CreateTexture2D(&texDesc, nullptr, &renderTex);
+  hr = t_dev.d3dDevice->CreateTexture2D(&texDesc, nullptr, &renderTex);
   if (FAILED(hr))
     return hr;
 
   ComPtr<IDXGISurface> dxgiSurface;
   hr = renderTex.As(&dxgiSurface);
-  if (FAILED(hr))
-    return hr;
-
-  D2D1_FACTORY_OPTIONS options = {};
-  ComPtr<ID2D1Factory1> d2dFactory;
-  hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED,
-                         __uuidof(ID2D1Factory1), &options,
-                         reinterpret_cast<void **>(d2dFactory.GetAddressOf()));
-  if (FAILED(hr))
-    return hr;
-
-  ComPtr<IDXGIDevice> dxgiDevice;
-  hr = d3dDevice.As(&dxgiDevice);
-  if (FAILED(hr))
-    return hr;
-
-  ComPtr<ID2D1Device> d2dDevice;
-  hr = d2dFactory->CreateDevice(dxgiDevice.Get(), &d2dDevice);
-  if (FAILED(hr))
-    return hr;
-
-  ComPtr<ID2D1DeviceContext> d2dContext;
-  hr = d2dDevice->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE,
-                                      &d2dContext);
-  if (FAILED(hr))
-    return hr;
-
-  ComPtr<ID2D1DeviceContext5> d2dContext5;
-  hr = d2dContext.As(&d2dContext5);
   if (FAILED(hr))
     return hr;
 
@@ -4154,7 +4168,7 @@ static HRESULT RasterizeSvgThumbnail(const std::vector<uint8_t> &xmlData,
       96.0f, 96.0f);
 
   ComPtr<ID2D1Bitmap1> targetBitmap;
-  hr = d2dContext5->CreateBitmapFromDxgiSurface(dxgiSurface.Get(), &targetProps,
+  hr = t_dev.d2dContext5->CreateBitmapFromDxgiSurface(dxgiSurface.Get(), &targetProps,
                                                 &targetBitmap);
   if (FAILED(hr))
     return hr;
@@ -4178,20 +4192,18 @@ static HRESULT RasterizeSvgThumbnail(const std::vector<uint8_t> &xmlData,
   }
 
   ComPtr<ID2D1SvgDocument> svgDoc;
-  hr = d2dContext5->CreateSvgDocument(stream.Get(), D2D1::SizeF(safeW, safeH),
+  hr = t_dev.d2dContext5->CreateSvgDocument(stream.Get(), D2D1::SizeF(safeW, safeH),
                                       &svgDoc);
   if (FAILED(hr))
     return hr;
 
-  d2dContext5->SetTarget(targetBitmap.Get());
-  d2dContext5->BeginDraw();
-  // [Fix] Use opaque white background instead of transparent, so thumbnail
-  // content doesn't appear fragmented when displayed in gallery.
-  d2dContext5->Clear(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f));
-  d2dContext5->SetTransform(
+  t_dev.d2dContext5->SetTarget(targetBitmap.Get());
+  t_dev.d2dContext5->BeginDraw();
+  t_dev.d2dContext5->Clear(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f));
+  t_dev.d2dContext5->SetTransform(
       D2D1::Matrix3x2F::Scale((float)outW / safeW, (float)outH / safeH));
-  d2dContext5->DrawSvgDocument(svgDoc.Get());
-  hr = d2dContext5->EndDraw();
+  t_dev.d2dContext5->DrawSvgDocument(svgDoc.Get());
+  hr = t_dev.d2dContext5->EndDraw();
   if (FAILED(hr))
     return hr;
 
@@ -4202,14 +4214,14 @@ static HRESULT RasterizeSvgThumbnail(const std::vector<uint8_t> &xmlData,
   stagingDesc.MiscFlags = 0;
 
   ComPtr<ID3D11Texture2D> stagingTex;
-  hr = d3dDevice->CreateTexture2D(&stagingDesc, nullptr, &stagingTex);
+  hr = t_dev.d3dDevice->CreateTexture2D(&stagingDesc, nullptr, &stagingTex);
   if (FAILED(hr))
     return hr;
 
-  d3dContext->CopyResource(stagingTex.Get(), renderTex.Get());
+  t_dev.d3dContext->CopyResource(stagingTex.Get(), renderTex.Get());
 
   D3D11_MAPPED_SUBRESOURCE mapped = {};
-  hr = d3dContext->Map(stagingTex.Get(), 0, D3D11_MAP_READ, 0, &mapped);
+  hr = t_dev.d3dContext->Map(stagingTex.Get(), 0, D3D11_MAP_READ, 0, &mapped);
   if (FAILED(hr))
     return hr;
 
@@ -4225,7 +4237,7 @@ static HRESULT RasterizeSvgThumbnail(const std::vector<uint8_t> &xmlData,
            outW * 4);
   }
 
-  d3dContext->Unmap(stagingTex.Get(), 0);
+  t_dev.d3dContext->Unmap(stagingTex.Get(), 0);
   pData->isValid = true;
   pData->isBlurry = false;
   return S_OK;
@@ -4506,16 +4518,12 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
     pData->isValid = true;
     pData->loaderName = loaderName.empty() ? L"Unified" : loaderName;
 
-    // [BugFix] Populate original dimensions and file size for Gallery tooltip
-    // Use metadata if available, otherwise use decoded dimensions (for scaled
-    // previews)
     pData->origWidth =
         (res.metadata.Width > 0) ? res.metadata.Width : res.width;
     pData->origHeight =
         (res.metadata.Height > 0) ? res.metadata.Height : res.height;
     pData->fileSize = res.metadata.FileSize;
 
-    // If FileSize not populated by codec, get it from file system
     if (pData->fileSize == 0) {
       WIN32_FILE_ATTRIBUTE_DATA fad;
       if (GetFileAttributesExW(filePath, GetFileExInfoStandard, &fad)) {
@@ -4549,7 +4557,6 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
       return S_OK;
     }
   }
-
   return E_FAIL;
 }
 #if 0  // Debris Deletion Start

@@ -357,9 +357,12 @@ bool SettingsOverlay::RegisterAssociations() {
     std::wstring cmd = L"\"" + exePathStr + L"\" \"%1\"";
     SafeRegSetString(HKEY_CURRENT_USER, L"Software\\Classes\\QuickView.Image\\shell\\open\\command", NULL, cmd);
 
-    // 2. Register DefaultIcon
-    std::wstring icon = exePathStr + L",0";
-    SafeRegSetString(HKEY_CURRENT_USER, L"Software\\Classes\\QuickView.Image\\DefaultIcon", NULL, icon);
+    // 2. Do NOT register DefaultIcon — it would override each format's native
+    // file-type icon in Explorer with the QuickView exe icon.  Instead, we only
+    // add ourselves to "Open with" via OpenWithProgids + Applications registration,
+    // so the original file icons are preserved.
+    // Clean up any stale DefaultIcon from a previous registration.
+    RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Classes\\QuickView.Image\\DefaultIcon");
 
     // 3. Register FriendlyTypeName
     SafeRegSetString(HKEY_CURRENT_USER, L"Software\\Classes\\QuickView.Image", L"FriendlyTypeName", L"QuickView Image Viewer");
@@ -383,9 +386,9 @@ bool SettingsOverlay::RegisterAssociations() {
         std::wstring cmd = L"\"" + exePathStr + L"\" \"%1\"";
         SafeRegSetString(HKEY_CURRENT_USER, (L"Software\\Classes\\" + progId + L"\\shell\\open\\command").c_str(), NULL, cmd);
 
-        // Icon
-        std::wstring icon = exePathStr + L",0";
-        SafeRegSetString(HKEY_CURRENT_USER, (L"Software\\Classes\\" + progId + L"\\DefaultIcon").c_str(), NULL, icon);
+        // Do NOT register DefaultIcon — preserve the format's native Explorer icon.
+        // Clean up any stale DefaultIcon from a previous registration.
+        RegDeleteTreeW(HKEY_CURRENT_USER, (L"Software\\Classes\\" + progId + L"\\DefaultIcon").c_str());
 
         // Add to OpenWithProgids
         std::wstring keyPath = L"Software\\Classes\\" + extStr + L"\\OpenWithProgids";
