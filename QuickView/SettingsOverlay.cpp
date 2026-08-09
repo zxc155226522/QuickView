@@ -437,6 +437,37 @@ bool SettingsOverlay::RegisterAssociations() {
     // 8. Refresh Shell
     SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, NULL, NULL);
 
+    // [Fix] Register Thumbnail Provider COM DLL for CDR/CMX
+    // Registers QuickViewThumbnailProvider.dll as IThumbnailProvider
+    {
+        std::wstring dllDir = exePathStr;
+        size_t lastSlash = dllDir.find_last_of(L"\\/");
+        if (lastSlash != std::wstring::npos)
+            dllDir = dllDir.substr(0, lastSlash);
+        std::wstring dllPath = dllDir + L"\\QuickViewThumbnailProvider.dll";
+
+        // Check if DLL exists before registering
+        if (GetFileAttributesW(dllPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            const wchar_t* clsid = L"{4F8C2A6E-3B5D-4E7F-9A1C-2D3E4F5A6B7C}";
+            const wchar_t* thumbnailIID = L"{E357FCC4-A995-453C-BF9A-9B18E2BD4DCA}";
+
+            // CLSID registration
+            std::wstring clsidKey = L"Software\\Classes\\CLSID\\" + std::wstring(clsid);
+            SafeRegSetString(HKEY_CURRENT_USER, clsidKey.c_str(), NULL, L"QuickView Thumbnail Provider");
+            std::wstring inprocKey = clsidKey + L"\\InprocServer32";
+            SafeRegSetString(HKEY_CURRENT_USER, inprocKey.c_str(), NULL, dllPath);
+            SafeRegSetString(HKEY_CURRENT_USER, inprocKey.c_str(), L"ThreadingModel", L"Apartment");
+
+            // ShellEx thumbnail provider for .cdr and .cmx
+            for (const auto& extStr : selectedExts) {
+                if (extStr == L".cdr" || extStr == L".cmx") {
+                    std::wstring shellexKey = L"Software\\Classes\\" + extStr + L"\\ShellEx\\" + thumbnailIID;
+                    SafeRegSetString(HKEY_CURRENT_USER, shellexKey.c_str(), NULL, clsid);
+                }
+            }
+        }
+    }
+
     // [The Golden Path] Persistence Update
     g_config.LastRegisteredVersion = SettingsOverlay::GetAppVersion();
     g_config.LastRegisteredPath = exePathStr;
@@ -512,6 +543,20 @@ void SettingsOverlay::UnregisterAssociations() {
     if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\RegisteredApplications", 0, KEY_WRITE, &hRegApp) == ERROR_SUCCESS) {
         RegDeleteValueW(hRegApp, L"QuickView");
         RegCloseKey(hRegApp);
+    }
+
+    // Delete Thumbnail Provider COM DLL registration
+    RegDeleteTreeW(HKEY_CURRENT_USER,
+                   L"Software\\Classes\\CLSID\\{4F8C2A6E-3B5D-4E7F-9A1C-2D3E4F5A6B7C}");
+    {
+        const wchar_t* thumbnailIID = L"{E357FCC4-A995-453C-BF9A-9B18E2BD4DCA}";
+        for (const auto& ext : QuickView::SUPPORTED_EXTENSIONS) {
+            if (ext == L".cdr" || ext == L".cmx") {
+                std::wstring extStr(ext);
+                std::wstring shellexKey = L"Software\\Classes\\" + extStr + L"\\ShellEx\\" + thumbnailIID;
+                RegDeleteTreeW(HKEY_CURRENT_USER, shellexKey.c_str());
+            }
+        }
     }
 
     // Refresh Shell

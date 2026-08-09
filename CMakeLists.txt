@@ -392,4 +392,45 @@ if(WIN32 AND ADAPTIVE_MSVC_INCLUDE_PATHS)
     endif()
 endif()
 
+# ============================================================================
+# QuickViewThumbnailProvider COM DLL
+# Windows Shell IThumbnailProvider for CDR/CMX files
+# ============================================================================
+add_library(QuickViewThumbnailProvider SHARED
+    QuickView/ThumbnailProvider/ThumbnailProvider.cpp
+)
+set_target_properties(QuickViewThumbnailProvider PROPERTIES
+    OUTPUT_NAME "QuickViewThumbnailProvider"
+    PREFIX ""
+    LINK_FLAGS "/NOENTRY"
+)
+target_include_directories(QuickViewThumbnailProvider PRIVATE
+    QuickView
+    third_party/libcdr/inc
+    third_party/librevenge/inc
+)
+# Enable exceptions for this DLL (std::stof uses try/catch)
+target_compile_options(QuickViewThumbnailProvider PRIVATE
+    /EHsc /GR /W4 /utf-8 /Gw
+    $<$<CONFIG:Release>:/O2 /Gy>
+)
+target_link_libraries(QuickViewThumbnailProvider PRIVATE
+    libcdr
+    librevenge
+    ZLIB::ZLIB
+    d3d11.lib
+    d2d1.lib
+    dxgi.lib
+    dxguid.lib
+    ole32.lib
+    oleaut32.lib
+    shell32.lib
+    shlwapi.lib
+    user32.lib
+    gdi32.lib
+)
+target_compile_definitions(QuickViewThumbnailProvider PRIVATE
+    UNICODE _UNICODE WIN32_LEAN_AND_MEAN
+)
+
 # Force-define CXX features to bypass CMake's Clang 22 feature detection bug
