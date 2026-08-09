@@ -26,7 +26,6 @@ Toolbar::Toolbar() {
 
       {ToolbarButtonID::Gallery, Icons::Gallery, {}, true},
 
-      {ToolbarButtonID::Exif, Icons::Info, {}, true, false},
       {ToolbarButtonID::RawToggle, Icons::Raw, {}, false, false},
       {ToolbarButtonID::GamutWarning, Icons::Warning, {}, false, false},
 
@@ -155,7 +154,6 @@ void Toolbar::UpdateLayout(float winW, float winH) {
       {ToolbarButtonID::FlipH},
       {ToolbarButtonID::Gallery},
       {ToolbarButtonID::CompareToggle},
-      {ToolbarButtonID::Exif},
       {ToolbarButtonID::RotateL, ToolbarButtonID::RotateR},
       {ToolbarButtonID::Prev, ToolbarButtonID::Next},  // Core — hide => hide toolbar
   };
@@ -172,7 +170,6 @@ void Toolbar::UpdateLayout(float winW, float winH) {
       {ToolbarButtonID::CompareExit},  // Core
   };
   static constexpr ResponsiveHideGroup kAnimHideOrder[] = {
-      {ToolbarButtonID::Exif},
       {ToolbarButtonID::AnimDirtyRect},
       {ToolbarButtonID::Prev, ToolbarButtonID::Next},
       // AnimSpeed capsule hides when AnimNextFrame is hidden (they are visually adjacent)
@@ -182,11 +179,9 @@ void Toolbar::UpdateLayout(float winW, float winH) {
   static constexpr ResponsiveHideGroup kComicHideOrder[] = {
       {ToolbarButtonID::Gallery},
       {ToolbarButtonID::CompareToggle},
-      {ToolbarButtonID::Exif},
       {ToolbarButtonID::Prev, ToolbarButtonID::Next},  // Core
   };
   static constexpr ResponsiveHideGroup kSlideshowHideOrder[] = {
-      {ToolbarButtonID::Exif},
       {ToolbarButtonID::Gallery},
       {ToolbarButtonID::SlideshowImmersiveToggle},
       {ToolbarButtonID::AnimPrevFrame, ToolbarButtonID::AnimNextFrame},
@@ -242,7 +237,7 @@ void Toolbar::UpdateLayout(float winW, float winH) {
 
     if (m_slideshowMode) {
       // White-list slideshow controls (play group, immersive toggle, exit, gallery, exif, pin)
-      if (isSlideshowButton(btn.id) || btn.id == ToolbarButtonID::Gallery || btn.id == ToolbarButtonID::Exif) {
+      if (isSlideshowButton(btn.id) || btn.id == ToolbarButtonID::Gallery) {
         return btn.isEnabled;
       }
       return false;
@@ -250,7 +245,7 @@ void Toolbar::UpdateLayout(float winW, float winH) {
 
     if (m_animMode || m_slideshowMode) {
       if (btn.id == ToolbarButtonID::AnimDirtyRect) return m_animMode && g_config.ShowDirtyRectButton;
-      if (btn.id == ToolbarButtonID::Prev || btn.id == ToolbarButtonID::Next || btn.id == ToolbarButtonID::Exif) return true;
+      if (btn.id == ToolbarButtonID::Prev || btn.id == ToolbarButtonID::Next) return true;
       if (isAnimButton(btn.id)) return true;
       if (isAlwaysVisible(btn.id)) return true;
       return false;
@@ -1232,8 +1227,8 @@ void Toolbar::SetLockState(bool locked) {
   for (auto &btn : m_buttons) { if (btn.id == ToolbarButtonID::LockSize) { btn.isToggled = locked; btn.iconGlyph = locked ? Icons::Lock : Icons::Unlock; } }
 }
 
-void Toolbar::SetExifState(bool open) {
-  for (auto &btn : m_buttons) { if (btn.id == ToolbarButtonID::Exif) { btn.isToggled = open; } }
+void Toolbar::SetExifState(bool /*open*/) {
+  // [Removed] Info panel button removed; kept as no-op for call-site compatibility
 }
 
 void Toolbar::SetRawState(bool isRaw, bool isFullDecode, bool isPaired) {

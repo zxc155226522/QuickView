@@ -207,6 +207,7 @@ private:
     void BuildInfoGrid();
     void DrawInfoGrid(ID2D1DeviceContext* dc, float startX, float startY, float width, const AdaptiveUiPalette& palette);
     void DrawGridTooltip(ID2D1DeviceContext* dc);
+    void DrawTitleBarTooltip(ID2D1DeviceContext* dc);
     void DrawInfoPanel(ID2D1DeviceContext* dc);
     void DrawCompactInfo(ID2D1DeviceContext* dc);
     void DrawHistogram(ID2D1DeviceContext* dc, D2D1_RECT_F rect);
@@ -300,6 +301,7 @@ private:
     D2D1_RECT_F m_hudToggleLiteRect = {}; // Track HUD lite mode icon area
     D2D1_RECT_F m_hudToggleExpandRect = {}; // Track HUD expand mode icon area
     D2D1_RECT_F m_lastInfoPanelRect = {};   // Cached bounds of the Info Panel
+    D2D1_RECT_F m_titleBarTextRect = {};   // Title bar text area for tooltip hit-testing
     
     // Grid Layout Constants
     static constexpr float GRID_ICON_WIDTH = 16.0f;

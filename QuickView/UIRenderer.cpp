@@ -850,28 +850,14 @@ void UIRenderer::RenderStaticLayer(ID2D1DeviceContext* dc, HWND hwnd) {
     }
     bool hudVisible = IsCompareModeActive() && g_runtime.ShowCompareInfo;
 
-    // Info Panel or HUD - Hide when gallery (any mode) or settings/help is visible
-    // However, keep the Info Panel visible if we are in Filmstrip mode.
+    // [Removed] Info Panel rendering — title bar now always shows compact info
+    // and hover tooltip replaces the full panel.
     bool isFilmstripActive = g_gallery.IsVisible() && g_gallery.GetMode() == GalleryMode::Filmstrip;
     bool hideInfoPanel = g_settingsOverlay.IsVisible() || g_helpOverlay.IsVisible() || (g_gallery.IsVisible() && !isFilmstripActive);
-    if ((g_runtime.ShowInfoPanel || hudVisible) && !hideInfoPanel) {
+    if (hudVisible && !hideInfoPanel) {
         // [v5.3] Lazy Metadata Trigger (Split Strategy)
-        // If panel or HUD is visible, ensure we have full metadata (Async)
-        // [v5.3] Debounce now handled by ImageEngine
         if (!g_currentMetadata.IsFullMetadataLoaded && g_pImageEngine) {
              g_pImageEngine->RequestFullMetadata();
-        }
-
-        if (g_runtime.ShowInfoPanel) {
-            if (g_runtime.InfoPanelExpanded) {
-                DrawInfoPanel(dc);
-            } else {
-                // Compact image information is rendered in the title bar so it
-                // never covers the image viewport.
-                m_panelToggleRect = {};
-                m_panelCloseRect = {};
-                m_lastInfoPanelRect = {};
-            }
         }
     }
     
@@ -1266,6 +1252,9 @@ void UIRenderer::RenderDynamicLayer(ID2D1DeviceContext* dc, HWND hwnd) {
     
     // Grid Tooltip
     DrawGridTooltip(dc);
+    
+    // Title Bar Tooltip (path + metadata on hover)
+    DrawTitleBarTooltip(dc);
     
     // Modal Dialog (Topmost)
     if (AppContext::GetInstance().DialogCtrl->IsActive()) {
@@ -2014,35 +2003,35 @@ void UIRenderer::DrawTitleBar(ID2D1DeviceContext* dc, HWND hwnd) {
     if (m_titleBarFormat && textRight > textLeft) {
         std::wstring title = L"QuickView";
         if (!g_imagePath.empty()) {
-            const bool showCompactInfo = g_runtime.ShowInfoPanel && !g_runtime.InfoPanelExpanded;
-            if (showCompactInfo) {
-                if (m_animState.IsAnimated) {
-                    wchar_t frameBuf[256];
-                    const wchar_t* disposal = L"Keep";
-                    if (m_animState.CurrentDisposal == QuickView::FrameDisposalMode::RestoreBackground) disposal = L"BG";
-                    else if (m_animState.CurrentDisposal == QuickView::FrameDisposalMode::RestorePrevious) disposal = L"Prev";
+            const std::wstring fileName = g_imagePath.substr(g_imagePath.find_last_of(L"\\/") + 1);
+            if (m_animState.IsAnimated) {
+                wchar_t frameBuf[256];
+                const wchar_t* disposal = L"Keep";
+                if (m_animState.CurrentDisposal == QuickView::FrameDisposalMode::RestoreBackground) disposal = L"BG";
+                else if (m_animState.CurrentDisposal == QuickView::FrameDisposalMode::RestorePrevious) disposal = L"Prev";
 
-                    const std::wstring fileName = g_imagePath.substr(g_imagePath.find_last_of(L"\\/") + 1);
-                    if (m_animState.TotalFrames > 0) {
-                        swprintf_s(frameBuf, L"%u / %u   |   %u ms   |   %s   |   %u\u00d7%u   |   %s",
-                            m_animState.CurrentFrameIndex + 1, m_animState.TotalFrames,
-                            m_animState.CurrentFrameDelayTime, disposal,
-                            g_currentMetadata.Width, g_currentMetadata.Height,
-                            fileName.c_str());
-                    } else {
-                        swprintf_s(frameBuf, L"%u / ?   |   %u ms   |   %s   |   %u\u00d7%u   |   %s",
-                            m_animState.CurrentFrameIndex + 1,
-                            m_animState.CurrentFrameDelayTime, disposal,
-                            g_currentMetadata.Width, g_currentMetadata.Height,
-                            fileName.c_str());
-                    }
-                    title = frameBuf;
+                if (m_animState.TotalFrames > 0) {
+                    swprintf_s(frameBuf, L"%u / %u   |   %u ms   |   %s   |   %u\u00d7%u   |   %s",
+                        m_animState.CurrentFrameIndex + 1, m_animState.TotalFrames,
+                        m_animState.CurrentFrameDelayTime, disposal,
+                        g_currentMetadata.Width, g_currentMetadata.Height,
+                        fileName.c_str());
                 } else {
-                    title = BuildCompactInfoText();
+                    swprintf_s(frameBuf, L"%u / ?   |   %u ms   |   %s   |   %u\u00d7%u   |   %s",
+                        m_animState.CurrentFrameIndex + 1,
+                        m_animState.CurrentFrameDelayTime, disposal,
+                        g_currentMetadata.Width, g_currentMetadata.Height,
+                        fileName.c_str());
                 }
+                title = frameBuf;
             } else {
-                const size_t separator = g_imagePath.find_last_of(L"\\/");
-                title = (separator == std::wstring::npos) ? g_imagePath : g_imagePath.substr(separator + 1);
+                // Always show: zoom% | WxH | filename
+                wchar_t buf[512];
+                swprintf_s(buf, L"%d%%  |  %u\u00d7%u  |  %s",
+                    GetCurrentZoomPercent(),
+                    g_currentMetadata.Width, g_currentMetadata.Height,
+                    fileName.c_str());
+                title = buf;
             }
             if (title.empty()) title = L"QuickView";
         }
@@ -2054,6 +2043,10 @@ void UIRenderer::DrawTitleBar(ID2D1DeviceContext* dc, HWND hwnd) {
             D2D1::RectF(textLeft, 0.0f, textRight, titleBarH),
             textBrush.Get(),
             D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        // Cache title bar text rect for tooltip hit-testing
+        m_titleBarTextRect = D2D1::RectF(textLeft, 0.0f, textRight, titleBarH);
+    } else {
+        m_titleBarTextRect = {};
     }
 }
 
@@ -4494,6 +4487,103 @@ void UIRenderer::DrawGridTooltip(ID2D1DeviceContext* dc) {
     
     D2D1_RECT_F textRect = D2D1::RectF(x + padding, y + 2.0f * s, x + boxWidth - padding, y + boxHeight);
     dc->DrawText(row.fullText.c_str(), (UINT32)row.fullText.length(), m_panelFormat.Get(), textRect, brushText.Get());
+}
+
+void UIRenderer::DrawTitleBarTooltip(ID2D1DeviceContext* dc) {
+    if (!m_panelFormat || g_imagePath.empty()) return;
+    // Only show when mouse is over the title bar text area
+    float mx = (float)m_lastMousePos.x;
+    float my = (float)m_lastMousePos.y;
+    if (mx < m_titleBarTextRect.left || mx > m_titleBarTextRect.right ||
+        my < m_titleBarTextRect.top || my > m_titleBarTextRect.bottom) return;
+    // Don't show when overlays are active
+    if (g_settingsOverlay.IsVisible() || g_helpOverlay.IsVisible() || g_gallery.IsVisible()) return;
+
+    const float s = m_uiScale;
+
+    // Build tooltip text: path + file size + date + camera + exposure
+    std::wstring tip;
+    // Line 1: Full path
+    tip = g_imagePath;
+
+    // Line 2: File size
+    if (g_currentMetadata.FileSize > 0) {
+        tip += L"\n";
+        wchar_t sz[64];
+        UINT64 bytes = g_currentMetadata.FileSize;
+        if (bytes >= 1024 * 1024) swprintf_s(sz, L"%.2f MB", bytes / (1024.0 * 1024.0));
+        else if (bytes >= 1024) swprintf_s(sz, L"%.2f KB", bytes / 1024.0);
+        else swprintf_s(sz, L"%llu B", bytes);
+        tip += sz;
+    }
+
+    // Line 3: Date
+    if (!g_currentMetadata.Date.empty()) {
+        tip += L"\n";
+        tip += g_currentMetadata.Date;
+    }
+
+    // Line 4: Camera
+    if (!g_currentMetadata.Make.empty() || !g_currentMetadata.Model.empty()) {
+        tip += L"\n";
+        std::wstring cam = g_currentMetadata.Make;
+        if (!g_currentMetadata.Model.empty()) {
+            if (!cam.empty()) cam += L" ";
+            cam += g_currentMetadata.Model;
+        }
+        tip += cam;
+    }
+
+    // Line 5: Exposure info
+    if (!g_currentMetadata.ISO.empty()) {
+        tip += L"\n";
+        tip += L"ISO " + g_currentMetadata.ISO;
+        if (!g_currentMetadata.Aperture.empty()) tip += L"  " + g_currentMetadata.Aperture;
+        if (!g_currentMetadata.Shutter.empty()) tip += L"  " + g_currentMetadata.Shutter;
+    }
+
+    // Line 6: Lens
+    if (!g_currentMetadata.Lens.empty()) {
+        tip += L"\n";
+        tip += g_currentMetadata.Lens;
+    }
+
+    // Line 7: Format
+    if (!g_currentMetadata.Format.empty()) {
+        tip += L"\n";
+        tip += g_currentMetadata.Format;
+        if (!g_currentMetadata.FormatDetails.empty()) {
+            tip += L" (" + g_currentMetadata.FormatDetails + L")";
+        }
+    }
+
+    if (tip.empty()) return;
+
+    // Measure and draw tooltip box
+    float x = mx + 10.0f * s;
+    float y = my + 20.0f * s;
+
+    float textWidth = MeasureTextWidth(tip);
+    float boxWidth = std::min(textWidth + 12.0f * s, 500.0f * s);
+    float padding = 6.0f * s;
+    float boxHeight = MeasureTextHeight(tip, m_panelFormat.Get(), boxWidth - padding * 2) + padding * 2;
+
+    if (x + boxWidth > m_width - 10.0f * s) x = m_width - boxWidth - 10.0f * s;
+    if (y + boxHeight > m_height - 10.0f * s) y = m_height - boxHeight - 10.0f * s;
+    if (x < 10.0f * s) x = 10.0f * s;
+
+    D2D1_RECT_F boxRect = D2D1::RectF(x, y, x + boxWidth, y + boxHeight);
+
+    ComPtr<ID2D1SolidColorBrush> brushBg, brushBorder, brushText;
+    dc->CreateSolidColorBrush(D2D1::ColorF(0.1f, 0.1f, 0.12f, 0.95f), &brushBg);
+    dc->CreateSolidColorBrush(D2D1::ColorF(0.4f, 0.4f, 0.45f), &brushBorder);
+    dc->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::White), &brushText);
+
+    dc->FillRoundedRectangle(D2D1::RoundedRect(boxRect, 4.0f * s, 4.0f * s), brushBg.Get());
+    dc->DrawRoundedRectangle(D2D1::RoundedRect(boxRect, 4.0f * s, 4.0f * s), brushBorder.Get(), 1.0f * s);
+
+    D2D1_RECT_F tipTextRect = D2D1::RectF(x + padding, y + 2.0f * s, x + boxWidth - padding, y + boxHeight);
+    dc->DrawText(tip.c_str(), (UINT32)tip.length(), m_panelFormat.Get(), tipTextRect, brushText.Get());
 }
 
 void UIRenderer::DrawNavIndicators(ID2D1DeviceContext* dc) {

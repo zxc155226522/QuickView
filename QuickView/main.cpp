@@ -9136,7 +9136,7 @@ SKIP_EDGE_NAV:;
                 case ToolbarButtonID::RotateR: PerformTransform(hwnd, TransformType::Rotate90CW); break;
                 case ToolbarButtonID::FlipH:   PerformTransform(hwnd, TransformType::FlipHorizontal); break;
                 case ToolbarButtonID::LockSize: SendMessage(hwnd, WM_COMMAND, IDM_LOCK_WINDOW_SIZE, 0); break;
-                case ToolbarButtonID::Exif:    SendMessage(hwnd, WM_COMMAND, IDM_SHOW_INFO_PANEL, 0); break;
+                case ToolbarButtonID::Exif:    break; // [Removed] Info button removed
                 case ToolbarButtonID::RawToggle: {
                     // [Refactor] Use Centralized Command Handler (same as Menu)
                     // This ensures proper Config Update + Force Refresh logic is applied.
@@ -10874,30 +10874,8 @@ const std::wstring& contextPath = contextLeft ? GetPaneContext(PaneSlot::Left).p
             RequestRepaint(PaintLayer::Static | PaintLayer::Dynamic);
             break;
         }
-        case IDM_SHOW_INFO_PANEL: {
-            g_runtime.ShowInfoPanel = !g_runtime.ShowInfoPanel;
-            
-            // When turning on, set expanded state based on ToolbarInfoDefault config
-            if (g_runtime.ShowInfoPanel) {
-                if (g_gallery.IsVisible() && !g_gallery.IsPinned()) {
-                    g_gallery.Close();
-                    RestoreOverlayWindowState(hwnd);
-                }
-                g_runtime.InfoPanelExpanded = (g_config.ToolbarInfoDefault == 1); // 0=Lite, 1=Full
-                if (IsTelemetryNeeded() && GetPaneContext(PaneSlot::Primary).metadata.HistR.empty() && !GetPaneContext(PaneSlot::Primary).path.empty()) {
-                    UpdateHistogramAsync(hwnd, GetPaneContext(PaneSlot::Primary).path);
-                }
-            }
- 
-            g_toolbar.SetExifState(g_runtime.ShowInfoPanel);
-            if (g_runtime.ShowInfoPanel) {
-                AdjustWindowForOverlay(hwnd, false);
-            } else {
-                AdjustWindowForOverlay(hwnd, true);
-            }
-            RequestRepaint(PaintLayer::Static);
-            break;
-        }
+        case IDM_SHOW_INFO_PANEL:
+            break; // [Removed] Info panel removed — title bar always shows info
         case IDM_ALWAYS_ON_TOP: {
             g_config.AlwaysOnTop = !g_config.AlwaysOnTop;
             SetWindowPos(hwnd, g_config.AlwaysOnTop ? HWND_TOPMOST : HWND_NOTOPMOST,
@@ -10938,31 +10916,10 @@ const std::wstring& contextPath = contextLeft ? GetPaneContext(PaneSlot::Left).p
         case IDM_HUD_GALLERY: SendMessage(hwnd, WM_KEYDOWN, 'T', 0); break;
 
         case IDM_LITE_INFO:
-             g_runtime.ShowInfoPanel = true;
-             g_runtime.InfoPanelExpanded = false; // Lite = not expanded
-             g_toolbar.SetExifState(true);
-             if (g_runtime.ShowInfoPanel) {
-                AdjustWindowForOverlay(hwnd, false);
-            } else {
-                AdjustWindowForOverlay(hwnd, true);
-            }
-             RequestRepaint(PaintLayer::Static);
-             break;
+             break; // [Removed] Info panel removed
 
         case IDM_FULL_INFO:
-             g_runtime.ShowInfoPanel = true;
-             g_runtime.InfoPanelExpanded = true; // Full = expanded
-             if (IsTelemetryNeeded() && GetPaneContext(PaneSlot::Primary).metadata.HistR.empty() && !GetPaneContext(PaneSlot::Primary).path.empty()) {
-                 UpdateHistogramAsync(hwnd, GetPaneContext(PaneSlot::Primary).path);
-             }
-             g_toolbar.SetExifState(true);
-             if (g_runtime.ShowInfoPanel) {
-                AdjustWindowForOverlay(hwnd, false);
-            } else {
-                AdjustWindowForOverlay(hwnd, true);
-            }
-             RequestRepaint(PaintLayer::Static);
-             break;
+             break; // [Removed] Info panel removed
 
         case IDM_ZOOM_100: SendMessage(hwnd, WM_KEYDOWN, '1', 0); break;
         case IDM_ZOOM_FIT: SendMessage(hwnd, WM_KEYDOWN, '0', 0); break;

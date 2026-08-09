@@ -16,7 +16,7 @@ using AB = ActionButton;
 // ShowContextMenu - Build and show D2D rendered menu
 // ============================================================
 void ShowContextMenu(HWND hwnd, POINT pt, bool hasImage,
-                     bool isWindowLocked, bool showInfoPanel, bool infoPanelExpanded,
+                     bool isWindowLocked, bool /*showInfoPanel*/, bool /*infoPanelExpanded*/,
                      bool alwaysOnTop, bool renderRaw, bool isRawFile, bool isFullscreen,
                      bool isCrossMonitor, bool isCompareMode, bool isPixelArtMode,
                      int cmsMode, bool enableSoftProofing, const std::wstring& softProofProfilePath) {
@@ -95,10 +95,6 @@ void ShowContextMenu(HWND hwnd, POINT pt, bool hasImage,
         viewItems.push_back(MI::Sep());
         viewItems.push_back(MI::Normal(IDM_HUD_GALLERY, AppStrings::Context_HUDGallery, nullptr, getHK(HotkeyAction::ToggleGallery)));
 
-        UINT liteFlags = (showInfoPanel && !infoPanelExpanded) ? true : false;
-        UINT fullFlags = (showInfoPanel && infoPanelExpanded) ? true : false;
-        viewItems.push_back(MI::Check(IDM_LITE_INFO, AppStrings::Context_LiteInfoPanel, liteFlags, nullptr, getHK(HotkeyAction::ToggleInfoPanel)));
-        viewItems.push_back(MI::Check(IDM_FULL_INFO, AppStrings::Context_FullInfoPanel, fullFlags, nullptr, getHK(HotkeyAction::ToggleExifPanel)));
         viewItems.push_back(MI::Sep());
         viewItems.push_back(MI::Check(IDM_RENDER_RAW, AppStrings::Context_RenderRAW, renderRaw, nullptr, getHK(HotkeyAction::RenderRaw)).Enabled(isRawFile));
         viewItems.push_back(MI::Check(IDM_PIXEL_ART_MODE, AppStrings::Context_PixelArtMode, isPixelArtMode));
