@@ -22,6 +22,36 @@
 #include <cmath>
 
 // ============================================================================
+// Manual interface declarations (needed if SDK version macros don't enable them)
+// ============================================================================
+// IInitializeWithStream
+#ifndef __IInitializeWithStream_INTERFACE_DEFINED__
+#define __IInitializeWithStream_INTERFACE_DEFINED__
+MIDL_INTERFACE("b824b65d-e5ac-4f6b-9a13-4ab6b37e5a82")
+IInitializeWithStream : public IUnknown {
+public:
+    virtual HRESULT STDMETHODCALLTYPE Initialize(IStream *pStream, DWORD grfMode) = 0;
+};
+#endif
+
+// WTS_ALPHATYPE
+typedef enum __MIDL___MIDL_itf_shobjidl_0000_0000_0002 {
+    WTSAT_UNKNOWN = 0,
+    WTSAT_RGB = 1,
+    WTSAT_ARGB = 2,
+} WTS_ALPHATYPE;
+
+// IThumbnailProvider
+#ifndef __IThumbnailProvider_INTERFACE_DEFINED__
+#define __IThumbnailProvider_INTERFACE_DEFINED__
+MIDL_INTERFACE("e357fcc4-a995-453c-bf9a-9b18e2bd4dca")
+IThumbnailProvider : public IUnknown {
+public:
+    virtual HRESULT STDMETHODCALLTYPE GetThumbnail(UINT cx, HBITMAP *phbmp, WTS_ALPHATYPE *pdwAlpha) = 0;
+};
+#endif
+
+// ============================================================================
 // CLSID
 // {4F8C2A6E-3B5D-4E7F-9A1C-2D3E4F5A6B7C}
 DEFINE_GUID(CLSID_QuickViewThumbnailProvider,
