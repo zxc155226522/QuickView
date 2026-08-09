@@ -398,6 +398,28 @@ bool SettingsOverlay::RegisterAssociations() {
             RegSetValueExW(hKey, progId.c_str(), 0, REG_SZ, (const BYTE*)L"", sizeof(wchar_t));
             RegCloseKey(hKey);
         }
+
+        // [Fix] Clear the .ext default value if it points to a QuickView ProgID.
+        // A previous registration may have set .ext -> QuickView.ext as the
+        // default handler, which makes Explorer show the QuickView exe icon.
+        // We only want to be in "Open with", not the default handler.
+        {
+            HKEY hExtKey;
+            std::wstring extKeyPath = L"Software\\Classes\\" + extStr;
+            if (RegOpenKeyExW(HKEY_CURRENT_USER, extKeyPath.c_str(), 0, KEY_READ | KEY_WRITE, &hExtKey) == ERROR_SUCCESS) {
+                wchar_t curVal[MAX_PATH] = {};
+                DWORD valLen = sizeof(curVal);
+                DWORD valType = 0;
+                if (RegQueryValueExW(hExtKey, NULL, NULL, &valType, (LPBYTE)curVal, &valLen) == ERROR_SUCCESS) {
+                    std::wstring curStr(curVal);
+                    if (curStr.rfind(L"QuickView", 0) == 0) {
+                        // Default value points to a QuickView ProgID — delete it
+                        RegDeleteValueW(hExtKey, NULL);
+                    }
+                }
+                RegCloseKey(hExtKey);
+            }
+        }
     }
     
     // 5. Register in Applications
