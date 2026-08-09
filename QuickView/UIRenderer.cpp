@@ -6181,18 +6181,18 @@ ComPtr<ID2D1Brush> UIRenderer::CreateCanvasBackgroundBrush(ID2D1DeviceContext* d
     // Mirror the main canvas background resolution (main.cpp SyncDCompState / ResolveCanvasColor)
     // so the navigator (bird's-eye view) backdrop matches the main view exactly.
     bool checker = false;
-    D2D1_COLOR_F c1 = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
-    D2D1_COLOR_F c2 = D2D1::ColorF(0.80f, 0.80f, 0.80f, 1.0f);
-    D2D1_COLOR_F solid = D2D1::ColorF(0.18f, 0.18f, 0.18f, 1.0f);
+    D2D1_COLOR_F c1 = D2D1::ColorF(C8(255), C8(255), C8(255), 1.0f);
+    D2D1_COLOR_F c2 = D2D1::ColorF(C8(204), C8(204), C8(204), 1.0f);
+    D2D1_COLOR_F solid = D2D1::ColorF(C8(46),  C8(46),  C8(46),  1.0f);
 
     if (g_config.CanvasColor == 5) {
         int idx = g_config.SwatchColorIndex;
         if (idx >= 0 && idx < 3) {
             checker = true;
             switch (idx) {
-                case 0: c1 = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f); c2 = D2D1::ColorF(0.80f, 0.80f, 0.80f, 1.0f); break;
-                case 1: c1 = D2D1::ColorF(0.10f, 0.10f, 0.10f, 1.0f); c2 = D2D1::ColorF(0.18f, 0.18f, 0.18f, 1.0f); break;
-                case 2: c1 = D2D1::ColorF(0.50f, 0.50f, 0.50f, 1.0f); c2 = D2D1::ColorF(0.60f, 0.60f, 0.60f, 1.0f); break;
+                case 0: c1 = D2D1::ColorF(C8(255), C8(255), C8(255), 1.0f); c2 = D2D1::ColorF(C8(204), C8(204), C8(204), 1.0f); break;
+                case 1: c1 = D2D1::ColorF(C8(26),  C8(26),  C8(26),  1.0f); c2 = D2D1::ColorF(C8(46),  C8(46),  C8(46),  1.0f); break;
+                case 2: c1 = D2D1::ColorF(C8(128), C8(128), C8(128), 1.0f); c2 = D2D1::ColorF(C8(153), C8(153), C8(153), 1.0f); break;
             }
         } else if (idx >= 3 && idx < 9 && g_config.SwatchIsCheckerboard[idx]) {
             checker = true;
@@ -6215,12 +6215,12 @@ ComPtr<ID2D1Brush> UIRenderer::CreateCanvasBackgroundBrush(ID2D1DeviceContext* d
     } else {
         // Non-swatch modes: solid colors (mirror ResolveCanvasColor)
         switch (g_config.CanvasColor) {
-            case 0: solid = D2D1::ColorF(0.08f, 0.08f, 0.08f); break;
-            case 1: solid = D2D1::ColorF(0.95f, 0.95f, 0.95f); break;
-            case 2: solid = D2D1::ColorF(0.18f, 0.18f, 0.18f); break;
+            case 0: solid = D2D1::ColorF(C8(0),   C8(0),   C8(0));   break;
+            case 1: solid = D2D1::ColorF(C8(255), C8(255), C8(255)); break;
+            case 2: solid = D2D1::ColorF(C8(46),  C8(46),  C8(46));  break;
             case 3: solid = D2D1::ColorF(g_config.CanvasCustomR, g_config.CanvasCustomG, g_config.CanvasCustomB); break;
             case 4: solid = D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f); break; // Effects: transparent
-            default: solid = D2D1::ColorF(0.18f, 0.18f, 0.18f); break;
+            default: solid = D2D1::ColorF(C8(46), C8(46), C8(46)); break;
         }
     }
 

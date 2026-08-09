@@ -479,6 +479,9 @@ inline std::wstring KeyComboToString(const KeyCombo& combo) {
 }
 
 
+/// 0-255 整数转 0.0-1.0 归一化浮点
+static constexpr float C8(int v) noexcept { return static_cast<float>(v) / 255.0f; }
+
 /// <summary>
 /// Application configuration (for future settings menu)
 /// </summary>
@@ -546,15 +549,15 @@ struct AppConfig {
     // [Swatch Background] CanvasColor==5: 0-2=built-in checkerboards, 3-8=custom RGBA
     static constexpr int MAX_SWATCH_COLORS = 9;
     float SwatchColors[9][4] = {
-        {0.0f, 0.0f, 0.0f, 0.0f}, // 0: White checkerboard (preset)
-        {0.0f, 0.0f, 0.0f, 0.0f}, // 1: Black checkerboard (preset)
-        {0.0f, 0.0f, 0.0f, 0.0f}, // 2: Gray checkerboard (preset)
-        {0.08f, 0.08f, 0.08f, 1.0f}, // 3: Dark gray
-        {0.95f, 0.95f, 0.95f, 1.0f}, // 4: White
-        {0.50f, 0.50f, 0.50f, 1.0f}, // 5: Medium gray
-        {0.10f, 0.30f, 0.60f, 1.0f}, // 6: Blue
-        {0.60f, 0.20f, 0.20f, 1.0f}, // 7: Red
-        {0.15f, 0.40f, 0.25f, 1.0f}, // 8: Green
+        {0, 0, 0, 0},                        // 0: White checkerboard (preset)
+        {0, 0, 0, 0},                        // 1: Black checkerboard (preset)
+        {0, 0, 0, 0},                        // 2: Gray checkerboard (preset)
+        {C8(0),   C8(0),   C8(0),   1.0f},    // 3: Black
+        {C8(255), C8(255), C8(255), 1.0f},    // 4: White
+        {C8(128), C8(128), C8(128), 1.0f},    // 5: Medium gray
+        {C8(26),  C8(77),  C8(153), 1.0f},    // 6: Blue
+        {C8(153), C8(51),  C8(51),  1.0f},    // 7: Red
+        {C8(38),  C8(102), C8(64),  1.0f},    // 8: Green
     };
     int SwatchColorIndex = 0; // Default to white checkerboard
 bool SwatchIsCheckerboard[9] = {true, true, true, false, false, false, false, false, false}; // 0-2 built-in checkerboards

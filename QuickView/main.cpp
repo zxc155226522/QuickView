@@ -5298,13 +5298,13 @@ static D2D1_COLOR_F ResolveCanvasColor() {
         return D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f); // Fully transparent background in Spotlight mode
     }
     switch (g_config.CanvasColor) {
-        case 0: return D2D1::ColorF(0.08f, 0.08f, 0.08f); // Black
-        case 1: return D2D1::ColorF(0.95f, 0.95f, 0.95f); // White
-        case 2: return D2D1::ColorF(0.18f, 0.18f, 0.18f); // Grid
+        case 0: return D2D1::ColorF(C8(0),   C8(0),   C8(0));     // Black
+        case 1: return D2D1::ColorF(C8(255), C8(255), C8(255));   // White
+        case 2: return D2D1::ColorF(C8(46),  C8(46),  C8(46));    // Grid
         case 3: return D2D1::ColorF(g_config.CanvasCustomR, g_config.CanvasCustomG, g_config.CanvasCustomB);
         case 4: 
             if (!SystemInfo::IsWindows11OrGreater()) {
-                return D2D1::ColorF(0.18f, 0.18f, 0.18f); // Windows 10 fallback to standard dark background
+                return D2D1::ColorF(C8(46), C8(46), C8(46)); // Windows 10 fallback to standard dark background
             }
             return D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f); // Effects (Transparent for DWM backdrop on Win11)
         case 5: { // Swatch
@@ -5312,9 +5312,9 @@ static D2D1_COLOR_F ResolveCanvasColor() {
             if (idx >= 0 && idx < 3) {
                 // Checkerboard presets - return color1
                 switch (idx) {
-                    case 0: return D2D1::ColorF(1.0f, 1.0f, 1.0f);
-                    case 1: return D2D1::ColorF(0.10f, 0.10f, 0.10f);
-                    case 2: return D2D1::ColorF(0.50f, 0.50f, 0.50f);
+                    case 0: return D2D1::ColorF(C8(255), C8(255), C8(255));
+                    case 1: return D2D1::ColorF(C8(26),  C8(26),  C8(26));
+                    case 2: return D2D1::ColorF(C8(128), C8(128), C8(128));
                 }
             } else if (idx >= 3 && idx < 9) {
                 // [Fix] alpha 量化为 255 整数后判断是否完全不透明
@@ -5327,7 +5327,7 @@ static D2D1_COLOR_F ResolveCanvasColor() {
             }
             return D2D1::ColorF(1.0f, 1.0f, 1.0f); // Default white
         }
-        default: return D2D1::ColorF(0.18f, 0.18f, 0.18f);
+        default: return D2D1::ColorF(C8(46), C8(46), C8(46));
     }
 }
 
@@ -5351,9 +5351,9 @@ void SyncDCompState([[maybe_unused]] HWND hwnd, float winW, float winH, bool ani
 if (g_config.CanvasColor == 5 && g_config.SwatchColorIndex >= 0 && g_config.SwatchColorIndex < 3) {
     showGrid = false;
     switch (g_config.SwatchColorIndex) {
-        case 0: g_compEngine->SetCheckerboardMode(true, D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), D2D1::ColorF(0.80f, 0.80f, 0.80f, 1.0f)); break;
-        case 1: g_compEngine->SetCheckerboardMode(true, D2D1::ColorF(0.10f, 0.10f, 0.10f, 1.0f), D2D1::ColorF(0.18f, 0.18f, 0.18f, 1.0f)); break;
-        case 2: g_compEngine->SetCheckerboardMode(true, D2D1::ColorF(0.50f, 0.50f, 0.50f, 1.0f), D2D1::ColorF(0.60f, 0.60f, 0.60f, 1.0f)); break;
+        case 0: g_compEngine->SetCheckerboardMode(true, D2D1::ColorF(C8(255), C8(255), C8(255), 1.0f), D2D1::ColorF(C8(204), C8(204), C8(204), 1.0f)); break;
+        case 1: g_compEngine->SetCheckerboardMode(true, D2D1::ColorF(C8(26),  C8(26),  C8(26),  1.0f), D2D1::ColorF(C8(46),  C8(46),  C8(46),  1.0f)); break;
+        case 2: g_compEngine->SetCheckerboardMode(true, D2D1::ColorF(C8(128), C8(128), C8(128), 1.0f), D2D1::ColorF(C8(153), C8(153), C8(153), 1.0f)); break;
     }
 } else if (g_config.CanvasColor == 5 && g_config.SwatchColorIndex >= 3 && g_config.SwatchColorIndex < 9 && g_config.SwatchIsCheckerboard[g_config.SwatchColorIndex]) {
     // Custom checkerboard: use picked color + derived second color
