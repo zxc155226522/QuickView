@@ -140,7 +140,7 @@ public:
     
     // === DComp Integration Getters ===
     ID3D11Device* GetD3DDevice() const { return m_d3dDevice.Get(); }
-    IDWriteFactory* GetDWriteFactory() const { return m_dwriteFactory.Get(); }
+    IDWriteFactory2* GetDWriteFactory() const { return m_dwriteFactory.Get(); }
     ID2D1Device* GetD2DDevice() const { return m_d2dDevice.Get(); }
 
     // Context for Resource Creation (not drawing to screen)
@@ -196,7 +196,7 @@ private:
     } m_bakeCache;
 
     // DirectWrite resources
-    ComPtr<IDWriteFactory> m_dwriteFactory;
+    ComPtr<IDWriteFactory2> m_dwriteFactory;
 
     // WIC resources
     ComPtr<IWICImagingFactory> m_wicFactory;

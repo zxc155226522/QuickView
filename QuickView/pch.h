@@ -46,6 +46,7 @@
 #include <d3d11_4.h>
 #include <dxgi1_6.h>
 #include <dwrite.h>
+#include <dwrite_2.h>
 #include <wincodec.h>
 
 // COM smart pointers

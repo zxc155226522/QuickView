@@ -102,7 +102,7 @@ public:
     ~UIRenderer() = default;
 
     // Initialization
-    HRESULT Initialize(CompositionEngine* compEngine, IDWriteFactory* dwriteFactory);
+    HRESULT Initialize(CompositionEngine* compEngine, IDWriteFactory2* dwriteFactory);
     
     // Resource release (Device Loss recovery)
     void DiscardDeviceResources() {
@@ -265,7 +265,7 @@ private:
     std::unordered_map<std::string, QuickView::UI::GeekGlass::GeekGlassEngine> m_glassCache;
 
     CompositionEngine* m_compEngine = nullptr;
-    IDWriteFactory* m_dwriteFactory = nullptr;
+    IDWriteFactory2* m_dwriteFactory = nullptr;
     
     // ===== Encapsulated State (Migrated from main.cpp globals) =====
     CImageLoader::ImageMetadata m_metadata;

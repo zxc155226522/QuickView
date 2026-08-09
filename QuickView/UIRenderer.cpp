@@ -159,7 +159,7 @@ static int ClampToInt(float value, int low, int high) {
 // UIRenderer Implementation - 3-Layer Architecture
 // ============================================================================
 
-HRESULT UIRenderer::Initialize(CompositionEngine* compEngine, IDWriteFactory* dwriteFactory) {
+HRESULT UIRenderer::Initialize(CompositionEngine* compEngine, IDWriteFactory2* dwriteFactory) {
     if (!compEngine || !dwriteFactory) return E_INVALIDARG;
     
     m_compEngine = compEngine;
@@ -3684,7 +3684,7 @@ void UIRenderer::DrawInfoGrid(ID2D1DeviceContext* dc, float startX, float startY
         // Icon column
         D2D1_RECT_F iconRect = D2D1::RectF(startX, y, startX + iconW, y + rowH);
         if (row.icon) {
-            dc->DrawText(row.icon, (UINT32)wcslen(row.icon), m_panelFormat.Get(), iconRect, brushMain.Get());
+            dc->DrawText(row.icon, (UINT32)wcslen(row.icon), m_panelFormat.Get(), iconRect, brushMain.Get(), D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT, DWRITE_MEASURING_MODE_NATURAL);
         }
         
         // Label column (theme-aware dim)

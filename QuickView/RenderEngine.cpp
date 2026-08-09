@@ -1992,7 +1992,7 @@ HRESULT CRenderEngine::Initialize(HWND hwnd) {
     return hr;
 
   // 1.5 Create DWrite Factory
-  hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
+  hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory2),
                            (IUnknown **)(&m_dwriteFactory));
   if (FAILED(hr))
     return hr;
