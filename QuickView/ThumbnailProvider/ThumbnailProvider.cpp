@@ -202,7 +202,7 @@ private:
 
         // DXGI surface
         ComPtr<IDXGISurface> dxgiSurface;
-        renderTex.As<IDXGISurface>(&dxgiSurface);
+        dxgiSurface = renderTex.As<IDXGISurface>();
         if (!dxgiSurface) return nullptr;
 
         // D2D factory + device
@@ -213,7 +213,7 @@ private:
         if (!d2dFactory) return nullptr;
 
         ComPtr<IDXGIDevice> dxgiDevice;
-        d3dDevice.As<IDXGIDevice>(&dxgiDevice);
+        dxgiDevice = d3dDevice.As<IDXGIDevice>();
         ComPtr<ID2D1Device> d2dDevice;
         d2dFactory->CreateDevice(dxgiDevice.Get(), &d2dDevice);
         ComPtr<ID2D1DeviceContext> d2dCtx;
@@ -237,7 +237,7 @@ private:
         CreateStreamOnHGlobal(hMem, TRUE, &stream);
 
         ComPtr<ID2D1DeviceContext5> d2dCtx5;
-        d2dCtx.As<ID2D1DeviceContext5>(&d2dCtx5);
+        d2dCtx5 = d2dCtx.As<ID2D1DeviceContext5>();
         if (!d2dCtx5) { GlobalFree(hMem); return nullptr; }
 
         ComPtr<ID2D1SvgDocument> svgDoc;
