@@ -4686,7 +4686,6 @@ void UIRenderer::DrawNavIndicators(ID2D1DeviceContext* dc) {
         float imgBottom = vp.Bottom;
         float imgH = imgBottom - imgTop;
         float centerY = (imgTop + imgBottom) * 0.5f;
-        float radius = imgH * 0.5f;
 
         // Build semicircle path — width = margin*2 so arrow (at margin) is centered
         ComPtr<ID2D1PathGeometry> semiPath;
