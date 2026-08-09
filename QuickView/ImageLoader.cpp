@@ -4238,36 +4238,13 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
   pData->isValid = false;
   pData->pixels.clear();
 
-  // 0. Highest Priority: Windows Shell Thumbnail Cache (Insanely fast for
-  // pre-cached heavy RAWs)
-  // [Fix] Skip Shell cache for vector/document formats (CDR/CMX/PLT/DXF/DWG/
-  // PDF/AI) because Windows may return a file-type icon (256×256) that passes
-  // the icon-size rejection (256 not in 16/32/48/64/128 list) but is NOT a real
-  // thumbnail. These formats must always go through LoadToFrame for proper
-  // rasterization.
-  {
-    std::wstring_view thumbExt = QuickView::ExtensionOf(filePath);
-    const bool isVectorDoc =
-        QuickView::ExtEqualsIgnoreCase(thumbExt, L".cdr") ||
-        QuickView::ExtEqualsIgnoreCase(thumbExt, L".cmx") ||
-        QuickView::ExtEqualsIgnoreCase(thumbExt, L".plt") ||
-        QuickView::ExtEqualsIgnoreCase(thumbExt, L".dxf") ||
-        QuickView::ExtEqualsIgnoreCase(thumbExt, L".dwg") ||
-        QuickView::ExtEqualsIgnoreCase(thumbExt, L".pdf") ||
-        QuickView::ExtEqualsIgnoreCase(thumbExt, L".ai");
-    if (!isVectorDoc) {
-      if (SUCCEEDED(LoadShellThumbnail(filePath, targetSize, pData,
-                                       /*cacheOnly=*/true))) {
-        return S_OK;
-      }
-      // 缓存未命中：让 Shell 按需生成系统缩略图（与资源管理器一致），
-      // 仍失败再走内嵌预览 / 完整解码缩放兜底。
-      if (SUCCEEDED(LoadShellThumbnail(filePath, targetSize, pData,
-                                       /*cacheOnly=*/false))) {
-        return S_OK;
-      }
-    }
-  }
+  // [Fix] Completely removed LoadShellThumbnail: When QuickView is registered
+  // as the default program for a file type, Windows Shell may return the
+  // QuickView file-type icon (256×256) instead of a real thumbnail preview.
+  // This affected ALL formats without a system thumbnail handler (JXL, TGA,
+  // EXR, QOI, PCX, PNM, CDR, CMX, PLT, DXF, DWG, PDF, AI, etc.).
+  // All thumbnails are now generated internally through:
+  //   embedded preview → format-specific decoder → unified codec → WIC fallback
   const ImageHeaderInfo headerInfo = PeekHeader(filePath);
   const uint64_t fallbackFileSize = static_cast<uint64_t>(headerInfo.fileSize);
 
