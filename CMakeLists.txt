@@ -405,7 +405,7 @@ add_library(QuickViewThumbnailProvider SHARED
 set_target_properties(QuickViewThumbnailProvider PROPERTIES
     OUTPUT_NAME "QuickViewThumbnailProvider"
     PREFIX ""
-    LINK_FLAGS "/NOENTRY"
+    LINK_FLAGS ""
 )
 target_include_directories(QuickViewThumbnailProvider PRIVATE
     QuickView
