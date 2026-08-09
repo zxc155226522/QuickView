@@ -433,7 +433,7 @@ target_link_libraries(QuickViewThumbnailProvider PRIVATE
     gdi32.lib
 )
 target_compile_definitions(QuickViewThumbnailProvider PRIVATE
-    UNICODE _UNICODE WIN32_LEAN_AND_MEAN
+    UNICODE _UNICODE
 )
 # Inject MSVC/Windows SDK include paths (required for windows.h etc.)
 if(ADAPTIVE_MSVC_INCLUDE_PATHS)
