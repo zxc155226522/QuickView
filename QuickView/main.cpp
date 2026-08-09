@@ -4060,9 +4060,9 @@ void SaveConfig() {
     WriteConfigInt(L"View", L"MenuBackdropStyle", g_config.MenuBackdropStyle, iniPath.c_str());
     WriteConfigInt(L"View", L"CanvasColor", g_config.CanvasColor, iniPath.c_str());
     WriteConfigInt(L"View", L"CanvasEffectStyle", g_config.CanvasEffectStyle, iniPath.c_str());
-    WriteConfigFloat(L"View", L"CanvasCustomR", g_config.CanvasCustomR, iniPath.c_str());
-    WriteConfigFloat(L"View", L"CanvasCustomG", g_config.CanvasCustomG, iniPath.c_str());
-    WriteConfigFloat(L"View", L"CanvasCustomB", g_config.CanvasCustomB, iniPath.c_str());
+    WriteConfigInt(L"View", L"CanvasCustomR", g_config.CanvasCustomR, iniPath.c_str());
+    WriteConfigInt(L"View", L"CanvasCustomG", g_config.CanvasCustomG, iniPath.c_str());
+    WriteConfigInt(L"View", L"CanvasCustomB", g_config.CanvasCustomB, iniPath.c_str());
     WriteConfigBool(L"View", L"CanvasShowGrid", g_config.CanvasShowGrid, iniPath.c_str());
     WriteConfigInt(L"View", L"SwatchColorIndex", g_config.SwatchColorIndex, iniPath.c_str());
     for (int i = 3; i < 9; ++i) {
@@ -4071,10 +4071,10 @@ void SaveConfig() {
         swprintf_s(keyG, L"Swatch%dG", i);
         swprintf_s(keyB, L"Swatch%dB", i);
         swprintf_s(keyA, L"Swatch%dA", i);
-        WriteConfigFloat(L"View", keyR, g_config.SwatchColors[i][0], iniPath.c_str());
-        WriteConfigFloat(L"View", keyG, g_config.SwatchColors[i][1], iniPath.c_str());
-        WriteConfigFloat(L"View", keyB, g_config.SwatchColors[i][2], iniPath.c_str());
-        WriteConfigFloat(L"View", keyA, g_config.SwatchColors[i][3], iniPath.c_str());
+        WriteConfigInt(L"View", keyR, g_config.SwatchColors[i][0], iniPath.c_str());
+        WriteConfigInt(L"View", keyG, g_config.SwatchColors[i][1], iniPath.c_str());
+        WriteConfigInt(L"View", keyB, g_config.SwatchColors[i][2], iniPath.c_str());
+        WriteConfigInt(L"View", keyA, g_config.SwatchColors[i][3], iniPath.c_str());
     }
     for (int i = 3; i < 9; ++i) {
         wchar_t keyCB[32];
@@ -4358,43 +4358,22 @@ void LoadConfig() {
     // Force CanvasColor=5 (Swatch mode) - old modes (0-4) are deprecated
     g_config.CanvasColor = 5;
     g_config.CanvasEffectStyle = GetPrivateProfileIntW(L"View", L"CanvasEffectStyle", 0, iniPath.c_str());
-    wchar_t bufR[32], bufG[32], bufB[32];
-    GetPrivateProfileStringW(L"View", L"CanvasCustomR", L"0.2", bufR, 32, iniPath.c_str());
-    GetPrivateProfileStringW(L"View", L"CanvasCustomG", L"0.2", bufG, 32, iniPath.c_str());
-    GetPrivateProfileStringW(L"View", L"CanvasCustomB", L"0.2", bufB, 32, iniPath.c_str());
-    g_config.CanvasCustomR = (float)_wtof(bufR);
-    g_config.CanvasCustomG = (float)_wtof(bufG);
-    g_config.CanvasCustomB = (float)_wtof(bufB);
+    g_config.CanvasCustomR = GetPrivateProfileIntW(L"View", L"CanvasCustomR", 51, iniPath.c_str());
+    g_config.CanvasCustomG = GetPrivateProfileIntW(L"View", L"CanvasCustomG", 51, iniPath.c_str());
+    g_config.CanvasCustomB = GetPrivateProfileIntW(L"View", L"CanvasCustomB", 51, iniPath.c_str());
     g_config.CanvasShowGrid = GetPrivateProfileIntW(L"View", L"CanvasShowGrid", 0, iniPath.c_str()) != 0;
     g_config.SwatchColorIndex = GetPrivateProfileIntW(L"View", L"SwatchColorIndex", 0, iniPath.c_str());
     if (g_config.SwatchColorIndex < 0 || g_config.SwatchColorIndex >= AppConfig::MAX_SWATCH_COLORS) g_config.SwatchColorIndex = 0;
     for (int i = 3; i < 9; ++i) {
         wchar_t keyR[32], keyG[32], keyB[32], keyA[32];
-        wchar_t buf[32], defBuf[32];
         swprintf_s(keyR, L"Swatch%dR", i);
         swprintf_s(keyG, L"Swatch%dG", i);
         swprintf_s(keyB, L"Swatch%dB", i);
         swprintf_s(keyA, L"Swatch%dA", i);
-        // Use struct defaults so first-run doesn't overwrite with black
-        swprintf_s(defBuf, L"%.6f", g_config.SwatchColors[i][0]);
-        GetPrivateProfileStringW(L"View", keyR, defBuf, buf, 32, iniPath.c_str());
-        g_config.SwatchColors[i][0] = (float)_wtof(buf);
-        swprintf_s(defBuf, L"%.6f", g_config.SwatchColors[i][1]);
-        GetPrivateProfileStringW(L"View", keyG, defBuf, buf, 32, iniPath.c_str());
-        g_config.SwatchColors[i][1] = (float)_wtof(buf);
-        swprintf_s(defBuf, L"%.6f", g_config.SwatchColors[i][2]);
-        GetPrivateProfileStringW(L"View", keyB, defBuf, buf, 32, iniPath.c_str());
-        g_config.SwatchColors[i][2] = (float)_wtof(buf);
-        swprintf_s(defBuf, L"%.6f", g_config.SwatchColors[i][3]);
-        GetPrivateProfileStringW(L"View", keyA, defBuf, buf, 32, iniPath.c_str());
-        // [Fix] alpha 量化为 255 整数步进，消除浮点精度残留
-        {
-            float rawA = (float)_wtof(buf);
-            int a255 = static_cast<int>(std::round(rawA * 255.0f));
-            if (a255 > 255) a255 = 255;
-            if (a255 < 0) a255 = 0;
-            g_config.SwatchColors[i][3] = static_cast<float>(a255) / 255.0f;
-        }
+        g_config.SwatchColors[i][0] = GetPrivateProfileIntW(L"View", keyR, g_config.SwatchColors[i][0], iniPath.c_str());
+        g_config.SwatchColors[i][1] = GetPrivateProfileIntW(L"View", keyG, g_config.SwatchColors[i][1], iniPath.c_str());
+        g_config.SwatchColors[i][2] = GetPrivateProfileIntW(L"View", keyB, g_config.SwatchColors[i][2], iniPath.c_str());
+        g_config.SwatchColors[i][3] = GetPrivateProfileIntW(L"View", keyA, g_config.SwatchColors[i][3], iniPath.c_str());
 }
 for (int i = 3; i < 9; ++i) {
     wchar_t keyCB[32];
@@ -5301,7 +5280,7 @@ static D2D1_COLOR_F ResolveCanvasColor() {
         case 0: return D2D1::ColorF(C8(0),   C8(0),   C8(0));     // Black
         case 1: return D2D1::ColorF(C8(255), C8(255), C8(255));   // White
         case 2: return D2D1::ColorF(C8(46),  C8(46),  C8(46));    // Grid
-        case 3: return D2D1::ColorF(g_config.CanvasCustomR, g_config.CanvasCustomG, g_config.CanvasCustomB);
+        case 3: return D2D1::ColorF(C8(g_config.CanvasCustomR), C8(g_config.CanvasCustomG), C8(g_config.CanvasCustomB));
         case 4: 
             if (!SystemInfo::IsWindows11OrGreater()) {
                 return D2D1::ColorF(C8(46), C8(46), C8(46)); // Windows 10 fallback to standard dark background
@@ -5317,15 +5296,13 @@ static D2D1_COLOR_F ResolveCanvasColor() {
                     case 2: return D2D1::ColorF(C8(128), C8(128), C8(128));
                 }
             } else if (idx >= 3 && idx < 9) {
-                // [Fix] alpha 量化为 255 整数后判断是否完全不透明
-                int a255 = static_cast<int>(std::round(g_config.SwatchColors[idx][3] * 255.0f));
-                if (a255 > 255) a255 = 255;
-                if (a255 < 0) a255 = 0;
-                float a = (a255 >= 255) ? 1.0f : static_cast<float>(a255) / 255.0f;
-                return D2D1::ColorF(g_config.SwatchColors[idx][0], g_config.SwatchColors[idx][1],
-                                   g_config.SwatchColors[idx][2], a);
+                int a = g_config.SwatchColors[idx][3];
+                if (a > 255) a = 255;
+                if (a < 0) a = 0;
+                return D2D1::ColorF(C8(g_config.SwatchColors[idx][0]), C8(g_config.SwatchColors[idx][1]),
+                                   C8(g_config.SwatchColors[idx][2]), C8(a));
             }
-            return D2D1::ColorF(1.0f, 1.0f, 1.0f); // Default white
+            return D2D1::ColorF(C8(255), C8(255), C8(255)); // Default white
         }
         default: return D2D1::ColorF(C8(46), C8(46), C8(46));
     }
@@ -5359,9 +5336,9 @@ if (g_config.CanvasColor == 5 && g_config.SwatchColorIndex >= 0 && g_config.Swat
     // Custom checkerboard: use picked color + derived second color
     showGrid = false;
     int idx = g_config.SwatchColorIndex;
-    float r = g_config.SwatchColors[idx][0];
-    float g = g_config.SwatchColors[idx][1];
-    float b = g_config.SwatchColors[idx][2];
+    float r = C8(g_config.SwatchColors[idx][0]);
+    float g = C8(g_config.SwatchColors[idx][1]);
+    float b = C8(g_config.SwatchColors[idx][2]);
     float lum = 0.2126f*r + 0.7152f*g + 0.0722f*b;
     D2D1_COLOR_F c1(r, g, b, 1.0f);
     D2D1_COLOR_F c2 = (lum > 0.5f)
@@ -9380,24 +9357,24 @@ SKIP_EDGE_NAV:;
                             POINT pt;
                             GetCursorPos(&pt);
                             QuickView::UI::ColorPickerPopup::Show(hwnd, pt.x, pt.y,
-                                g_config.SwatchColors[8][0], g_config.SwatchColors[8][1],
-                                g_config.SwatchColors[8][2], g_config.SwatchColors[8][3],
+                                C8(g_config.SwatchColors[8][0]), C8(g_config.SwatchColors[8][1]),
+                                C8(g_config.SwatchColors[8][2]), C8(g_config.SwatchColors[8][3]),
                                 g_config.SwatchIsCheckerboard[8],
                                 // onChange (real-time preview)
                                 [](float r, float g, float b, float a, bool isChecker) {
-                                    g_config.SwatchColors[8][0] = r;
-                                    g_config.SwatchColors[8][1] = g;
-                                    g_config.SwatchColors[8][2] = b;
-                                    g_config.SwatchColors[8][3] = a;
+                                    g_config.SwatchColors[8][0] = (int)std::round(r * 255.0f);
+                                    g_config.SwatchColors[8][1] = (int)std::round(g * 255.0f);
+                                    g_config.SwatchColors[8][2] = (int)std::round(b * 255.0f);
+                                    g_config.SwatchColors[8][3] = (int)std::round(a * 255.0f);
                                     g_config.SwatchIsCheckerboard[8] = isChecker;
                                     RequestRepaint(PaintLayer::All);
                                 },
                                 // onConfirm (save)
                                 [](float r, float g, float b, float a, bool isChecker) {
-                                    g_config.SwatchColors[8][0] = r;
-                                    g_config.SwatchColors[8][1] = g;
-                                    g_config.SwatchColors[8][2] = b;
-                                    g_config.SwatchColors[8][3] = a;
+                                    g_config.SwatchColors[8][0] = (int)std::round(r * 255.0f);
+                                    g_config.SwatchColors[8][1] = (int)std::round(g * 255.0f);
+                                    g_config.SwatchColors[8][2] = (int)std::round(b * 255.0f);
+                                    g_config.SwatchColors[8][3] = (int)std::round(a * 255.0f);
                                     g_config.SwatchIsCheckerboard[8] = isChecker;
                                     SaveConfig();
                                     if (g_mainHwnd) ApplyWindowTheme(g_mainHwnd);

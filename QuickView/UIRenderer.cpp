@@ -4120,12 +4120,12 @@ void UIRenderer::DrawCompactInfo(ID2D1DeviceContext* dc) {
 }
 
 float UIRenderer::EstimateCanvasLuminance() const {
-    D2D1_COLOR_F bgColor = D2D1::ColorF(0.18f, 0.18f, 0.18f);
+    D2D1_COLOR_F bgColor = D2D1::ColorF(C8(46), C8(46), C8(46));
     switch (g_config.CanvasColor) {
-        case 0: bgColor = D2D1::ColorF(0.08f, 0.08f, 0.08f); break;
-        case 1: bgColor = D2D1::ColorF(0.95f, 0.95f, 0.95f); break;
-        case 2: bgColor = D2D1::ColorF(0.18f, 0.18f, 0.18f); break;
-        case 3: bgColor = D2D1::ColorF(g_config.CanvasCustomR, g_config.CanvasCustomG, g_config.CanvasCustomB); break;
+        case 0: bgColor = D2D1::ColorF(C8(0), C8(0), C8(0)); break;
+        case 1: bgColor = D2D1::ColorF(C8(255), C8(255), C8(255)); break;
+        case 2: bgColor = D2D1::ColorF(C8(46), C8(46), C8(46)); break;
+        case 3: bgColor = D2D1::ColorF(C8(g_config.CanvasCustomR), C8(g_config.CanvasCustomG), C8(g_config.CanvasCustomB)); break;
         default: break;
     }
     return bgColor.r * 0.299f + bgColor.g * 0.587f + bgColor.b * 0.114f;
@@ -6196,21 +6196,20 @@ ComPtr<ID2D1Brush> UIRenderer::CreateCanvasBackgroundBrush(ID2D1DeviceContext* d
             }
         } else if (idx >= 3 && idx < 9 && g_config.SwatchIsCheckerboard[idx]) {
             checker = true;
-            float r = g_config.SwatchColors[idx][0];
-            float g = g_config.SwatchColors[idx][1];
-            float b = g_config.SwatchColors[idx][2];
+            float r = C8(g_config.SwatchColors[idx][0]);
+            float g = C8(g_config.SwatchColors[idx][1]);
+            float b = C8(g_config.SwatchColors[idx][2]);
             float lum = 0.2126f * r + 0.7152f * g + 0.0722f * b;
             c1 = D2D1::ColorF(r, g, b, 1.0f);
             c2 = (lum > 0.5f)
                 ? D2D1::ColorF(r * 0.82f, g * 0.82f, b * 0.82f, 1.0f)
                 : D2D1::ColorF((std::min)(r * 1.2f, 1.0f), (std::min)(g * 1.2f, 1.0f), (std::min)(b * 1.2f, 1.0f), 1.0f);
         } else if (idx >= 3 && idx < 9) {
-            int a255 = static_cast<int>(std::round(g_config.SwatchColors[idx][3] * 255.0f));
-            a255 = (std::max)(0, (std::min)(255, a255));
-            float a = (a255 >= 255) ? 1.0f : static_cast<float>(a255) / 255.0f;
-            solid = D2D1::ColorF(g_config.SwatchColors[idx][0], g_config.SwatchColors[idx][1], g_config.SwatchColors[idx][2], a);
+            int a = g_config.SwatchColors[idx][3];
+            a = (std::max)(0, (std::min)(255, a));
+            solid = D2D1::ColorF(C8(g_config.SwatchColors[idx][0]), C8(g_config.SwatchColors[idx][1]), C8(g_config.SwatchColors[idx][2]), C8(a));
         } else {
-            solid = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
+            solid = D2D1::ColorF(C8(255), C8(255), C8(255), 1.0f);
         }
     } else {
         // Non-swatch modes: solid colors (mirror ResolveCanvasColor)
@@ -6218,7 +6217,7 @@ ComPtr<ID2D1Brush> UIRenderer::CreateCanvasBackgroundBrush(ID2D1DeviceContext* d
             case 0: solid = D2D1::ColorF(C8(0),   C8(0),   C8(0));   break;
             case 1: solid = D2D1::ColorF(C8(255), C8(255), C8(255)); break;
             case 2: solid = D2D1::ColorF(C8(46),  C8(46),  C8(46));  break;
-            case 3: solid = D2D1::ColorF(g_config.CanvasCustomR, g_config.CanvasCustomG, g_config.CanvasCustomB); break;
+            case 3: solid = D2D1::ColorF(C8(g_config.CanvasCustomR), C8(g_config.CanvasCustomG), C8(g_config.CanvasCustomB)); break;
             case 4: solid = D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f); break; // Effects: transparent
             default: solid = D2D1::ColorF(C8(46), C8(46), C8(46)); break;
         }

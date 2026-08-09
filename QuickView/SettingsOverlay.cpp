@@ -1380,13 +1380,13 @@ void SettingsOverlay::BuildMenu() {
         itemResetSwatch.buttonActivatedText = L"已重置";
         itemResetSwatch.onChange = []([[maybe_unused]] SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) {
             // Reset custom swatches (3-8) to defaults
-            static const float defaults[6][4] = {
-                {0.08f, 0.08f, 0.08f, 1.0f}, // 3: Dark gray
-                {0.95f, 0.95f, 0.95f, 1.0f}, // 4: White
-                {0.50f, 0.50f, 0.50f, 1.0f}, // 5: Medium gray
-                {0.10f, 0.30f, 0.60f, 1.0f}, // 6: Blue
-                {0.60f, 0.20f, 0.20f, 1.0f}, // 7: Red
-                {0.15f, 0.40f, 0.25f, 1.0f}, // 8: Green
+            static const int defaults[6][4] = {
+                {0,   0,   0,   255}, // 3: Black
+                {255, 255, 255, 255}, // 4: White
+                {128, 128, 128, 255}, // 5: Medium gray
+                {26,  77,  153, 255}, // 6: Blue
+                {153, 51,  51,  255}, // 7: Red
+                {38,  102, 64,  255}, // 8: Green
             };
             for (int i = 0; i < 6; ++i) {
                 for (int j = 0; j < 4; ++j) {
@@ -3648,9 +3648,9 @@ void SettingsOverlay::Render(ID2D1DeviceContext* pRT, float winW, float winH) {
                          cg = item.pFloatVal[1];
                          cb = item.pFloatVal[2];
                      } else {
-                         cr = g_config.CanvasCustomR;
-                         cg = g_config.CanvasCustomG;
-                         cb = g_config.CanvasCustomB;
+                        cr = C8(g_config.CanvasCustomR);
+                        cg = C8(g_config.CanvasCustomG);
+                        cb = C8(g_config.CanvasCustomB);
                      }
                      D2D1::ColorF color(cr, cg, cb);
                      
@@ -3846,9 +3846,9 @@ void SettingsOverlay::Render(ID2D1DeviceContext* pRT, float winW, float winH) {
                              }
                          } else if (isChecker) {
                              // Custom checkerboard: use picked color + derived second color
-                             float r = g_config.SwatchColors[i][0];
-                             float g = g_config.SwatchColors[i][1];
-                             float b = g_config.SwatchColors[i][2];
+                             float r = C8(g_config.SwatchColors[i][0]);
+                             float g = C8(g_config.SwatchColors[i][1]);
+                             float b = C8(g_config.SwatchColors[i][2]);
                              float lum = 0.2126f*r + 0.7152f*g + 0.0722f*b;
                              D2D1_COLOR_F c1(r, g, b, 1.0f);
                              D2D1_COLOR_F c2 = (lum > 0.5f) ? D2D1::ColorF(r*0.82f, g*0.82f, b*0.82f, 1.0f) : D2D1::ColorF(std::min(r*1.2f,1.0f), std::min(g*1.2f,1.0f), std::min(b*1.2f,1.0f), 1.0f);
@@ -3869,11 +3869,11 @@ void SettingsOverlay::Render(ID2D1DeviceContext* pRT, float winW, float winH) {
                          } else {
                              // Solid color
                              // [Fix] alpha 量化为 255 整数后判断是否完全不透明
-                             int a255 = static_cast<int>(std::round(g_config.SwatchColors[i][3] * 255.0f));
+                             int a255 = g_config.SwatchColors[i][3];
                              if (a255 > 255) a255 = 255;
                              if (a255 < 0) a255 = 0;
-                             float solidA = (a255 >= 255) ? 1.0f : static_cast<float>(a255) / 255.0f;
-                             D2D1_COLOR_F color(g_config.SwatchColors[i][0], g_config.SwatchColors[i][1], g_config.SwatchColors[i][2], solidA);
+                             float solidA = C8(a255);
+                             D2D1_COLOR_F color(C8(g_config.SwatchColors[i][0]), C8(g_config.SwatchColors[i][1]), C8(g_config.SwatchColors[i][2]), solidA);
                              ComPtr<ID2D1SolidColorBrush> brush;
                              pRT->CreateSolidColorBrush(color, &brush);
                              pRT->FillEllipse(ellipse, brush.Get());
@@ -4780,15 +4780,15 @@ SettingsAction SettingsOverlay::OnLButtonDown(float x, float y) {
                         POINT pt;
                         GetCursorPos(&pt);
                         QuickView::UI::ColorPickerPopup::Show(hwnd, pt.x, pt.y,
-                            g_config.SwatchColors[i][0], g_config.SwatchColors[i][1],
-                            g_config.SwatchColors[i][2], g_config.SwatchColors[i][3],
+                            C8(g_config.SwatchColors[i][0]), C8(g_config.SwatchColors[i][1]),
+                            C8(g_config.SwatchColors[i][2]), C8(g_config.SwatchColors[i][3]),
                             g_config.SwatchIsCheckerboard[i],
                             // onChange (real-time)
                             [i](float r, float g, float b, float a, bool isChecker) {
-                                g_config.SwatchColors[i][0] = r;
-                                g_config.SwatchColors[i][1] = g;
-                                g_config.SwatchColors[i][2] = b;
-                                g_config.SwatchColors[i][3] = a;
+                                g_config.SwatchColors[i][0] = (int)std::round(r * 255.0f);
+                                g_config.SwatchColors[i][1] = (int)std::round(g * 255.0f);
+                                g_config.SwatchColors[i][2] = (int)std::round(b * 255.0f);
+                                g_config.SwatchColors[i][3] = (int)std::round(a * 255.0f);
                                 g_config.SwatchIsCheckerboard[i] = isChecker;
                                 extern HWND g_mainHwnd;
                                 if (g_mainHwnd) ApplyWindowTheme(g_mainHwnd);
@@ -4797,10 +4797,10 @@ SettingsAction SettingsOverlay::OnLButtonDown(float x, float y) {
                             },
                             // onConfirm (close)
                             [i](float r, float g, float b, float a, bool isChecker) {
-                                g_config.SwatchColors[i][0] = r;
-                                g_config.SwatchColors[i][1] = g;
-                                g_config.SwatchColors[i][2] = b;
-                                g_config.SwatchColors[i][3] = a;
+                                g_config.SwatchColors[i][0] = (int)std::round(r * 255.0f);
+                                g_config.SwatchColors[i][1] = (int)std::round(g * 255.0f);
+                                g_config.SwatchColors[i][2] = (int)std::round(b * 255.0f);
+                                g_config.SwatchColors[i][3] = (int)std::round(a * 255.0f);
                                 g_config.SwatchIsCheckerboard[i] = isChecker;
                                 SaveConfig();
                                 extern HWND g_mainHwnd;

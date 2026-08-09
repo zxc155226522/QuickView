@@ -70,7 +70,13 @@ namespace QuickView::UI::ThemeSystem {
 
         yyjson_mut_obj_add_int(doc, root, "canvas_color", config.CanvasColor);
         yyjson_mut_obj_add_int(doc, root, "canvas_effect_style", config.CanvasEffectStyle);
-        add_color("canvas_custom", config.CanvasCustomR, config.CanvasCustomG, config.CanvasCustomB);
+        {
+            yyjson_mut_val *ca = yyjson_mut_arr(doc);
+            yyjson_mut_arr_add_int(doc, ca, config.CanvasCustomR);
+            yyjson_mut_arr_add_int(doc, ca, config.CanvasCustomG);
+            yyjson_mut_arr_add_int(doc, ca, config.CanvasCustomB);
+            yyjson_mut_obj_add_val(doc, root, "canvas_custom", ca);
+        }
 
         // [Swatch] Export swatch colors and index
         yyjson_mut_obj_add_int(doc, root, "swatch_color_index", config.SwatchColorIndex);
@@ -78,10 +84,10 @@ namespace QuickView::UI::ThemeSystem {
             char key[32];
             snprintf(key, sizeof(key), "swatch_color_%d", i);
             yyjson_mut_val *arr = yyjson_mut_arr(doc);
-            yyjson_mut_arr_add_real(doc, arr, config.SwatchColors[i][0]);
-            yyjson_mut_arr_add_real(doc, arr, config.SwatchColors[i][1]);
-            yyjson_mut_arr_add_real(doc, arr, config.SwatchColors[i][2]);
-            yyjson_mut_arr_add_real(doc, arr, config.SwatchColors[i][3]);
+            yyjson_mut_arr_add_int(doc, arr, config.SwatchColors[i][0]);
+            yyjson_mut_arr_add_int(doc, arr, config.SwatchColors[i][1]);
+            yyjson_mut_arr_add_int(doc, arr, config.SwatchColors[i][2]);
+            yyjson_mut_arr_add_int(doc, arr, config.SwatchColors[i][3]);
             yyjson_mut_obj_add_val(doc, root, key, arr);
         }
 
@@ -178,7 +184,14 @@ namespace QuickView::UI::ThemeSystem {
         get_int("canvas_color", config.CanvasColor);
         config.CanvasColor = 5; // Force swatch mode
         get_int("canvas_effect_style", config.CanvasEffectStyle);
-        get_color("canvas_custom", config.CanvasCustomR, config.CanvasCustomG, config.CanvasCustomB);
+        {
+            yyjson_val *ca = yyjson_obj_get(obj, "canvas_custom");
+            if (ca && yyjson_is_arr(ca) && yyjson_arr_size(ca) >= 3) {
+                config.CanvasCustomR = (int)yyjson_get_num(yyjson_arr_get(ca, 0));
+                config.CanvasCustomG = (int)yyjson_get_num(yyjson_arr_get(ca, 1));
+                config.CanvasCustomB = (int)yyjson_get_num(yyjson_arr_get(ca, 2));
+            }
+        }
 
         // [Swatch] Import swatch colors and index
         {
@@ -191,17 +204,10 @@ namespace QuickView::UI::ThemeSystem {
             snprintf(key, sizeof(key), "swatch_color_%d", i);
             yyjson_val *arr = yyjson_obj_get(obj, key);
             if (arr && yyjson_is_arr(arr) && yyjson_arr_size(arr) >= 4) {
-                config.SwatchColors[i][0] = (float)yyjson_get_real(yyjson_arr_get(arr, 0));
-                config.SwatchColors[i][1] = (float)yyjson_get_real(yyjson_arr_get(arr, 1));
-                config.SwatchColors[i][2] = (float)yyjson_get_real(yyjson_arr_get(arr, 2));
-                // [Fix] alpha 量化为 255 整数步进，消除浮点精度残留
-                {
-                    float rawA = (float)yyjson_get_real(yyjson_arr_get(arr, 3));
-                    int a255 = static_cast<int>(std::round(rawA * 255.0));
-                    if (a255 > 255) a255 = 255;
-                    if (a255 < 0) a255 = 0;
-                    config.SwatchColors[i][3] = static_cast<float>(a255) / 255.0f;
-                }
+                config.SwatchColors[i][0] = (int)yyjson_get_num(yyjson_arr_get(arr, 0));
+                config.SwatchColors[i][1] = (int)yyjson_get_num(yyjson_arr_get(arr, 1));
+                config.SwatchColors[i][2] = (int)yyjson_get_num(yyjson_arr_get(arr, 2));
+                config.SwatchColors[i][3] = (int)yyjson_get_num(yyjson_arr_get(arr, 3));
             }
         }
 

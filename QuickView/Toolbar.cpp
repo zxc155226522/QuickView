@@ -927,10 +927,10 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
         } else {
           // Custom RGBA color
           // [Fix] alpha 量化为 255 整数后判断是否完全不透明
-          int a255 = static_cast<int>(std::round(g_config.SwatchColors[i][3] * 255.0f));
+          int a255 = g_config.SwatchColors[i][3];
           if (a255 > 255) a255 = 255;
           if (a255 < 0) a255 = 0;
-          float alpha = (a255 >= 255) ? 1.0f : static_cast<float>(a255) / 255.0f;
+          float alpha = C8(a255);
           if (a255 < 255) {
             // Mini checkerboard background for transparency
             ComPtr<ID2D1EllipseGeometry> clipGeo;
@@ -947,7 +947,7 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
               pRT->PopLayer();
             }
           }
-          D2D1_COLOR_F color(g_config.SwatchColors[i][0], g_config.SwatchColors[i][1], g_config.SwatchColors[i][2], alpha);
+          D2D1_COLOR_F color(C8(g_config.SwatchColors[i][0]), C8(g_config.SwatchColors[i][1]), C8(g_config.SwatchColors[i][2]), alpha);
           ComPtr<ID2D1SolidColorBrush> brush;
           pRT->CreateSolidColorBrush(color, &brush);
           pRT->FillEllipse(ellipse, brush.Get());

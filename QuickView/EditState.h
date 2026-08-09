@@ -542,22 +542,22 @@ struct AppConfig {
 
     int CanvasColor = 2;                // 0=Black, 1=White, 2=Grid, 3=Custom, 4=Effects
     int CanvasEffectStyle = 0;          // 0=Mica, 1=Mica Alt, 2=Acrylic
-    float CanvasCustomR = 0.2f;         // Custom color RGB (0.0-1.0)
-    float CanvasCustomG = 0.2f;
-    float CanvasCustomB = 0.2f;
+    int CanvasCustomR = 51;             // Custom color RGB (0-255)
+    int CanvasCustomG = 51;
+    int CanvasCustomB = 51;
     bool CanvasShowGrid = false; // Overlay grid
     // [Swatch Background] CanvasColor==5: 0-2=built-in checkerboards, 3-8=custom RGBA
     static constexpr int MAX_SWATCH_COLORS = 9;
-    float SwatchColors[9][4] = {
-        {0, 0, 0, 0},                        // 0: White checkerboard (preset)
-        {0, 0, 0, 0},                        // 1: Black checkerboard (preset)
-        {0, 0, 0, 0},                        // 2: Gray checkerboard (preset)
-        {C8(0),   C8(0),   C8(0),   1.0f},    // 3: Black
-        {C8(255), C8(255), C8(255), 1.0f},    // 4: White
-        {C8(128), C8(128), C8(128), 1.0f},    // 5: Medium gray
-        {C8(26),  C8(77),  C8(153), 1.0f},    // 6: Blue
-        {C8(153), C8(51),  C8(51),  1.0f},    // 7: Red
-        {C8(38),  C8(102), C8(64),  1.0f},    // 8: Green
+    int SwatchColors[9][4] = {
+        {0,   0,   0,   0},     // 0: White checkerboard (preset)
+        {0,   0,   0,   0},     // 1: Black checkerboard (preset)
+        {0,   0,   0,   0},     // 2: Gray checkerboard (preset)
+        {0,   0,   0,   255},   // 3: Black
+        {255, 255, 255, 255},   // 4: White
+        {128, 128, 128, 255},   // 5: Medium gray
+        {26,  77,  153, 255},   // 6: Blue
+        {153, 51,  51,  255},   // 7: Red
+        {38,  102, 64,  255},   // 8: Green
     };
     int SwatchColorIndex = 0; // Default to white checkerboard
 bool SwatchIsCheckerboard[9] = {true, true, true, false, false, false, false, false, false}; // 0-2 built-in checkerboards
