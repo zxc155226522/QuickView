@@ -8,7 +8,7 @@
 #include <objbase.h>
 #include <shobjidl.h>       // IThumbnailProvider, IInitializeWithStream
 #include <shlwapi.h>
-#include <d2d1.h>
+#include <d2d1_3.h>       // D2D 1.0-1.3: ID2D1DeviceContext, ID2D1Bitmap1, ID2D1SvgDocument
 #include <d3d11.h>
 #include <dxgi.h>
 
