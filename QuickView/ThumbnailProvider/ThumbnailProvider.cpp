@@ -46,7 +46,7 @@ public:
     ComPtr& operator=(const ComPtr&) = delete;
     ComPtr(ComPtr&& other) noexcept : ptr(other.ptr) { other.ptr = nullptr; }
     ComPtr& operator=(ComPtr&& other) noexcept {
-        if (this != &other) {
+        if (ptr != other.ptr) {
             if (ptr) ptr->Release();
             ptr = other.ptr;
             other.ptr = nullptr;
@@ -69,7 +69,6 @@ public:
         return result;
     }
     void Attach(T* p) { if (ptr) ptr->Release(); ptr = p; }
-    T** operator&() { if (ptr) ptr->Release(); ptr = nullptr; return &ptr; }
     T* ptr = nullptr;
 };
 
@@ -194,7 +193,7 @@ private:
         D3D_FEATURE_LEVEL fl = D3D_FEATURE_LEVEL_11_0;
         HRESULT hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr,
             D3D11_CREATE_DEVICE_BGRA_SUPPORT, &fl, 1, D3D11_SDK_VERSION,
-            &d3dDevice, nullptr, &d3dContext);
+            d3dDevice.GetAddressOf(), nullptr, d3dContext.GetAddressOf());
         if (FAILED(hr)) return nullptr;
 
         // Render target texture
@@ -206,7 +205,7 @@ private:
         texDesc.Usage = D3D11_USAGE_DEFAULT;
         texDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
         ComPtr<ID3D11Texture2D> renderTex;
-        hr = d3dDevice->CreateTexture2D(&texDesc, nullptr, &renderTex);
+        hr = d3dDevice->CreateTexture2D(&texDesc, nullptr, renderTex.GetAddressOf());
         if (FAILED(hr)) return nullptr;
 
         // DXGI surface
@@ -218,15 +217,15 @@ private:
         ComPtr<ID2D1Factory1> d2dFactory;
         D2D1_FACTORY_OPTIONS opts = {};
         D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED,
-            __uuidof(ID2D1Factory1), &opts, (void**)&d2dFactory);
+            __uuidof(ID2D1Factory1), &opts, (void**)d2dFactory.GetAddressOf());
         if (!d2dFactory) return nullptr;
 
         ComPtr<IDXGIDevice> dxgiDevice;
         dxgiDevice = d3dDevice.As<IDXGIDevice>();
         ComPtr<ID2D1Device> d2dDevice;
-        d2dFactory->CreateDevice(dxgiDevice.Get(), &d2dDevice);
+        d2dFactory->CreateDevice(dxgiDevice.Get(), d2dDevice.GetAddressOf());
         ComPtr<ID2D1DeviceContext> d2dCtx;
-        d2dDevice->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &d2dCtx);
+        d2dDevice->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, d2dCtx.GetAddressOf());
 
         // Bitmap target
         D2D1_BITMAP_PROPERTIES1 bmpProps = D2D1::BitmapProperties1(
@@ -234,7 +233,7 @@ private:
             D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
             96, 96);
         ComPtr<ID2D1Bitmap1> targetBmp;
-        d2dCtx->CreateBitmapFromDxgiSurface(dxgiSurface.Get(), &bmpProps, &targetBmp);
+        d2dCtx->CreateBitmapFromDxgiSurface(dxgiSurface.Get(), &bmpProps, targetBmp.GetAddressOf());
 
         // SVG document
         HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, svgXml.size());
@@ -243,7 +242,7 @@ private:
         memcpy(mem, svgXml.data(), svgXml.size());
         GlobalUnlock(hMem);
         ComPtr<IStream> stream;
-        CreateStreamOnHGlobal(hMem, TRUE, &stream);
+        CreateStreamOnHGlobal(hMem, TRUE, stream.GetAddressOf());
 
         ComPtr<ID2D1DeviceContext5> d2dCtx5;
         d2dCtx5 = d2dCtx.As<ID2D1DeviceContext5>();
@@ -251,7 +250,7 @@ private:
 
         ComPtr<ID2D1SvgDocument> svgDoc;
         hr = d2dCtx5->CreateSvgDocument(stream.Get(),
-            D2D1::SizeF(safeW, safeH), &svgDoc);
+            D2D1::SizeF(safeW, safeH), svgDoc.GetAddressOf());
         if (FAILED(hr)) { GlobalFree(hMem); return nullptr; }
 
         // Render
@@ -269,7 +268,7 @@ private:
         stagingDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
         stagingDesc.Usage = D3D11_USAGE_STAGING;
         ComPtr<ID3D11Texture2D> stagingTex;
-        d3dDevice->CreateTexture2D(&stagingDesc, nullptr, &stagingTex);
+        d3dDevice->CreateTexture2D(&stagingDesc, nullptr, stagingTex.GetAddressOf());
         d3dContext->CopyResource(stagingTex.Get(), renderTex.Get());
         D3D11_MAPPED_SUBRESOURCE mapped = {};
         hr = d3dContext->Map(stagingTex.Get(), 0, D3D11_MAP_READ, 0, &mapped);
