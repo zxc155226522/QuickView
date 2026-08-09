@@ -44,6 +44,15 @@ public:
     ~ComPtr() { if (ptr) ptr->Release(); }
     ComPtr(const ComPtr&) = delete;
     ComPtr& operator=(const ComPtr&) = delete;
+    ComPtr(ComPtr&& other) noexcept : ptr(other.ptr) { other.ptr = nullptr; }
+    ComPtr& operator=(ComPtr&& other) noexcept {
+        if (this != &other) {
+            if (ptr) ptr->Release();
+            ptr = other.ptr;
+            other.ptr = nullptr;
+        }
+        return *this;
+    }
     T* operator->() const { return ptr; }
     T* const* GetAddressOf() { return &ptr; }
     T** ReleaseAndGetAddressOf() { if (ptr) { ptr->Release(); ptr = nullptr; } return &ptr; }
