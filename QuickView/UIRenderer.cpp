@@ -4747,24 +4747,6 @@ void UIRenderer::DrawNavIndicators(ID2D1DeviceContext* dc) {
         if (gradBrush) {
             dc->FillGeometry(semiPath.Get(), gradBrush.Get());
         }
-
-        // Subtle arc outline
-        ComPtr<ID2D1SolidColorBrush> arcBorderBrush;
-        D2D1_COLOR_F arcBorderColor = isLight
-            ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.12f)
-            : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.14f);
-        dc->CreateSolidColorBrush(arcBorderColor, &arcBorderBrush);
-        if (arcBorderBrush) {
-            dc->DrawGeometry(semiPath.Get(), arcBorderBrush.Get(), 1.0f * s);
-        }
-
-        // Arrow
-        float arrowCenterY = centerY;
-        if (g_viewState.EdgeHoverState == -1) {
-            drawArrow(margin, arrowCenterY, true);
-        } else {
-            drawArrow(m_width - margin, arrowCenterY, false);
-        }
     }
 }
 
