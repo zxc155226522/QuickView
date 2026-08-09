@@ -421,6 +421,7 @@ target_link_libraries(QuickViewThumbnailProvider PRIVATE
     libcdr
     librevenge
     ZLIB::ZLIB
+    lcms2::lcms2
     d3d11.lib
     d2d1.lib
     dxgi.lib
