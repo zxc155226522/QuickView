@@ -441,8 +441,12 @@ public:
   HRESULT LoadFastPass(LPCWSTR filePath, ThumbData *pData);
 
   // Core Thumbnail API
+  // transparentBg: vector formats (SVG/CDR/CMX/PLT/DXF/DWG) render on a
+  // transparent background instead of white (used by the shell thumbnail
+  // worker; Explorer thumbnails look better unpremultiplied on its own plate).
+  // Raster formats (PDF/AI etc.) are always opaque regardless of this flag.
   HRESULT LoadThumbnail(LPCWSTR filePath, int targetSize, ThumbData *pData,
-                        bool allowSlow = true);
+                        bool allowSlow = true, bool transparentBg = false);
 
   // [JXL Global Runner] Global thread pool singleton to avoid creation overhead for each decode
   static void *GetJxlRunner();

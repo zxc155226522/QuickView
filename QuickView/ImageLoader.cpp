@@ -4049,7 +4049,8 @@ static HRESULT LoadThumbJXL_Sampled(const uint8_t *pFile, size_t fileSize,
 static HRESULT RasterizeSvgThumbnail(const std::vector<uint8_t> &xmlData,
                                      float viewBoxW, float viewBoxH,
                                      int targetSize,
-                                     CImageLoader::ThumbData *pData) {
+                                     CImageLoader::ThumbData *pData,
+                                     bool transparentBg = false) {
   if (!pData || xmlData.empty())
     return E_INVALIDARG;
 
@@ -4199,7 +4200,11 @@ static HRESULT RasterizeSvgThumbnail(const std::vector<uint8_t> &xmlData,
 
   t_dev.d2dContext5->SetTarget(targetBitmap.Get());
   t_dev.d2dContext5->BeginDraw();
-  t_dev.d2dContext5->Clear(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f));
+  // Shell thumbnail worker uses transparent background (Explorer draws its
+  // own plate behind the thumbnail); in-app gallery keeps the white plate.
+  t_dev.d2dContext5->Clear(transparentBg
+                               ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f)
+                               : D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f));
   t_dev.d2dContext5->SetTransform(
       D2D1::Matrix3x2F::Scale((float)outW / safeW, (float)outH / safeH));
   t_dev.d2dContext5->DrawSvgDocument(svgDoc.Get());
@@ -4244,7 +4249,8 @@ static HRESULT RasterizeSvgThumbnail(const std::vector<uint8_t> &xmlData,
 }
 
 HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
-                                    ThumbData *pData, bool allowSlow) {
+                                    ThumbData *pData, bool allowSlow,
+                                    bool transparentBg) {
   if (!filePath || !pData)
     return E_INVALIDARG;
   pData->isValid = false;
@@ -4431,7 +4437,8 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
                              targetSize, &pData->loaderName, {}, {});
     if (SUCCEEDED(hr) && pFrame->IsSvg() && pFrame->svg) {
       hr = RasterizeSvgThumbnail(pFrame->svg->xmlData, pFrame->svg->viewBoxW,
-                                 pFrame->svg->viewBoxH, targetSize, pData);
+                                 pFrame->svg->viewBoxH, targetSize, pData,
+                                 transparentBg);
     } else if (SUCCEEDED(hr) && pFrame->pixels && pFrame->width > 0 &&
                pFrame->height > 0) {
       pData->width = pFrame->width;
@@ -4466,7 +4473,8 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
                              targetSize, &pData->loaderName, {}, {});
     if (SUCCEEDED(hr) && pFrame->IsSvg() && pFrame->svg) {
       hr = RasterizeSvgThumbnail(pFrame->svg->xmlData, pFrame->svg->viewBoxW,
-                                 pFrame->svg->viewBoxH, targetSize, pData);
+                                 pFrame->svg->viewBoxH, targetSize, pData,
+                                 transparentBg);
     } else if (SUCCEEDED(hr) && pFrame->pixels && pFrame->width > 0 &&
                pFrame->height > 0) {
       pData->width = pFrame->width;

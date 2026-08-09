@@ -55,6 +55,8 @@ option(ENABLE_LTO  "Enable Link Time Optimization (ThinLTO)" OFF)
 # ============================================================================
 set(QUICKVIEW_SOURCES
     QuickView/main.cpp
+    QuickView/ThumbnailWorker.cpp
+    QuickView/ThumbnailWorker.h
     QuickView/PrintManager.cpp
     QuickView/PrintPreviewUI.cpp
     QuickView/PrintManager.h
@@ -397,10 +399,12 @@ endif()
 
 # ============================================================================
 # QuickViewThumbnailProvider COM DLL
-# Windows Shell IThumbnailProvider for CDR/CMX files
+# Windows Shell IThumbnailProvider: thin out-of-process shim that delegates
+# rendering to "QuickView.exe --thumbnail" (full app pipeline reuse).
 # ============================================================================
 add_library(QuickViewThumbnailProvider SHARED
     QuickView/ThumbnailProvider/ThumbnailProvider.cpp
+    QuickView/ThumbnailProvider/ThumbnailProvider.def
 )
 set_target_properties(QuickViewThumbnailProvider PROPERTIES
     OUTPUT_NAME "QuickViewThumbnailProvider"
@@ -409,23 +413,12 @@ set_target_properties(QuickViewThumbnailProvider PROPERTIES
 )
 target_include_directories(QuickViewThumbnailProvider PRIVATE
     QuickView
-    third_party/libcdr/inc
-    third_party/librevenge/inc
 )
-# Enable exceptions for this DLL (std::stof uses try/catch)
 target_compile_options(QuickViewThumbnailProvider PRIVATE
     /EHsc /GR /W4 /utf-8 /Gw
     $<$<CONFIG:Release>:/O2 /Gy>
 )
 target_link_libraries(QuickViewThumbnailProvider PRIVATE
-    libcdr
-    librevenge
-    ZLIB::ZLIB
-    lcms2::lcms2
-    d3d11.lib
-    d2d1.lib
-    dxgi.lib
-    dxguid.lib
     ole32.lib
     oleaut32.lib
     shell32.lib

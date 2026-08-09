@@ -437,8 +437,9 @@ bool SettingsOverlay::RegisterAssociations() {
     // 8. Refresh Shell
     SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, NULL, NULL);
 
-    // [Fix] Register Thumbnail Provider COM DLL for CDR/CMX
-    // Registers QuickViewThumbnailProvider.dll as IThumbnailProvider
+    // [Fix] Register Thumbnail Provider COM DLL for vector/document formats
+    // (.cdr .cmx .plt .dxf .dwg .pdf .ai). The DLL is a thin shim that
+    // delegates rendering to "QuickView.exe --thumbnail".
     {
         std::wstring dllDir = exePathStr;
         size_t lastSlash = dllDir.find_last_of(L"\\/");
@@ -449,7 +450,7 @@ bool SettingsOverlay::RegisterAssociations() {
         // Check if DLL exists before registering
         if (GetFileAttributesW(dllPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
             const wchar_t* clsid = L"{4F8C2A6E-3B5D-4E7F-9A1C-2D3E4F5A6B7C}";
-            const wchar_t* thumbnailIID = L"{E357FCC4-A995-453C-BF9A-9B18E2BD4DCA}";
+            const wchar_t* thumbnailIID = L"{E357FCCD-A995-4576-B01F-234630154E96}";
 
             // CLSID registration
             std::wstring clsidKey = L"Software\\Classes\\CLSID\\" + std::wstring(clsid);
@@ -458,11 +459,17 @@ bool SettingsOverlay::RegisterAssociations() {
             SafeRegSetString(HKEY_CURRENT_USER, inprocKey.c_str(), NULL, dllPath);
             SafeRegSetString(HKEY_CURRENT_USER, inprocKey.c_str(), L"ThreadingModel", L"Apartment");
 
-            // ShellEx thumbnail provider for .cdr and .cmx
+            // ShellEx thumbnail provider for vector/document formats
+            static const wchar_t* kThumbExts[] = {
+                L".cdr", L".cmx", L".plt", L".dxf", L".dwg", L".pdf", L".ai"
+            };
             for (const auto& extStr : selectedExts) {
-                if (extStr == L".cdr" || extStr == L".cmx") {
-                    std::wstring shellexKey = L"Software\\Classes\\" + extStr + L"\\ShellEx\\" + thumbnailIID;
-                    SafeRegSetString(HKEY_CURRENT_USER, shellexKey.c_str(), NULL, clsid);
+                for (const wchar_t* thumbExt : kThumbExts) {
+                    if (QuickView::ExtEqualsIgnoreCase(extStr, thumbExt)) {
+                        std::wstring shellexKey = L"Software\\Classes\\" + extStr + L"\\ShellEx\\" + thumbnailIID;
+                        SafeRegSetString(HKEY_CURRENT_USER, shellexKey.c_str(), NULL, clsid);
+                        break;
+                    }
                 }
             }
         }
@@ -549,12 +556,18 @@ void SettingsOverlay::UnregisterAssociations() {
     RegDeleteTreeW(HKEY_CURRENT_USER,
                    L"Software\\Classes\\CLSID\\{4F8C2A6E-3B5D-4E7F-9A1C-2D3E4F5A6B7C}");
     {
-        const wchar_t* thumbnailIID = L"{E357FCC4-A995-453C-BF9A-9B18E2BD4DCA}";
+        const wchar_t* thumbnailIID = L"{E357FCCD-A995-4576-B01F-234630154E96}";
+        static const wchar_t* kThumbExts[] = {
+            L".cdr", L".cmx", L".plt", L".dxf", L".dwg", L".pdf", L".ai"
+        };
         for (const auto& ext : QuickView::SUPPORTED_EXTENSIONS) {
-            if (ext == L".cdr" || ext == L".cmx") {
-                std::wstring extStr(ext);
-                std::wstring shellexKey = L"Software\\Classes\\" + extStr + L"\\ShellEx\\" + thumbnailIID;
-                RegDeleteTreeW(HKEY_CURRENT_USER, shellexKey.c_str());
+            for (const wchar_t* thumbExt : kThumbExts) {
+                if (QuickView::ExtEqualsIgnoreCase(ext, thumbExt)) {
+                    std::wstring extStr(ext);
+                    std::wstring shellexKey = L"Software\\Classes\\" + extStr + L"\\ShellEx\\" + thumbnailIID;
+                    RegDeleteTreeW(HKEY_CURRENT_USER, shellexKey.c_str());
+                    break;
+                }
             }
         }
     }

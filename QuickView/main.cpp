@@ -22,6 +22,7 @@ static constexpr const char* CURRENT_MODULE = "Main";
 #include "PrintManager.h"
 #include "PrintPreviewUI.h"
 #include "ImageLoader.h"
+#include "ThumbnailWorker.h"
 #include "ImageEngine.h"
 #include "MappedFile.h"
 #include "UIRenderer.h"
@@ -5834,13 +5835,14 @@ static bool TryRunToolProcessFromCommandLine(int* outExitCode) {
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     if (!argv) return false;
 
-    enum class ToolMode { None, DecodeWorker, Uninstall };
+    enum class ToolMode { None, DecodeWorker, Uninstall, Thumbnail };
     ToolMode mode = ToolMode::None;
 
     for (int i = 1; i < argc; ++i) {
         if (!argv[i]) continue;
         if (_wcsicmp(argv[i], L"--decode-worker") == 0) { mode = ToolMode::DecodeWorker; break; }
         if (_wcsicmp(argv[i], L"--uninstall") == 0) { mode = ToolMode::Uninstall; break; }
+        if (_wcsicmp(argv[i], L"--thumbnail") == 0) { mode = ToolMode::Thumbnail; break; }
     }
 
     if (mode == ToolMode::None) {
@@ -5854,6 +5856,9 @@ static bool TryRunToolProcessFromCommandLine(int* outExitCode) {
             SettingsOverlay::UnregisterAssociations();
             *outExitCode = 0;
             break;
+        // [Shell Thumbnail] Headless render for QuickViewThumbnailProvider.dll.
+        // Runs before single-instance routing / window creation by design.
+        case ToolMode::Thumbnail:    *outExitCode = QuickView::RunThumbnailWorker(argc, argv); break;
         default:                     *outExitCode = 2; break;
     }
     LocalFree(argv);
