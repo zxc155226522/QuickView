@@ -54,7 +54,7 @@ public:
         return *this;
     }
     T* operator->() const { return ptr; }
-    T* const* GetAddressOf() { return &ptr; }
+    T** GetAddressOf() { return &ptr; }
     T** ReleaseAndGetAddressOf() { if (ptr) { ptr->Release(); ptr = nullptr; } return &ptr; }
     T* Get() const { return ptr; }
     operator bool() const { return ptr != nullptr; }
