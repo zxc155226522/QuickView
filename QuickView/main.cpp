@@ -9767,7 +9767,8 @@ SKIP_EDGE_NAV:;
         // Alt + Wheel (when UseFixedZoom is true) ALWAYS means "Regular Zoom".
         // If WheelActionMode is Navigate (1), then Wheel (without Ctrl/Alt) means Navigate.
         // If WheelActionMode is Zoom (0), then Wheel (without Ctrl/Alt) means Smart Zoom.
-        bool shouldNavigate = (g_config.WheelActionMode == 1) && !isCtrl && !isAlt;
+        // [Edge Nav] When mouse hovers over left/right edge zone, wheel also navigates.
+        bool shouldNavigate = ((g_config.WheelActionMode == 1) || (g_viewState.EdgeHoverState != 0)) && !isCtrl && !isAlt;
 
         if (IsCompareModeActive()) {
             if (shouldNavigate) {

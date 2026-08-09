@@ -4678,13 +4678,16 @@ void UIRenderer::DrawNavIndicators(ID2D1DeviceContext* dc) {
         return;
     }
 
-    // Always draw both left and right navigation arrows
+    // Only draw the arrow for the edge the mouse is currently hovering over
     {
         float arrowCenterY = m_height * 0.5f;
-        // Left arrow (previous)
-        drawArrow(margin, arrowCenterY, true);
-        // Right arrow (next)
-        drawArrow(m_width - margin, arrowCenterY, false);
+        if (g_viewState.EdgeHoverState == -1) {
+            // Left arrow (previous)
+            drawArrow(margin, arrowCenterY, true);
+        } else if (g_viewState.EdgeHoverState == 1) {
+            // Right arrow (next)
+            drawArrow(m_width - margin, arrowCenterY, false);
+        }
     }
 }
 
