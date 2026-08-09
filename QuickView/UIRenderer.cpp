@@ -2025,12 +2025,26 @@ void UIRenderer::DrawTitleBar(ID2D1DeviceContext* dc, HWND hwnd) {
                 }
                 title = frameBuf;
             } else {
-                // Always show: zoom% | WxH | filename
+                // Always show: zoom% | WxH | filesize | filename
+                wchar_t sizeBuf[32] = L"";
+                if (g_currentMetadata.FileSize > 0) {
+                    UINT64 bytes = g_currentMetadata.FileSize;
+                    if (bytes >= 1024 * 1024) swprintf_s(sizeBuf, L"%.2fMB", bytes / (1024.0 * 1024.0));
+                    else if (bytes >= 1024) swprintf_s(sizeBuf, L"%.2fKB", bytes / 1024.0);
+                    else swprintf_s(sizeBuf, L"%lluB", bytes);
+                }
                 wchar_t buf[512];
-                swprintf_s(buf, L"%d%%  |  %u\u00d7%u  |  %s",
-                    GetCurrentZoomPercent(),
-                    g_currentMetadata.Width, g_currentMetadata.Height,
-                    fileName.c_str());
+                if (sizeBuf[0]) {
+                    swprintf_s(buf, L"%d%%  |  %u\u00d7%u  |  %s  |  %s",
+                        GetCurrentZoomPercent(),
+                        g_currentMetadata.Width, g_currentMetadata.Height,
+                        sizeBuf, fileName.c_str());
+                } else {
+                    swprintf_s(buf, L"%d%%  |  %u\u00d7%u  |  %s",
+                        GetCurrentZoomPercent(),
+                        g_currentMetadata.Width, g_currentMetadata.Height,
+                        fileName.c_str());
+                }
                 title = buf;
             }
             if (title.empty()) title = L"QuickView";
