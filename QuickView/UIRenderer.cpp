@@ -4680,10 +4680,15 @@ void UIRenderer::DrawNavIndicators(ID2D1DeviceContext* dc) {
 
     // Draw semicircular translucent overlay + arrow for the edge the mouse is currently hovering over
     if (g_viewState.EdgeHoverState != 0) {
-        float radius = m_height * 0.5f;
-        float centerY = m_height * 0.5f;
+        // Compute image viewport area (excludes title bar, gallery, toolbar)
+        ImageViewportLayout vp = ComputeImageViewportLayout(m_width, m_height);
+        float imgTop = vp.Top;
+        float imgBottom = vp.Bottom;
+        float imgH = imgBottom - imgTop;
+        float centerY = (imgTop + imgBottom) * 0.5f;
+        float radius = imgH * 0.5f;
 
-        // Build semicircle path
+        // Build semicircle path — width = margin*2 so arrow (at margin) is centered
         ComPtr<ID2D1PathGeometry> semiPath;
         factory->CreatePathGeometry(&semiPath);
         ComPtr<ID2D1GeometrySink> semiSink;
@@ -4692,18 +4697,18 @@ void UIRenderer::DrawNavIndicators(ID2D1DeviceContext* dc) {
         D2D1_ARC_SEGMENT arcSeg = {};
         arcSeg.rotationAngle = 0.0f;
         arcSeg.arcSize = D2D1_ARC_SIZE_SMALL;
-        arcSeg.size = D2D1::SizeF(radius, radius);
+        arcSeg.size = D2D1::SizeF(margin, imgH * 0.5f);
 
         if (g_viewState.EdgeHoverState == -1) {
-            // Left: semicircle from (0,0) to (0,height) bulging right
-            semiSink->BeginFigure(D2D1::Point2F(0.0f, 0.0f), D2D1_FIGURE_BEGIN_FILLED);
-            arcSeg.point = D2D1::Point2F(0.0f, m_height);
+            // Left: semicircle from (0,imgTop) to (0,imgBottom) bulging right
+            semiSink->BeginFigure(D2D1::Point2F(0.0f, imgTop), D2D1_FIGURE_BEGIN_FILLED);
+            arcSeg.point = D2D1::Point2F(0.0f, imgBottom);
             arcSeg.sweepDirection = D2D1_SWEEP_DIRECTION_CLOCKWISE;
             semiSink->AddArc(arcSeg);
         } else {
-            // Right: semicircle from (width,0) to (width,height) bulging left
-            semiSink->BeginFigure(D2D1::Point2F(m_width, 0.0f), D2D1_FIGURE_BEGIN_FILLED);
-            arcSeg.point = D2D1::Point2F(m_width, m_height);
+            // Right: semicircle from (width,imgTop) to (width,imgBottom) bulging left
+            semiSink->BeginFigure(D2D1::Point2F(m_width, imgTop), D2D1_FIGURE_BEGIN_FILLED);
+            arcSeg.point = D2D1::Point2F(m_width, imgBottom);
             arcSeg.sweepDirection = D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE;
             semiSink->AddArc(arcSeg);
         }
@@ -4730,13 +4735,13 @@ void UIRenderer::DrawNavIndicators(ID2D1DeviceContext* dc) {
             dc->CreateLinearGradientBrush(
                 D2D1::LinearGradientBrushProperties(
                     D2D1::Point2F(0.0f, centerY),
-                    D2D1::Point2F(radius, centerY)),
+                    D2D1::Point2F(margin, centerY)),
                 gradStops.Get(), &gradBrush);
         } else {
             dc->CreateLinearGradientBrush(
                 D2D1::LinearGradientBrushProperties(
                     D2D1::Point2F(m_width, centerY),
-                    D2D1::Point2F(m_width - radius, centerY)),
+                    D2D1::Point2F(m_width - margin, centerY)),
                 gradStops.Get(), &gradBrush);
         }
 
@@ -4755,7 +4760,7 @@ void UIRenderer::DrawNavIndicators(ID2D1DeviceContext* dc) {
         }
 
         // Arrow
-        float arrowCenterY = m_height * 0.5f;
+        float arrowCenterY = centerY;
         if (g_viewState.EdgeHoverState == -1) {
             drawArrow(margin, arrowCenterY, true);
         } else {
