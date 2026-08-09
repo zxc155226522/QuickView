@@ -390,6 +390,9 @@ if(WIN32 AND ADAPTIVE_MSVC_INCLUDE_PATHS)
     if(TARGET QuickViewTests)
         target_include_directories(QuickViewTests SYSTEM PRIVATE ${ADAPTIVE_MSVC_INCLUDE_PATHS})
     endif()
+    if(TARGET QuickViewThumbnailProvider)
+        target_include_directories(QuickViewThumbnailProvider SYSTEM PRIVATE ${ADAPTIVE_MSVC_INCLUDE_PATHS})
+    endif()
 endif()
 
 # ============================================================================
@@ -432,5 +435,9 @@ target_link_libraries(QuickViewThumbnailProvider PRIVATE
 target_compile_definitions(QuickViewThumbnailProvider PRIVATE
     UNICODE _UNICODE WIN32_LEAN_AND_MEAN
 )
+# Inject MSVC/Windows SDK include paths (required for windows.h etc.)
+if(ADAPTIVE_MSVC_INCLUDE_PATHS)
+    target_include_directories(QuickViewThumbnailProvider SYSTEM PRIVATE ${ADAPTIVE_MSVC_INCLUDE_PATHS})
+endif()
 
 # Force-define CXX features to bypass CMake's Clang 22 feature detection bug
