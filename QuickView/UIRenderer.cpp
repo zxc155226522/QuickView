@@ -4678,45 +4678,87 @@ void UIRenderer::DrawNavIndicators(ID2D1DeviceContext* dc) {
         return;
     }
 
-    // Draw translucent overlay + arrow for the edge the mouse is currently hovering over
+    // Draw semicircular translucent overlay + arrow for the edge the mouse is currently hovering over
     if (g_viewState.EdgeHoverState != 0) {
-        float edgeMargin = 64.0f * s;
-        float topY = m_height * 0.20f;
-        float bottomY = m_height * 0.80f;
+        float radius = m_height * 0.5f;
+        float centerY = m_height * 0.5f;
 
-        D2D1_RECT_F zoneRect;
+        // Build semicircle path
+        ComPtr<ID2D1PathGeometry> semiPath;
+        factory->CreatePathGeometry(&semiPath);
+        ComPtr<ID2D1GeometrySink> semiSink;
+        semiPath->Open(&semiSink);
+
+        D2D1_ARC_SEGMENT arcSeg = {};
+        arcSeg.rotationAngle = 0.0f;
+        arcSeg.arcSize = D2D1_ARC_SIZE_SMALL;
+        arcSeg.size = D2D1::SizeF(radius, radius);
+
         if (g_viewState.EdgeHoverState == -1) {
-            zoneRect = D2D1::RectF(0.0f, topY, edgeMargin, bottomY);
+            // Left: semicircle from (0,0) to (0,height) bulging right
+            semiSink->BeginFigure(D2D1::Point2F(0.0f, 0.0f), D2D1_FIGURE_BEGIN_FILLED);
+            arcSeg.point = D2D1::Point2F(0.0f, m_height);
+            arcSeg.sweepDirection = D2D1_SWEEP_DIRECTION_CLOCKWISE;
+            semiSink->AddArc(arcSeg);
         } else {
-            zoneRect = D2D1::RectF(m_width - edgeMargin, topY, m_width, bottomY);
+            // Right: semicircle from (width,0) to (width,height) bulging left
+            semiSink->BeginFigure(D2D1::Point2F(m_width, 0.0f), D2D1_FIGURE_BEGIN_FILLED);
+            arcSeg.point = D2D1::Point2F(m_width, m_height);
+            arcSeg.sweepDirection = D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE;
+            semiSink->AddArc(arcSeg);
+        }
+        semiSink->EndFigure(D2D1_FIGURE_END_CLOSED);
+        semiSink->Close();
+
+        // Linear gradient: opaque at edge → transparent toward center
+        float baseAlpha = isLight ? 0.08f : 0.10f;
+        D2D1_GRADIENT_STOP stops[2] = {};
+        stops[0].color = isLight
+            ? D2D1::ColorF(0.0f, 0.0f, 0.0f, baseAlpha)
+            : D2D1::ColorF(1.0f, 1.0f, 1.0f, baseAlpha);
+        stops[0].position = 0.0f;
+        stops[1].color = isLight
+            ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f)
+            : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.0f);
+        stops[1].position = 1.0f;
+
+        ComPtr<ID2D1GradientStopCollection> gradStops;
+        dc->CreateGradientStopCollection(stops, 2, &gradStops);
+
+        ComPtr<ID2D1LinearGradientBrush> gradBrush;
+        if (g_viewState.EdgeHoverState == -1) {
+            dc->CreateLinearGradientBrush(
+                D2D1::LinearGradientBrushProperties(
+                    D2D1::Point2F(0.0f, centerY),
+                    D2D1::Point2F(radius, centerY)),
+                gradStops.Get(), &gradBrush);
+        } else {
+            dc->CreateLinearGradientBrush(
+                D2D1::LinearGradientBrushProperties(
+                    D2D1::Point2F(m_width, centerY),
+                    D2D1::Point2F(m_width - radius, centerY)),
+                gradStops.Get(), &gradBrush);
         }
 
-        // Translucent fill
-        ComPtr<ID2D1SolidColorBrush> overlayBrush;
-        D2D1_COLOR_F overlayColor = isLight
-            ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.06f)
-            : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.08f);
-        dc->CreateSolidColorBrush(overlayColor, &overlayBrush);
-        if (overlayBrush) {
-            dc->FillRectangle(zoneRect, overlayBrush.Get());
+        if (gradBrush) {
+            dc->FillGeometry(semiPath.Get(), gradBrush.Get());
         }
 
-        // Subtle border to delineate the zone
-        ComPtr<ID2D1SolidColorBrush> borderBrush;
-        D2D1_COLOR_F borderColor = isLight
-            ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.10f)
-            : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.12f);
-        dc->CreateSolidColorBrush(borderColor, &borderBrush);
-        if (borderBrush) {
-            dc->DrawRectangle(zoneRect, borderBrush.Get(), 1.0f * s);
+        // Subtle arc outline
+        ComPtr<ID2D1SolidColorBrush> arcBorderBrush;
+        D2D1_COLOR_F arcBorderColor = isLight
+            ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.12f)
+            : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.14f);
+        dc->CreateSolidColorBrush(arcBorderColor, &arcBorderBrush);
+        if (arcBorderBrush) {
+            dc->DrawGeometry(semiPath.Get(), arcBorderBrush.Get(), 1.0f * s);
         }
 
+        // Arrow
         float arrowCenterY = m_height * 0.5f;
         if (g_viewState.EdgeHoverState == -1) {
-            // Left arrow (previous)
             drawArrow(margin, arrowCenterY, true);
         } else {
-            // Right arrow (next)
             drawArrow(m_width - margin, arrowCenterY, false);
         }
     }
