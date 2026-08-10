@@ -92,7 +92,8 @@ DEFINE_GUID(CLSID_QuickViewThumbnailProvider,
 // All extensions handled by this provider (registered in DllRegisterServer
 // and mirrored by SettingsOverlay::RegisterAssociations).
 static const wchar_t* kThumbnailExts[] = {
-    L".cdr", L".cmx", L".plt", L".dxf", L".dwg", L".pdf", L".ai", L".svg", L".svgz"
+    L".cdr", L".cmx", L".plt", L".dxf", L".dwg", L".pdf", L".ai", L".svg", L".svgz",
+    L".tif", L".tiff"
 };
 
 // Hard cap for a single thumbnail render. Explorer calls us on a thread pool;
@@ -339,6 +340,13 @@ public:
                  buf[2] >= '0' && buf[2] <= '9')                              ext = L"dwg";
         else if (buf.size() >= 4 && buf[0] == ' ' && buf[1] == ' ' &&
                  buf[2] == '0' && (buf[3] == '\r' || buf[3] == '\n'))      ext = L"dxf";
+        // TIFF: little-endian "II*\0" (49 49 2A 00) or big-endian "MM\0*" (4D 4D 00 2A).
+        // 必须在下面的 ASCII 兜底之前显式识别，否则二进制内容（含 0x00）落到
+        // "plt" 分支，worker 拿 .tif 当 HPGL 解析 → 渲染失败、缩略图不生成。
+        else if (buf.size() >= 4 &&
+                 ((buf[0] == 0x49 && buf[1] == 0x49 && buf[2] == 0x2A && buf[3] == 0x00) ||
+                  (buf[0] == 0x4D && buf[1] == 0x4D && buf[2] == 0x00 && buf[3] == 0x2A)))
+            ext = L"tif";
         // 纯文本格式必须显式识别，否则会被下面的 ASCII 兜底误判为 plt。
         // 注意：真实 Explorer 仅调用 IInitializeWithStream（不调用 SetSite），
         // 没有真实扩展名可用，只能靠 magic 字节判定。
