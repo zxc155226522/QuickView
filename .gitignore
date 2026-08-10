@@ -129,3 +129,7 @@ CMakeUserPresets.json
 
 # Local salvage files
 Local-Files/
+
+# Debug residue (stray > redirect output, not source) — blocks `git add -A` on reserved/invalid names
+nul
+QuickView.Vector
