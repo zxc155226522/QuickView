@@ -18,6 +18,12 @@
 #include <cstdint>
 #include <chrono>
 #include <strsafe.h>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <queue>
+#include <atomic>
+#include <shlobj.h>
 
 namespace {
 
@@ -144,61 +150,193 @@ static void ServerLog(const std::wstring& msg) {
 }
 
 // Overlapped, timeout-bounded pipe read/write that always transfers exactly
-// `len` bytes (looping on partial transfers). Used by both server and client.
-// On timeout the pending I/O is cancelled and reaped so the local OVERLAPPED
-// never outlives an in-flight operation.
-static bool PipeIoExact(HANDLE hPipe, HANDLE hEvent, void* buf, DWORD len,
+// `len` bytes (looping on partial transfers). Each call creates its OWN event
+// so concurrent workers (and the accept loop's connect) never share one event
+// and stomp on each other's ResetEvent/WaitForSingleObject. On timeout the
+// pending I/O is cancelled and reaped so the local OVERLAPPED never outlives
+// an in-flight operation.
+static bool PipeIoExact(HANDLE hPipe, void* buf, DWORD len,
                         DWORD timeoutMs, bool isRead) {
+  HANDLE hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+  if (!hEvent) return false;
   BYTE* p = static_cast<BYTE*>(buf);
   DWORD total = 0;
+  bool ok = true;
   while (total < len) {
     ResetEvent(hEvent);
     OVERLAPPED ol = {};
     ol.hEvent = hEvent;
     DWORD done = 0;
-    BOOL ok = isRead ? ReadFile(hPipe, p + total, len - total, &done, &ol)
-                     : WriteFile(hPipe, p + total, len - total, &done, &ol);
-    if (!ok) {
+    BOOL r = isRead ? ReadFile(hPipe, p + total, len - total, &done, &ol)
+                    : WriteFile(hPipe, p + total, len - total, &done, &ol);
+    if (!r) {
       DWORD err = GetLastError();
       if (err == ERROR_IO_PENDING) {
         if (WaitForSingleObject(hEvent, timeoutMs) != WAIT_OBJECT_0) {
           CancelIo(hPipe);
           GetOverlappedResult(hPipe, &ol, &done, TRUE); // reap aborted op
-          return false;
+          ok = false; break;
         }
-        if (!GetOverlappedResult(hPipe, &ol, &done, FALSE)) return false;
-      } else {
-        return false;
-      }
+        if (!GetOverlappedResult(hPipe, &ol, &done, FALSE)) { ok = false; break; }
+      } else { ok = false; break; }
     }
-    if (done == 0) return false; // peer closed early
+    if (done == 0) { ok = false; break; } // peer closed early
     total += done;
   }
+  CloseHandle(hEvent);
+  return ok;
+}
+static bool PipeReadExact(HANDLE hPipe, void* buf, DWORD len, DWORD ms) {
+  return PipeIoExact(hPipe, buf, len, ms, true);
+}
+static bool PipeWriteAll(HANDLE hPipe, const void* buf, DWORD len, DWORD ms) {
+  return PipeIoExact(hPipe, const_cast<void*>(buf), len, ms, false);
+}
+
+// ---------------------------------------------------------------------------
+// Persistent server: dual-channel worker pool (parallel + serial).
+// ---------------------------------------------------------------------------
+
+struct ServerConfig {
+  int threads = 4;
+  uint64_t smallFileBytes = 5ULL * 1024 * 1024; // 5 MB default
+};
+
+struct PipeTask {
+  HANDLE hPipe = INVALID_HANDLE_VALUE; // owned by this task once enqueued
+  std::wstring path;
+  uint32_t size = 0;
+};
+
+static ServerConfig g_cfg;
+static std::atomic<bool> g_shutdown{false};
+
+// Parallel channel (small, non-CDR/CMX): N worker threads.
+static std::queue<PipeTask> g_parallelQ;
+static std::mutex g_parallelMtx;
+static std::condition_variable g_parallelCv;
+static const size_t kParallelCap = 32;
+
+// Serial channel (large files + CDR/CMX): a single worker. Only this thread
+// ever touches g_cdrPageCache, so that shared global stays race-free without
+// any locking.
+static std::queue<PipeTask> g_serialQ;
+static std::mutex g_serialMtx;
+static std::condition_variable g_serialCv;
+static const size_t kSerialCap = 4;
+
+// Locate QuickView.ini the same way the main app does: portable copy next to
+// the exe, otherwise %APPDATA%\QuickView\QuickView.ini.
+static std::wstring ResolveIniPath() {
+  wchar_t exePath[MAX_PATH] = {};
+  GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+  std::wstring exeDir = exePath;
+  size_t ls = exeDir.find_last_of(L"\\/");
+  if (ls != std::wstring::npos) exeDir = exeDir.substr(0, ls);
+  std::wstring portable = exeDir + L"\\QuickView.ini";
+  if (GetFileAttributesW(portable.c_str()) != INVALID_FILE_ATTRIBUTES) return portable;
+  wchar_t ad[MAX_PATH] = {};
+  if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_APPDATA, nullptr, 0, ad))) {
+    return std::wstring(ad) + L"\\QuickView\\QuickView.ini";
+  }
+  return portable;
+}
+
+static ServerConfig ReadServerConfig() {
+  ServerConfig cfg;
+  std::wstring ini = ResolveIniPath();
+  wchar_t buf[32] = {};
+  if (GetPrivateProfileStringW(L"Thumbnail", L"ThumbnailThreads", L"4", buf, 32, ini.c_str())) {
+    int t = wcstol(buf, nullptr, 10);
+    if (t >= 1 && t <= 64) cfg.threads = t;
+  }
+  if (GetPrivateProfileStringW(L"Thumbnail", L"ThumbnailSmallFileThresholdMB", L"5", buf, 32, ini.c_str())) {
+    long mb = wcstol(buf, nullptr, 10);
+    if (mb >= 1 && mb <= 1024) cfg.smallFileBytes = (uint64_t)mb * 1024 * 1024;
+  }
+  return cfg;
+}
+
+static uint64_t GetFileSizeSafe(const std::wstring& path) {
+  HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                         OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (h == INVALID_HANDLE_VALUE) return 0;
+  LARGE_INTEGER sz = {};
+  BOOL ok = GetFileSizeEx(h, &sz);
+  CloseHandle(h);
+  return ok ? static_cast<uint64_t>(sz.QuadPart) : 0;
+}
+
+// Small AND parallel-safe format => parallel channel. CDR/CMX are excluded
+// because they rewrite the shared global g_cdrPageCache (ImageLoader.cpp:62),
+// which has no lock. Large files go serial (one at a time) by design.
+static bool IsSmallAndParallelSafe(const std::wstring& path) {
+  if (GetFileSizeSafe(path) >= g_cfg.smallFileBytes) return false;
+  std::wstring_view ext = QuickView::ExtensionOf(path);
+  if (QuickView::ExtEqualsIgnoreCase(ext, L".cdr") ||
+      QuickView::ExtEqualsIgnoreCase(ext, L".cmx")) return false;
   return true;
 }
-static bool PipeReadExact(HANDLE hPipe, HANDLE hEvent, void* buf, DWORD len, DWORD ms) {
-  return PipeIoExact(hPipe, hEvent, buf, len, ms, true);
-}
-static bool PipeWriteAll(HANDLE hPipe, HANDLE hEvent, const void* buf, DWORD len, DWORD ms) {
-  return PipeIoExact(hPipe, hEvent, const_cast<void*>(buf), len, ms, false);
+
+// Reply STALE(3) to a dropped request so the provider returns immediately
+// instead of spawning a one-shot worker (which would re-introduce the
+// per-thumbnail process storm we removed).
+static void StaleAndClose(PipeTask& t) {
+  HANDLE hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+  uint32_t status = 3; // STALE
+  if (hEvent) {
+    PipeWriteAll(t.hPipe, &status, sizeof(status), 2000);
+    CloseHandle(hEvent);
+  }
+  FlushFileBuffers(t.hPipe);
+  DisconnectNamedPipe(t.hPipe);
+  CloseHandle(t.hPipe);
+  ServerLog(L"dropped stale req path=" + t.path);
 }
 
-// Serve one connected client: read request frame, render, write response.
-static void ServeOneRequest(HANDLE hPipe, HANDLE hEvent, CImageLoader& loader) {
-  uint32_t pathByteLen = 0;
-  if (!PipeReadExact(hPipe, hEvent, &pathByteLen, sizeof(pathByteLen), 15000)) return;
-  if (pathByteLen == 0 || pathByteLen > 65536) return;
-  std::wstring path;
-  path.resize(pathByteLen / 2);
-  if (!PipeReadExact(hPipe, hEvent, path.data(), pathByteLen, 15000)) return;
-  uint32_t size = 0;
-  if (!PipeReadExact(hPipe, hEvent, &size, sizeof(size), 15000)) return;
-  if (size == 0 || size > 4096) size = 256;
+static void Enqueue(PipeTask t) {
+  if (IsSmallAndParallelSafe(t.path)) {
+    std::unique_lock<std::mutex> lk(g_parallelMtx);
+    while (g_parallelQ.size() >= kParallelCap) {
+      PipeTask old = std::move(g_parallelQ.front());
+      g_parallelQ.pop();
+      lk.unlock();
+      StaleAndClose(old);
+      lk.lock();
+    }
+    g_parallelQ.push(std::move(t));
+    g_parallelCv.notify_one();
+  } else {
+    std::unique_lock<std::mutex> lk(g_serialMtx);
+    while (g_serialQ.size() >= kSerialCap) {
+      PipeTask old = std::move(g_serialQ.front());
+      g_serialQ.pop();
+      lk.unlock();
+      StaleAndClose(old);
+      lk.lock();
+    }
+    g_serialQ.push(std::move(t));
+    g_serialCv.notify_one();
+  }
+}
 
+// Render one request and write the response on its pipe. Each worker owns its
+// own CImageLoader instance, so there is no shared per-instance mutable state
+// across threads. The only process-global mutable state (g_cdrPageCache) is
+// reached solely via the serial worker (CDR/CMX), hence race-free.
+static void RenderAndRespond(PipeTask& t, CImageLoader& loader) {
   auto t0 = std::chrono::steady_clock::now();
   CImageLoader::ThumbData thumb;
-  const bool transparentBg = WantsTransparentBackground(path);
-  HRESULT hr = loader.LoadThumbnail(path.c_str(), static_cast<int>(size), &thumb, true, transparentBg);
+  const bool transparentBg = WantsTransparentBackground(t.path);
+  // Guard the decode: a malformed file must never crash the shared server
+  // process (a one-shot worker tolerated this because it was isolated).
+  HRESULT hr = E_FAIL;
+  __try {
+    hr = loader.LoadThumbnail(t.path.c_str(), static_cast<int>(t.size), &thumb, true, transparentBg);
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    hr = E_FAIL;
+    ServerLog(L"LoadThumbnail threw, path=" + t.path);
+  }
   auto t1 = std::chrono::steady_clock::now();
   double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
 
@@ -206,18 +344,65 @@ static void ServeOneRequest(HANDLE hPipe, HANDLE hEvent, CImageLoader& loader) {
   bool ok = SUCCEEDED(hr) && thumb.isValid && !thumb.pixels.empty() &&
             BuildBmp32Memory(thumb.pixels.data(), thumb.width, thumb.height, thumb.stride, bmp);
 
+  HANDLE hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
   uint32_t status = ok ? 0u : 1u;
-  if (!PipeWriteAll(hPipe, hEvent, &status, sizeof(status), 15000)) return;
-  if (ok) {
-    uint32_t bmpLen = static_cast<uint32_t>(bmp.size());
-    if (!PipeWriteAll(hPipe, hEvent, &bmpLen, sizeof(bmpLen), 15000) ||
-        !PipeWriteAll(hPipe, hEvent, bmp.data(), bmpLen, 15000)) {
-      ServerLog(L"write bmp failed");
-      return;
+  if (hEvent) {
+    if (!PipeWriteAll(t.hPipe, &status, sizeof(status), 15000)) {
+      // client gone (folder switched / scrolled away) -> nothing to write
+    } else if (ok) {
+      uint32_t bmpLen = static_cast<uint32_t>(bmp.size());
+      if (!PipeWriteAll(t.hPipe, &bmpLen, sizeof(bmpLen), 15000) ||
+          !PipeWriteAll(t.hPipe, bmp.data(), bmpLen, 15000)) {
+        ServerLog(L"write bmp failed");
+      }
     }
+    CloseHandle(hEvent);
   }
-  ServerLog(L"req path=" + path + L" size=" + std::to_wstring(size) +
+  ServerLog(L"req path=" + t.path + L" size=" + std::to_wstring(t.size) +
             (ok ? L" OK " : L" FAIL ") + L"(" + std::to_wstring(static_cast<int>(ms)) + L"ms)");
+  // Byte-mode pipes discard any bytes the client has not yet read when
+  // DisconnectNamedPipe runs. Flush first so the caller receives the full
+  // response (status + bmpLen + bmp); otherwise it sees a truncated/EOF read
+  // and the thumbnail silently fails (intermittent in production).
+  FlushFileBuffers(t.hPipe);
+  DisconnectNamedPipe(t.hPipe);
+  CloseHandle(t.hPipe);
+}
+
+static void ParallelWorker() {
+  CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+  CImageLoader loader;
+  while (true) {
+    PipeTask t;
+    {
+      std::unique_lock<std::mutex> lk(g_parallelMtx);
+      g_parallelCv.wait(lk, [] { return g_shutdown.load() || !g_parallelQ.empty(); });
+      if (g_shutdown.load() && g_parallelQ.empty()) break;
+      if (g_parallelQ.empty()) continue;
+      t = std::move(g_parallelQ.front());
+      g_parallelQ.pop();
+    }
+    RenderAndRespond(t, loader);
+  }
+  CoUninitialize();
+}
+
+static void SerialWorker() {
+  CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+  CImageLoader loader;
+  while (true) {
+    PipeTask t;
+    {
+      std::unique_lock<std::mutex> lk(g_serialMtx);
+      g_serialCv.wait(lk, [] { return g_shutdown.load() || !g_serialQ.empty(); });
+      if (g_shutdown.load() && g_serialQ.empty()) break;
+      if (g_serialQ.empty()) continue;
+      t = std::move(g_serialQ.front());
+      g_serialQ.pop();
+    }
+    RenderAndRespond(t, loader);
+  }
+  CoUninitialize();
 }
 
 } // namespace
@@ -257,19 +442,22 @@ int QuickView::RunThumbnailServer(int argc, LPWSTR* argv) {
     if (v > 0 && v <= 3600) idleSec = static_cast<int>(v);
   }
 
+  g_cfg = ReadServerConfig();
+  g_shutdown = false;
+
   HRESULT coHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
-  // One loader instance reused across requests. The server is single-threaded
-  // (renders one request at a time), so this is safe despite g_cdrPageCache
-  // and other shared mutable state inside CImageLoader.
-  CImageLoader loader;
   const DWORD idleTimeoutMs = static_cast<DWORD>(idleSec) * 1000;
+  const wchar_t* name = L"\\\\.\\pipe\\QuickViewThumb";
 
-  HANDLE hPipe = CreateNamedPipeW(
-      L"\\\\.\\pipe\\QuickViewThumb",
-      PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
-      PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
-      1, 65536, 65536, 0, nullptr);
+  auto makeInstance = [&]() -> HANDLE {
+    return CreateNamedPipeW(name,
+        PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+        64, 65536, 65536, 0, nullptr);
+  };
+
+  HANDLE hPipe = makeInstance();
   if (hPipe == INVALID_HANDLE_VALUE) {
     // Another instance already owns this pipe name -> a server is running.
     // Exit quietly so only one server exists.
@@ -287,12 +475,38 @@ int QuickView::RunThumbnailServer(int argc, LPWSTR* argv) {
     return 2;
   }
 
-  ServerLog(L"Server started (idle=" + std::to_wstring(idleSec) + L"s)");
+  ServerLog(L"Server started threads=" + std::to_wstring(g_cfg.threads) +
+            L" smallMB=" + std::to_wstring(g_cfg.smallFileBytes / (1024 * 1024)) +
+            L" idle=" + std::to_wstring(idleSec) + L"s");
+
+  // Worker pool: N parallel threads + 1 serial thread. Each owns its own
+  // CImageLoader instance so there is no shared per-instance mutable state.
+  std::vector<std::thread> workers;
+  for (int i = 0; i < g_cfg.threads; ++i)
+    workers.emplace_back(ParallelWorker);
+  workers.emplace_back(SerialWorker);
 
   OVERLAPPED ol = {};
   ol.hEvent = hEvent;
   while (true) {
+    // Ensure we have a pipe instance to accept the next client on. A fresh
+    // instance is created per accepted connection so acceptance never blocks
+    // on rendering (the connected handle is handed to a worker).
+    if (hPipe == INVALID_HANDLE_VALUE) {
+      for (int tries = 0; tries < 1000; ++tries) {
+        hPipe = makeInstance();
+        if (hPipe != INVALID_HANDLE_VALUE) break;
+        Sleep(10);
+      }
+      if (hPipe == INVALID_HANDLE_VALUE) {
+        ServerLog(L"pipe instance exhaustion, stopping");
+        break;
+      }
+    }
+
     ResetEvent(hEvent);
+    ol = {};
+    ol.hEvent = hEvent;
     BOOL connected = ConnectNamedPipe(hPipe, &ol);
     bool isConnected = false;
     if (connected) {
@@ -321,13 +535,45 @@ int QuickView::RunThumbnailServer(int argc, LPWSTR* argv) {
     }
 
     if (isConnected) {
-      ServeOneRequest(hPipe, hEvent, loader);
-      DisconnectNamedPipe(hPipe);
+      uint32_t pathByteLen = 0;
+      if (!PipeReadExact(hPipe, &pathByteLen, sizeof(pathByteLen), 15000)) {
+        DisconnectNamedPipe(hPipe);
+        continue;
+      }
+      if (pathByteLen == 0 || pathByteLen > 65536) {
+        DisconnectNamedPipe(hPipe);
+        continue;
+      }
+      std::wstring path;
+      path.resize(pathByteLen / 2);
+      if (!PipeReadExact(hPipe, path.data(), pathByteLen, 15000)) {
+        DisconnectNamedPipe(hPipe);
+        continue;
+      }
+      uint32_t size = 0;
+      if (!PipeReadExact(hPipe, &size, sizeof(size), 15000)) {
+        DisconnectNamedPipe(hPipe);
+        continue;
+      }
+      if (size == 0 || size > 4096) size = 256;
+
+      // Hand the connected pipe to a worker and grab a fresh instance for the
+      // next client (multi-instance overlapping server).
+      Enqueue({hPipe, path, size});
+      hPipe = INVALID_HANDLE_VALUE;
     }
   }
 
+  // Shutdown: stop accepting, let queued/in-flight tasks drain, then join.
+  g_shutdown = true;
+  g_parallelCv.notify_all();
+  g_serialCv.notify_all();
+  for (auto& t : workers) {
+    if (t.joinable()) t.join();
+  }
+
   CloseHandle(hEvent);
-  CloseHandle(hPipe);
+  if (hPipe != INVALID_HANDLE_VALUE) CloseHandle(hPipe);
   if (SUCCEEDED(coHr)) CoUninitialize();
   ServerLog(L"Server stopped");
   return 0;

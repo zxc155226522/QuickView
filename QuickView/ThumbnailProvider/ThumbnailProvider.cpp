@@ -330,40 +330,53 @@ static void LaunchServer(const std::wstring& exePath) {
     }
 }
 
+// Result of one pipe transaction. Stale means the server dropped this request
+// (its queue was overwhelmed by newer requests, e.g. the user switched
+// folders); the provider must NOT fall back to a one-shot worker then, or we
+// would re-introduce the per-thumbnail process storm we removed.
+enum class PipeResult { Ok, Stale, Error };
+
 // One full request/response over the pipe, bounded by a 15s timeout so a
 // wedged server can never block Explorer forever.
-static bool PipeTransaction(HANDLE hPipe, const std::wstring& inputPath, UINT size,
-                            std::vector<BYTE>& outBmp) {
+static PipeResult PipeTransaction(HANDLE hPipe, const std::wstring& inputPath, UINT size,
+                                  std::vector<BYTE>& outBmp) {
     HANDLE hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    if (!hEvent) return false;
+    if (!hEvent) return PipeResult::Error;
 
     uint32_t pathByteLen = static_cast<uint32_t>(inputPath.size() * sizeof(wchar_t));
     bool ok = PipeWriteAll(hPipe, hEvent, &pathByteLen, sizeof(pathByteLen), 15000) &&
               PipeWriteAll(hPipe, hEvent, inputPath.c_str(), pathByteLen, 15000) &&
               PipeWriteAll(hPipe, hEvent, &size, sizeof(uint32_t), 15000);
+    PipeResult result = PipeResult::Error;
     if (ok) {
         uint32_t status = 1;
-        if (PipeReadExact(hPipe, hEvent, &status, sizeof(status), 15000) && status == 0) {
-            uint32_t bmpLen = 0;
-            if (PipeReadExact(hPipe, hEvent, &bmpLen, sizeof(bmpLen), 15000) &&
-                bmpLen > 0 && bmpLen <= 20 * 1024 * 1024) {
-                outBmp.resize(bmpLen);
-                ok = PipeReadExact(hPipe, hEvent, outBmp.data(), bmpLen, 15000);
+        if (PipeReadExact(hPipe, hEvent, &status, sizeof(status), 15000)) {
+            if (status == 0) {
+                uint32_t bmpLen = 0;
+                if (PipeReadExact(hPipe, hEvent, &bmpLen, sizeof(bmpLen), 15000) &&
+                    bmpLen > 0 && bmpLen <= 20 * 1024 * 1024) {
+                    outBmp.resize(bmpLen);
+                    ok = PipeReadExact(hPipe, hEvent, outBmp.data(), bmpLen, 15000);
+                    result = ok ? PipeResult::Ok : PipeResult::Error;
+                } else {
+                    result = PipeResult::Error;
+                }
+            } else if (status == 3) {
+                result = PipeResult::Stale; // server dropped this as stale
             } else {
-                ok = false;
+                result = PipeResult::Error;
             }
-        } else {
-            ok = false;
         }
     }
     CloseHandle(hEvent);
-    return ok;
+    return result;
 }
 
-// Try the persistent server; launch it on first use; relaunch once on failure.
-static bool RequestThumbnailViaPipe(const std::wstring& exePath,
-                                    const std::wstring& inputPath, UINT size,
-                                    std::vector<BYTE>& outBmp) {
+// Try the persistent server; launch it on first use; relaunch once on error.
+// A Stale result is returned as-is (no relaunch, no fallback).
+static PipeResult RequestThumbnailViaPipe(const std::wstring& exePath,
+                                          const std::wstring& inputPath, UINT size,
+                                          std::vector<BYTE>& outBmp) {
     bool launched = false;
     for (int attempt = 0; attempt < 2; ++attempt) {
         HANDLE hPipe = INVALID_HANDLE_VALUE;
@@ -378,12 +391,13 @@ static bool RequestThumbnailViaPipe(const std::wstring& exePath,
             Sleep(100);
         }
         if (hPipe == INVALID_HANDLE_VALUE) break; // unreachable -> one-shot fallback
-        bool ok = PipeTransaction(hPipe, inputPath, size, outBmp);
+        PipeResult r = PipeTransaction(hPipe, inputPath, size, outBmp);
         CloseHandle(hPipe);
-        if (ok) return true;
-        launched = false; // force relaunch on next attempt
+        if (r == PipeResult::Ok) return PipeResult::Ok;
+        if (r == PipeResult::Stale) return PipeResult::Stale; // do not relaunch
+        launched = false; // error -> relaunch on next attempt
     }
-    return false;
+    return PipeResult::Error;
 }
 
 // ============================================================================
@@ -567,10 +581,13 @@ public:
         // spawn). Falls back to the one-shot worker if the pipe path is
         // unavailable, so we never regress to "no thumbnail".
         std::vector<BYTE> bmp;
-        if (RequestThumbnailViaPipe(exePath, inputPath, cx, bmp))
+        PipeResult r = RequestThumbnailViaPipe(exePath, inputPath, cx, bmp);
+        if (r == PipeResult::Ok)
             hbmp = BmpBytesToHBITMAP(bmp.data(), bmp.size());
+        else if (r == PipeResult::Stale)
+            DbgLog(L"  server dropped as stale (folder switched?), skip fallback");
 
-        if (!hbmp) {
+        if (!hbmp && r != PipeResult::Stale) {
             DbgLog(L"  pipe path unavailable, fallback one-shot worker");
             std::wstring tmpBmp = MakeTempBmpPath();
             if (!tmpBmp.empty()) {
