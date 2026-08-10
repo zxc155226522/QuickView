@@ -504,6 +504,18 @@ bool SettingsOverlay::RegisterAssociations() {
             SafeRegSetString(HKEY_CURRENT_USER, shellexKeyVec.c_str(), NULL, clsid);
             std::wstring shellexKeyImg = L"Software\\Classes\\QuickView.Image\\ShellEx\\" + std::wstring(thumbnailIID);
             SafeRegSetString(HKEY_CURRENT_USER, shellexKeyImg.c_str(), NULL, clsid);
+
+            // [Fix] Extension-level ShellEx: highest-priority override.
+            // Shell resolves the thumbnail handler at the .ext level BEFORE
+            // the ProgID/UserChoice chain, so writing it here forces every
+            // svg/ai/pdf/... file through our provider regardless of which
+            // app (WPS/Edge) holds the default-app UserChoice hash. WPS/Edge
+            // do NOT register any .ext-level ShellEx, so this is safe and wins.
+            for (const wchar_t* vExt : kVectorThumbExts) {
+                std::wstring shellexKeyExt = L"Software\\Classes\\" + std::wstring(vExt) +
+                                              L"\\ShellEx\\" + std::wstring(thumbnailIID);
+                SafeRegSetString(HKEY_CURRENT_USER, shellexKeyExt.c_str(), NULL, clsid);
+            }
         }
     }
 
