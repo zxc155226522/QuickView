@@ -38,3 +38,14 @@
 - 绘制：`UIRenderer::DrawBorderIndicators`（UIRenderer.cpp:1935），由 UIRenderer.cpp:878 在 `ShowBorderIndicator != 0` 时调用；颜色=主题强调色（`ThemeCustomAccentR/G/B`）或自定义色（=2）。
 - 开关：`g_config.ShowBorderIndicator`（EditState.h:599），0=关 / 1=开(强调色) / 2=自定义色；配置项 `[View] ShowBorderIndicator`，设置 UI：设置→视图→显示边界溢出指示器。
 - 默认行为变更（2026-08-07）：main.cpp:4617 默认值由 1 改为 0，重新编译后默认不再显示蓝框；已显式在 ini 存过值的仍按 ini 生效，需到设置里关一次。
+
+## 资源管理器缩略图（IThumbnailProvider Shell 扩展）
+
+- 目标格式：PLT/DXF/DWG/PDF/AI/SVG/CDR/CMX 共 9 种矢量/文档格式。架构：进程外渲染——provider DLL 把 Shell 给的流写成临时文件，调 `QuickView.exe --thumbnail` 复用主程序渲染管线生成 BMP，再回读 HBITMAP。
+- **注册位置（必读）**：独立 ProgID `QuickView.Vector`，在其 `ShellEx\{E357FCCD-A995-4576-B01F-234630154E96}` 注册 CLSID（`{4F8C2A6E-...}`）；CLSID 必须在 `HKLM\...\Shell Extensions\Approved` 白名单。用独立 ProgID 是为避免污染 jpg/png 等其余 74 种格式（共用 `QuickView.Image` 会把它们都卷入进程外管线）。
+- **Shell 调用顺序（关键事实，2026-08-10 实测日志确认）**：真实 Explorer **只调用 `IInitializeWithStream::Initialize`（传流），不调用 `IObjectWithSite::SetSite`** → provider 拿不到真实文件路径，只能靠 magic 字节判断扩展名。SetSite 那段保留作兼容但真实环境永不触发，不要依赖它传路径。
+- **magic 检测坑（致命）**：`Initialize` 里靠流内容前几字节判扩展名。SVG(`<?xml`/`<svg`) 与 AI/EPS(`%!PS-Adobe`) 是纯 ASCII 文本，若不加显式分支会被 ASCII 兜底误判为 `plt`（HPGL 渲染器），worker 拿 SVG 内容按 HPGL 解析 → 渲染失败 → 缩略图不显示。**PDF 因 `%PDF` 头能正确识别，所以 PDF 成功而 SVG/AI 失败是典型的该 bug 症状。** 修复：在 magic 链里显式加 svg / ai 分支（位于 dxf 之后、ASCII 兜底之前）。
+- **流读取死循环坑（致命）**：原 `Initialize` 用循环 `pstream->Read` 读流，部分 Shell 提供的 IStream 在 EOF 不返回可靠终止信号 → 无限读取直到触发 200MB 上限熔断，导致所有格式缩略图都不生成（日志显示 `stream too large, abort`）。修复：优先 `IStream::Stat()` 取真实 `cbSize` 后**一次性 `Read` 固定字节数**；Stat 失败才退回流式读取并加「无进展熔断」(`buf.size()` 连续两次不变即 break)。
+- **IID 易错点**：`IThumbnailProvider` = `{E357FCCD-A995-4576-B01F-234630154E96}`（不是 E357FCC4）；`IInitializeWithStream` = `{B824B49D-22AC-4161-AC8A-9916E8FA3F7F}`（Shell 强制要求，非 IInitializeWithFile）。
+- **调试手段**：`ThumbnailProvider.cpp` 的 `DbgLog` 写 `C:\Windows\Temp\qvthumb_provider.log`（含 PROCESS_ATTACH / QI / Initialize / GetThumbnail）。改完必须清 `thumbcache_*.db` + 重启 Explorer 才能让新 DLL 加载。
+- **本地端到端验证（绕过 Explorer）**：Python + `comtypes` 直接 `CoCreateInstance` provider → `SHCreateStreamOnFileW` 喂真实文件流 → `GetThumbnail(cx)`（注意 comtypes 自动处理 `[out]` 参数，调用时只传 `[in]` 的 cx，结果以元组返回）。venv 路径 `C:\Users\Administrator\.workbuddy\binaries\python\envs\default`。

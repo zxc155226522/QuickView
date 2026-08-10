@@ -20,6 +20,7 @@
 #include <string>
 #include <vector>
 #include <cctype>
+#include <objidl.h>          // STATSTG, STATFLAG_NONAME
 
 // ============================================================================
 // Manual interface declarations (kept minimal; the project's adaptive SDK
@@ -294,18 +295,36 @@ public:
         if (!pstream) return E_POINTER;
         if (!m_path.empty()) return HRESULT_FROM_WIN32(ERROR_ALREADY_INITIALIZED);
 
+        // 读取流内容到内存。优先用 Stat() 取真实大小后一次性读取，
+        // 避免依赖某些 Shell IStream 在 EOF 上不可靠的终止信号
+        // （否则会无限读取直到触发上限熔断，导致缩略图全部失效）。
         std::vector<uint8_t> buf;
-        buf.reserve(64 * 1024);
-        BYTE chunk[4096];
-        ULONG got = 0;
-        for (;;) {
-            HRESULT hr = pstream->Read(chunk, sizeof(chunk), &got);
-            if (FAILED(hr) || got == 0) break;
-            buf.insert(buf.end(), chunk, chunk + got);
-            if (buf.size() > 200u * 1024u * 1024u) {
-                DbgLog(L"  stream > 200MB, abort"); return E_OUTOFMEMORY;
+        const ULONGLONG kMaxBytes = 200ull * 1024ull * 1024ull;
+        STATSTG stat = {0};
+        ULARGE_INTEGER cb = {0};
+        if (SUCCEEDED(pstream->Stat(&stat, STATFLAG_NONAME))) cb = stat.cbSize;
+        if (cb.QuadPart > 0 && cb.QuadPart <= kMaxBytes) {
+            buf.resize((size_t)cb.QuadPart);
+            ULONG got = 0;
+            HRESULT shr = pstream->Read(buf.data(), (ULONG)cb.QuadPart, &got);
+            if (FAILED(shr) || got == 0) { buf.clear(); }
+            else { buf.resize(got); }
+        }
+        if (buf.empty()) {
+            // 退化路径：流式读取，带"无进展"熔断，防止个别流不推进位置而无限循环。
+            BYTE chunk[4096];
+            ULONG got = 0;
+            ULONGLONG lastSize = 0;
+            for (;;) {
+                HRESULT shr = pstream->Read(chunk, sizeof(chunk), &got);
+                if (got == 0) break;
+                if (FAILED(shr)) break;
+                buf.insert(buf.end(), chunk, chunk + got);
+                if (buf.size() > kMaxBytes) { DbgLog(L"  stream too large, abort"); return E_OUTOFMEMORY; }
+                if (buf.size() == lastSize) break; // 无进展熔断
+                lastSize = buf.size();
+                if (got < sizeof(chunk)) break;
             }
-            if (got < sizeof(chunk)) break;
         }
         if (buf.empty()) { DbgLog(L"  stream empty/read fail"); return E_FAIL; }
 
@@ -320,6 +339,13 @@ public:
                  buf[2] >= '0' && buf[2] <= '9')                              ext = L"dwg";
         else if (buf.size() >= 4 && buf[0] == ' ' && buf[1] == ' ' &&
                  buf[2] == '0' && (buf[3] == '\r' || buf[3] == '\n'))      ext = L"dxf";
+        // 纯文本格式必须显式识别，否则会被下面的 ASCII 兜底误判为 plt。
+        // 注意：真实 Explorer 仅调用 IInitializeWithStream（不调用 SetSite），
+        // 没有真实扩展名可用，只能靠 magic 字节判定。
+        else if (buf.size() >= 5 && memcmp(buf.data(), "<?xml", 5) == 0)     ext = L"svg";
+        else if (buf.size() >= 4 && buf[0] == '<' && buf[1] == 's' &&
+                 buf[2] == 'v' && buf[3] == 'g')                              ext = L"svg";
+        else if (buf.size() >= 11 && memcmp(buf.data(), "%!PS-Adobe", 11) == 0) ext = L"ai";
         else {
             bool asc = true;
             size_t probe = buf.size() < 1024 ? buf.size() : 1024;
@@ -366,8 +392,13 @@ public:
         std::wstring tmpBmp = MakeTempBmpPath();
         if (tmpBmp.empty()) return E_FAIL;
 
+        // 优先使用 SetSite 提供的真实文件路径（扩展名权威），避免临时文件
+        // 仅靠 magic 猜测扩展名时把 SVG/AI 等纯文本格式误判为 plt 而渲染失败。
+        std::wstring inputPath = m_path;
+        if (!m_realPath.empty()) inputPath = m_realPath;
+
         HBITMAP hbmp = nullptr;
-        if (RunThumbnailWorker(exePath, m_path, tmpBmp, cx))
+        if (RunThumbnailWorker(exePath, inputPath, tmpBmp, cx))
             hbmp = LoadWorkerBmp(tmpBmp);
         else
             DbgLog(L"  worker failed/timeout");
@@ -385,14 +416,14 @@ public:
     // worker. Win10/11 Explorer calls SetSite instead of IInitializeWithFile.
     HRESULT STDMETHODCALLTYPE SetSite(IUnknown* pUnkSite) override {
         DbgLog(L"SetSite called");
-        m_path.clear();
+        m_realPath.clear();
         if (!pUnkSite) return S_OK;
         PIDLIST_ABSOLUTE pidl = nullptr;
         if (SUCCEEDED(SHGetIDListFromObject(pUnkSite, &pidl))) {
             PWSTR name = nullptr;
             if (SUCCEEDED(SHGetNameFromIDList(pidl, SIGDN_FILESYSPATH, &name))) {
-                m_path = name;
-                DbgLog((std::wstring(L"  site path=") + m_path).c_str());
+                m_realPath = name;
+                DbgLog((std::wstring(L"  site path=") + m_realPath).c_str());
                 CoTaskMemFree(name);
             } else {
                 DbgLog(L"  SHGetNameFromIDList failed");
@@ -410,7 +441,8 @@ public:
 
 private:
     LONG m_cRef;
-    std::wstring m_path;
+    std::wstring m_path;      // 临时文件路径（Initialize 写入，GetThumbnail 兜底用作 worker 输入）
+    std::wstring m_realPath;  // SetSite 提供的真实文件路径（扩展名权威，优先传给 worker）
 };
 
 // ============================================================================
