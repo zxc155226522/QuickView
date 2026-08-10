@@ -235,6 +235,157 @@ static HBITMAP LoadWorkerBmp(const std::wstring& bmpPath) {
     return result;
 }
 
+// ---------------------------------------------------------------------------
+// Persistent server IPC client (named pipe). Replaces the per-thumbnail
+// CreateProcess storm with one long-lived worker process.
+// ---------------------------------------------------------------------------
+static const wchar_t kPipeName[] = L"\\\\.\\pipe\\QuickViewThumb";
+
+static bool PipeIoExact(HANDLE hPipe, HANDLE hEvent, void* buf, DWORD len,
+                        DWORD timeoutMs, bool isRead) {
+    BYTE* p = static_cast<BYTE*>(buf);
+    DWORD total = 0;
+    while (total < len) {
+        ResetEvent(hEvent);
+        OVERLAPPED ol = {};
+        ol.hEvent = hEvent;
+        DWORD done = 0;
+        BOOL ok = isRead ? ReadFile(hPipe, p + total, len - total, &done, &ol)
+                         : WriteFile(hPipe, p + total, len - total, &done, &ol);
+        if (!ok) {
+            DWORD err = GetLastError();
+            if (err == ERROR_IO_PENDING) {
+                if (WaitForSingleObject(hEvent, timeoutMs) != WAIT_OBJECT_0) {
+                    CancelIo(hPipe);
+                    GetOverlappedResult(hPipe, &ol, &done, TRUE); // reap aborted op
+                    return false;
+                }
+                if (!GetOverlappedResult(hPipe, &ol, &done, FALSE)) return false;
+            } else {
+                return false;
+            }
+        }
+        if (done == 0) return false; // peer closed early
+        total += done;
+    }
+    return true;
+}
+static bool PipeReadExact(HANDLE hPipe, HANDLE hEvent, void* buf, DWORD len, DWORD ms) {
+    return PipeIoExact(hPipe, hEvent, buf, len, ms, true);
+}
+static bool PipeWriteAll(HANDLE hPipe, HANDLE hEvent, const void* buf, DWORD len, DWORD ms) {
+    return PipeIoExact(hPipe, hEvent, const_cast<void*>(buf), len, ms, false);
+}
+
+// Convert an in-memory 32bpp BGRA BMP (same layout WriteBmp32 produces) to HBITMAP.
+static HBITMAP BmpBytesToHBITMAP(const BYTE* data, size_t len) {
+    if (!data || len < sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER)) return nullptr;
+    const BITMAPFILEHEADER* bfh = reinterpret_cast<const BITMAPFILEHEADER*>(data);
+    const BITMAPINFOHEADER* bih = reinterpret_cast<const BITMAPINFOHEADER*>(data + sizeof(BITMAPFILEHEADER));
+    if (bfh->bfType != 0x4D42) return nullptr;
+    if (bih->biSize != sizeof(BITMAPINFOHEADER) || bih->biBitCount != 32 ||
+        bih->biCompression != BI_RGB || bih->biWidth <= 0 || bih->biHeight == 0) return nullptr;
+    const LONG w = bih->biWidth;
+    const LONG h = bih->biHeight < 0 ? -bih->biHeight : bih->biHeight;
+    const bool topDown = bih->biHeight < 0;
+    const DWORD rowBytes = static_cast<DWORD>(w) * 4;
+    BITMAPINFO bi = {};
+    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bi.bmiHeader.biWidth = w;
+    bi.bmiHeader.biHeight = -h;
+    bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
+    void* bits = nullptr;
+    HDC hdc = GetDC(nullptr);
+    HBITMAP hbmp = CreateDIBSection(hdc, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    ReleaseDC(nullptr, hdc);
+    if (!hbmp || !bits) return nullptr;
+    const BYTE* pix = data + bfh->bfOffBits;
+    for (LONG y = 0; y < h; ++y) {
+        LONG dstY = topDown ? y : (h - 1 - y);
+        memcpy(static_cast<BYTE*>(bits) + static_cast<size_t>(dstY) * rowBytes,
+               pix + static_cast<size_t>(y) * rowBytes, rowBytes);
+    }
+    return hbmp;
+}
+
+static HANDLE OpenServerPipe() {
+    return CreateFileW(kPipeName, GENERIC_READ | GENERIC_WRITE, 0, nullptr,
+                       OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
+}
+
+static void LaunchServer(const std::wstring& exePath) {
+    std::wstring cmd = L"\"" + exePath + L"\" --thumbnail-server --idle 60";
+    STARTUPINFOW si = {};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    PROCESS_INFORMATION pi = {};
+    std::wstring mutableCmd = cmd;
+    if (CreateProcessW(nullptr, mutableCmd.data(), nullptr, nullptr, FALSE,
+                       CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+    }
+}
+
+// One full request/response over the pipe, bounded by a 15s timeout so a
+// wedged server can never block Explorer forever.
+static bool PipeTransaction(HANDLE hPipe, const std::wstring& inputPath, UINT size,
+                            std::vector<BYTE>& outBmp) {
+    HANDLE hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (!hEvent) return false;
+
+    uint32_t pathByteLen = static_cast<uint32_t>(inputPath.size() * sizeof(wchar_t));
+    bool ok = PipeWriteAll(hPipe, hEvent, &pathByteLen, sizeof(pathByteLen), 15000) &&
+              PipeWriteAll(hPipe, hEvent, inputPath.c_str(), pathByteLen, 15000) &&
+              PipeWriteAll(hPipe, hEvent, &size, sizeof(uint32_t), 15000);
+    if (ok) {
+        uint32_t status = 1;
+        if (PipeReadExact(hPipe, hEvent, &status, sizeof(status), 15000) && status == 0) {
+            uint32_t bmpLen = 0;
+            if (PipeReadExact(hPipe, hEvent, &bmpLen, sizeof(bmpLen), 15000) &&
+                bmpLen > 0 && bmpLen <= 20 * 1024 * 1024) {
+                outBmp.resize(bmpLen);
+                ok = PipeReadExact(hPipe, hEvent, outBmp.data(), bmpLen, 15000);
+            } else {
+                ok = false;
+            }
+        } else {
+            ok = false;
+        }
+    }
+    CloseHandle(hEvent);
+    return ok;
+}
+
+// Try the persistent server; launch it on first use; relaunch once on failure.
+static bool RequestThumbnailViaPipe(const std::wstring& exePath,
+                                    const std::wstring& inputPath, UINT size,
+                                    std::vector<BYTE>& outBmp) {
+    bool launched = false;
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        HANDLE hPipe = INVALID_HANDLE_VALUE;
+        for (int k = 0; k < 60 && hPipe == INVALID_HANDLE_VALUE; ++k) {
+            hPipe = OpenServerPipe();
+            if (hPipe != INVALID_HANDLE_VALUE) break;
+            DWORD err = GetLastError();
+            if (err == ERROR_FILE_NOT_FOUND && !launched) {
+                LaunchServer(exePath);
+                launched = true;
+            }
+            Sleep(100);
+        }
+        if (hPipe == INVALID_HANDLE_VALUE) break; // unreachable -> one-shot fallback
+        bool ok = PipeTransaction(hPipe, inputPath, size, outBmp);
+        CloseHandle(hPipe);
+        if (ok) return true;
+        launched = false; // force relaunch on next attempt
+    }
+    return false;
+}
+
 // ============================================================================
 // CThumbnailProvider
 // ============================================================================
@@ -404,25 +555,36 @@ public:
         std::wstring exePath;
         if (!GetHostExePath(exePath)) { DbgLog(L"  host exe not found"); return E_FAIL; }
 
-        std::wstring tmpBmp = MakeTempBmpPath();
-        if (tmpBmp.empty()) return E_FAIL;
-
         // 优先使用 SetSite 提供的真实文件路径（扩展名权威），避免临时文件
         // 仅靠 magic 猜测扩展名时把 SVG/AI 等纯文本格式误判为 plt 而渲染失败。
         std::wstring inputPath = m_path;
         if (!m_realPath.empty()) inputPath = m_realPath;
 
+        auto t0 = GetTickCount64();
         HBITMAP hbmp = nullptr;
-        if (RunThumbnailWorker(exePath, inputPath, tmpBmp, cx))
-            hbmp = LoadWorkerBmp(tmpBmp);
-        else
-            DbgLog(L"  worker failed/timeout");
-        DeleteFileW(tmpBmp.c_str());
 
-        if (!hbmp) return E_FAIL;
+        // Fast path: persistent server over named pipe (no per-call process
+        // spawn). Falls back to the one-shot worker if the pipe path is
+        // unavailable, so we never regress to "no thumbnail".
+        std::vector<BYTE> bmp;
+        if (RequestThumbnailViaPipe(exePath, inputPath, cx, bmp))
+            hbmp = BmpBytesToHBITMAP(bmp.data(), bmp.size());
+
+        if (!hbmp) {
+            DbgLog(L"  pipe path unavailable, fallback one-shot worker");
+            std::wstring tmpBmp = MakeTempBmpPath();
+            if (!tmpBmp.empty()) {
+                if (RunThumbnailWorker(exePath, inputPath, tmpBmp, cx))
+                    hbmp = LoadWorkerBmp(tmpBmp);
+                DeleteFileW(tmpBmp.c_str());
+            }
+        }
+
+        auto t1 = GetTickCount64();
+        if (!hbmp) { DbgLog(L"  worker failed/timeout"); return E_FAIL; }
         *phbmp = hbmp;
         *pdwAlpha = WTSAT_ARGB;
-        DbgLog(L"  OK");
+        DbgLog((L"  OK (" + std::to_wstring(t1 - t0) + L"ms)").c_str());
         return S_OK;
     }
 
