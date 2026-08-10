@@ -91,7 +91,7 @@ DEFINE_GUID(CLSID_QuickViewThumbnailProvider,
 // All extensions handled by this provider (registered in DllRegisterServer
 // and mirrored by SettingsOverlay::RegisterAssociations).
 static const wchar_t* kThumbnailExts[] = {
-    L".cdr", L".cmx", L".plt", L".dxf", L".dwg", L".pdf", L".ai"
+    L".cdr", L".cmx", L".plt", L".dxf", L".dwg", L".pdf", L".ai", L".svg", L".svgz"
 };
 
 // Hard cap for a single thumbnail render. Explorer calls us on a thread pool;
