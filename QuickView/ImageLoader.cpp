@@ -1110,6 +1110,15 @@ HRESULT LoadBufferUnified(const uint8_t *mappedData, size_t mappedSize,
     if (SUCCEEDED(hr)) {
       return S_OK;
     }
+  } else if (fmt == L"TIFF") {
+    HRESULT hr = QuickView::MiniTiff::Load(mappedData, mappedSize, ctx, result);
+    if (SUCCEEDED(hr)) {
+      return S_OK;
+    }
+    if (hr == E_OUTOFMEMORY || hr == E_ABORT) {
+      return hr;
+    }
+    return hr;
   }
 
   return E_NOTIMPL;
