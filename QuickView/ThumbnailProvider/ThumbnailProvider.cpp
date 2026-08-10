@@ -332,33 +332,40 @@ public:
         // Magic-byte detection. Order matters: PDF/CDR/DWG headers are
         // unambiguous; DXF is a known ASCII prologue; PLT/HPGL is anything
         // else that looks like plain ASCII text.
+        // 跳过 UTF-8 BOM（EF BB BF）。带 BOM 的 SVG/XML 在第 0 字节是 0xEF，
+        // 直接比 "<svg"/"<?xml" 会失败，被下方 ASCII 兜底误判为 plt 而渲染失败
+        // （桌面导出的 SVG 常带 BOM）。仅用于 magic 判定；写临时文件仍用原始 buf。
+        const unsigned char* p = buf.data();
+        size_t n = buf.size();
+        if (n >= 3 && p[0] == 0xEF && p[1] == 0xBB && p[2] == 0xBF) { p += 3; n -= 3; }
+
         const wchar_t* ext = L"bin";
-        if (buf.size() >= 4 && memcmp(buf.data(), "%PDF", 4) == 0)           ext = L"pdf";
-        else if (buf.size() >= 4 && memcmp(buf.data(), "RIFF", 4) == 0)      ext = L"cdr";
-        else if (buf.size() >= 4 &&
-                 (buf[0] == 'A' || buf[0] == 'a') && buf[1] == 'C' &&
-                 buf[2] >= '0' && buf[2] <= '9')                              ext = L"dwg";
-        else if (buf.size() >= 4 && buf[0] == ' ' && buf[1] == ' ' &&
-                 buf[2] == '0' && (buf[3] == '\r' || buf[3] == '\n'))      ext = L"dxf";
+        if (n >= 4 && memcmp(p, "%PDF", 4) == 0)           ext = L"pdf";
+        else if (n >= 4 && memcmp(p, "RIFF", 4) == 0)      ext = L"cdr";
+        else if (n >= 4 &&
+                 (p[0] == 'A' || p[0] == 'a') && p[1] == 'C' &&
+                 p[2] >= '0' && p[2] <= '9')                              ext = L"dwg";
+        else if (n >= 4 && p[0] == ' ' && p[1] == ' ' &&
+                 p[2] == '0' && (p[3] == '\r' || p[3] == '\n'))      ext = L"dxf";
         // TIFF: little-endian "II*\0" (49 49 2A 00) or big-endian "MM\0*" (4D 4D 00 2A).
         // 必须在下面的 ASCII 兜底之前显式识别，否则二进制内容（含 0x00）落到
         // "plt" 分支，worker 拿 .tif 当 HPGL 解析 → 渲染失败、缩略图不生成。
-        else if (buf.size() >= 4 &&
-                 ((buf[0] == 0x49 && buf[1] == 0x49 && buf[2] == 0x2A && buf[3] == 0x00) ||
-                  (buf[0] == 0x4D && buf[1] == 0x4D && buf[2] == 0x00 && buf[3] == 0x2A)))
+        else if (n >= 4 &&
+                 ((p[0] == 0x49 && p[1] == 0x49 && p[2] == 0x2A && p[3] == 0x00) ||
+                  (p[0] == 0x4D && p[1] == 0x4D && p[2] == 0x00 && p[3] == 0x2A)))
             ext = L"tif";
         // 纯文本格式必须显式识别，否则会被下面的 ASCII 兜底误判为 plt。
         // 注意：真实 Explorer 仅调用 IInitializeWithStream（不调用 SetSite），
         // 没有真实扩展名可用，只能靠 magic 字节判定。
-        else if (buf.size() >= 5 && memcmp(buf.data(), "<?xml", 5) == 0)     ext = L"svg";
-        else if (buf.size() >= 4 && buf[0] == '<' && buf[1] == 's' &&
-                 buf[2] == 'v' && buf[3] == 'g')                              ext = L"svg";
-        else if (buf.size() >= 11 && memcmp(buf.data(), "%!PS-Adobe", 11) == 0) ext = L"ai";
+        else if (n >= 5 && memcmp(p, "<?xml", 5) == 0)     ext = L"svg";
+        else if (n >= 4 && p[0] == '<' && p[1] == 's' &&
+                 p[2] == 'v' && p[3] == 'g')                              ext = L"svg";
+        else if (n >= 11 && memcmp(p, "%!PS-Adobe", 11) == 0) ext = L"ai";
         else {
             bool asc = true;
-            size_t probe = buf.size() < 1024 ? buf.size() : 1024;
+            size_t probe = n < 1024 ? n : 1024;
             for (size_t i = 0; i < probe; ++i) {
-                if (buf[i] == 0) { asc = false; break; }
+                if (p[i] == 0) { asc = false; break; }
             }
             if (asc) ext = L"plt";
         }
