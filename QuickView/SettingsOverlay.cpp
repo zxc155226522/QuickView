@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 #include <Shlobj.h>
+#include <shobjidl.h> // IApplicationAssociationRegistration (official default-app API)
 #include <commdlg.h>
 #include <functional>
 #include "UpdateManager.h"
@@ -26,6 +27,7 @@
 // Windows headers
 #pragma comment(lib, "version.lib")
 #pragma comment(lib, "windowscodecs.lib")
+#pragma comment(lib, "uuid.lib") // CLSID/IID for IApplicationAssociationRegistration
 #include <dwmapi.h> // Required for DwmSetWindowAttribute
 #include "Toolbar.h" // [Fix] Required for g_toolbar extern
 
@@ -334,6 +336,31 @@ static LONG SafeRegSetString(HKEY hRoot, const wchar_t* subKey, const wchar_t* v
 }
 
 // Register file associations (silent, no MessageBox)
+// [Official Channel] Make QuickView the default app for one file extension via the
+// SAME system API that Windows Settings uses (IApplicationAssociationRegistration::
+// SetAppAsDefault). This writes a VALID UserChoice hash — which raw registry writes
+// cannot — so the system accepts it and routes thumbnails through our provider even
+// when WPS/Edge previously held the default. pszAppRegistryName "QuickView" must match
+// the name registered under Software\RegisteredApplications (see step 7 below).
+static bool SetQuickViewAsDefaultForExt(const wchar_t* ext) {
+    // Caller is the UI thread (STA, already CoInitialized). Defensive init only.
+    HRESULT hrCo = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    bool weInit = (hrCo == S_OK); // S_FALSE => already init on this thread -> don't uninit
+
+    bool ok = false;
+    IApplicationAssociationRegistration* pAAR = nullptr;
+    HRESULT hr = CoCreateInstance(CLSID_ApplicationAssociationRegistration, nullptr,
+                                  CLSCTX_INPROC_SERVER, IID_IApplicationAssociationRegistration,
+                                  (void**)&pAAR);
+    if (SUCCEEDED(hr) && pAAR) {
+        hr = pAAR->SetAppAsDefault(L"QuickView", ext, AT_FILEEXTENSION);
+        ok = SUCCEEDED(hr);
+        pAAR->Release();
+    }
+    if (weInit) CoUninitialize();
+    return ok;
+}
+
 bool SettingsOverlay::RegisterAssociations() {
     wchar_t exePath[MAX_PATH];
     GetModuleFileNameW(nullptr, exePath, MAX_PATH);
@@ -460,10 +487,17 @@ bool SettingsOverlay::RegisterAssociations() {
     std::wstring capKey = L"Software\\QuickView\\Capabilities\\FileAssociations";
     if (RegCreateKeyExW(HKEY_CURRENT_USER, capKey.c_str(), 0, NULL, 0, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS) {
         for (const auto& extStr : selectedExts) {
-            // Use QuickView.Image as the ProgID for all extensions.
-            // This is only used when the user explicitly sets QuickView as
-            // the default app via Windows Settings.
-            RegSetValueExW(hKey, extStr.c_str(), 0, REG_SZ, (const BYTE*)L"QuickView.Image", sizeof(L"QuickView.Image"));
+            // Map vector/document formats to QuickView.Vector (the ProgID that carries
+            // our thumbnail provider), raster formats to QuickView.Image. This is only
+            // used when the user (or SetAppAsDefault, step 8b) sets QuickView as the
+            // default app via Windows Settings — the ProgID chosen here becomes the
+            // UserChoice target and thus decides which ShellEx serves the thumbnail.
+            bool isVector = false;
+            for (const wchar_t* t : kVectorThumbExts)
+                if (QuickView::ExtEqualsIgnoreCase(extStr, t)) { isVector = true; break; }
+            const wchar_t* pid = isVector ? L"QuickView.Vector" : L"QuickView.Image";
+            RegSetValueExW(hKey, extStr.c_str(), 0, REG_SZ, (const BYTE*)pid,
+                           (DWORD)(sizeof(wchar_t) * (wcslen(pid) + 1)));
         }
         RegCloseKey(hKey);
     }
@@ -473,6 +507,21 @@ bool SettingsOverlay::RegisterAssociations() {
 
     // 8. Refresh Shell
     SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, NULL, NULL);
+
+    // 8b. [Official Channel] Take over default-app for vector/document formats via the
+    // system API (same path as Windows Settings). This writes a VALID UserChoice hash,
+    // so WPS/Edge can no longer hijack .svg/.ai/.pdf etc. Respects the user's open-with
+    // selection: only formats they actually chose (or all when none selected).
+    for (const wchar_t* vExt : kVectorThumbExts) {
+        bool selected = g_config.FileAssocExts.empty();
+        if (!selected) {
+            for (const auto& s : selectedExts)
+                if (QuickView::ExtEqualsIgnoreCase(s, vExt)) { selected = true; break; }
+        }
+        if (selected) {
+            SetQuickViewAsDefaultForExt(vExt);
+        }
+    }
 
     // [Fix] Register Thumbnail Provider COM DLL for vector/document formats
     // (.cdr .cmx .plt .dxf .dwg .pdf .ai). The DLL is a thin shim that
