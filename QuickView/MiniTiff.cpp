@@ -1034,6 +1034,123 @@ static const IfdInfo* SelectThumbIfd(const std::vector<IfdInfo>& ifds, uint32_t 
     return best;
 }
 
+// ---------------------------------------------------------------------------
+// Uncompressed-preview fast path (thumbnail acceleration).
+// For an UNCOMPRESSED, stripped, 8-bit, chunky, no-predictor TIFF (the common
+// case for flat scanned/prepress artwork), the pixel bytes are already laid out
+// raw in the file. A thumbnail only needs a strided subset of them, so instead
+// of reading + decoding the full image and then downscaling, we seek straight
+// to each sampled row and copy only the sampled pixels. This cuts I/O and
+// memory by ~step^2 (often >1000x) and needs no decode loop / threading / GPU.
+// Returns S_OK if it produced the thumbnail; otherwise the caller falls through
+// to the normal LoadRegion decode (so we never regress to "no thumbnail").
+// ---------------------------------------------------------------------------
+static HRESULT LoadUncompressedPreview(const uint8_t* data, size_t size,
+                                       const QuickView::Codec::DecodeContext& ctx,
+                                       QuickView::Codec::DecodeResult& result,
+                                       const TiffImageDesc& desc,
+                                       uint32_t targetPx) {
+    const uint32_t w = desc.width, h = desc.height;
+    if (w == 0 || h == 0 || targetPx == 0) return E_FAIL;
+
+    uint32_t step = (std::max)(w, h) / targetPx;
+    if (step < 1) step = 1;
+    // Already small enough: no win, let the normal decoder handle it.
+    if (step == 1) return E_FAIL;
+
+    uint32_t outW = (w + step - 1) / step;
+    uint32_t outH = (h + step - 1) / step;
+
+    const uint32_t samples = desc.samples;
+    const uint32_t pixelStride = samples;            // bytesPerSample == 1
+    const uint64_t rowBytes = static_cast<uint64_t>(w) * pixelStride;
+    const uint32_t rowsPerStrip = (desc.rowsPerStrip == 0 || desc.rowsPerStrip > h)
+                                      ? h : desc.rowsPerStrip;
+    const uint64_t stripsCount = (h + rowsPerStrip - 1) / rowsPerStrip;
+    if (desc.offsets.size() < stripsCount) return E_FAIL;
+
+    // Validate every sampled row's source offset BEFORE allocating.
+    for (uint32_t oy = 0; oy < outH; ++oy) {
+        uint32_t sy = oy * step;
+        if (sy >= h) break;
+        uint32_t strip = sy / rowsPerStrip;
+        uint64_t rowOff = desc.offsets[strip] + (sy - strip * rowsPerStrip) * rowBytes;
+        if (rowOff + rowBytes > size) return E_FAIL;
+    }
+
+    int outStride = ((outW * 4) + 63) & ~63;          // 64-byte aligned, like LoadRegion
+    size_t total = static_cast<size_t>(outStride) * outH;
+    uint8_t* pixels = ctx.allocator(total);
+    if (!pixels) return E_OUTOFMEMORY;
+    std::memset(pixels, 0, total);
+
+    const uint16_t photometric = desc.photometric;
+    for (uint32_t oy = 0; oy < outH; ++oy) {
+        uint32_t sy = oy * step;
+        if (sy >= h) break;
+        uint32_t strip = sy / rowsPerStrip;
+        uint64_t rowOff = desc.offsets[strip] + (sy - strip * rowsPerStrip) * rowBytes;
+        const uint8_t* srcRow = data + rowOff;
+        uint8_t* dstRow = pixels + static_cast<size_t>(oy) * outStride;
+        for (uint32_t ox = 0; ox < outW; ++ox) {
+            uint32_t sx = ox * step;
+            if (sx >= w) break;
+            const uint8_t* sp = srcRow + static_cast<size_t>(sx) * pixelStride;
+            uint8_t r, g, b, a = 255;
+            if (photometric == 2) {                   // RGB / RGBA
+                r = sp[0]; g = sp[1]; b = sp[2];
+                a = (samples >= 4) ? sp[3] : 255;
+            } else {                                   // Grayscale (0=white-is-0, 1=black-is-0)
+                uint8_t v = sp[0];
+                if (photometric == 0) v = static_cast<uint8_t>(255 - v);
+                r = g = b = v;
+            }
+            int o = static_cast<int>(ox) * 4;
+            dstRow[o + 0] = b;
+            dstRow[o + 1] = g;
+            dstRow[o + 2] = r;
+            dstRow[o + 3] = a;
+        }
+    }
+
+    result.pixels = pixels;
+    result.width = outW;
+    result.height = outH;
+    result.stride = outStride;
+    result.format = PixelFormat::BGRA8888;
+    result.success = true;
+
+    result.metadata.Width = w;
+    result.metadata.Height = h;
+    result.metadata.Format = L"TIFF";
+    if (photometric == 2)
+        result.metadata.hasAlpha = (samples >= 4) || (desc.extraSamples > 0);
+    else if (photometric == 0 || photometric == 1)
+        result.metadata.hasAlpha = (samples >= 2) || (desc.extraSamples > 0);
+    result.metadata.ExifOrientation = desc.orientation;
+    result.metadata.LoaderName = L"MiniTIFF";
+    result.metadata.HasEmbeddedColorProfile = false;
+    result.metadata.colorInfo.dataSpace = QuickView::PixelDataSpace::EncodedSdr;
+
+    return S_OK;
+}
+
+// Choose the uncompressed fast path (preview only) or the full decode.
+static HRESULT DecodePreviewOrFull(const uint8_t* data, size_t size,
+                                   const QuickView::Codec::DecodeContext& ctx,
+                                   QuickView::Codec::DecodeResult& result,
+                                   const TiffImageDesc& desc,
+                                   uint32_t targetPx) {
+    if (ctx.forcePreview && desc.compression == 1 && !desc.isTiled &&
+        desc.bitsPerSample == 8 && desc.planarConfig == 1 && desc.predictor == 1 &&
+        (desc.photometric == 0 || desc.photometric == 1 || desc.photometric == 2) &&
+        (desc.samples == 1 || desc.samples == 3 || desc.samples == 4)) {
+        HRESULT hr = LoadUncompressedPreview(data, size, ctx, result, desc, targetPx);
+        if (hr == S_OK) return hr;
+    }
+    return LoadRegion(data, size, ctx, result, 0, 0, desc.width, desc.height);
+}
+
 HRESULT Load(const uint8_t* data, size_t size,
              const QuickView::Codec::DecodeContext& ctx,
              QuickView::Codec::DecodeResult& result) {
@@ -1049,7 +1166,7 @@ HRESULT Load(const uint8_t* data, size_t size,
             TiffImageDesc desc;
             Status st = ParseTiffIFD(data, size, desc, pick->off);
             if (st == Status::Ok && CapabilityGate(desc) == Status::Ok)
-                return LoadRegion(data, size, ctx, result, 0, 0, desc.width, desc.height);
+                return DecodePreviewOrFull(data, size, ctx, result, desc, targetPx);
             // Chosen IFD unsupported (exotic bit depth): fall through to the
             // primary IFD below so we never regress to "no thumbnail".
         }
@@ -1066,7 +1183,7 @@ HRESULT Load(const uint8_t* data, size_t size,
         return (status == Status::Unsupported) ? E_NOTIMPL : E_FAIL;
     }
 
-    return LoadRegion(data, size, ctx, result, 0, 0, desc.width, desc.height);
+    return DecodePreviewOrFull(data, size, ctx, result, desc, 256);
 }
 
 } // namespace QuickView::MiniTiff
