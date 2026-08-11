@@ -12,6 +12,7 @@
 #include "ThumbnailWorker.h"
 #include "ImageLoader.h"
 #include "SupportedExtensions.h"
+#include <wincodec.h>
 
 #include <string>
 #include <vector>
@@ -438,6 +439,15 @@ static void RenderAndRespond(PipeTask& t, CImageLoader& loader, bool degrade) {
 static void ParallelWorker() {
   CoInitializeEx(nullptr, COINIT_MULTITHREADED);
   CImageLoader loader;
+  {
+    IWICImagingFactory* wf = nullptr;
+    if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr,
+                                   CLSCTX_INPROC_SERVER, IID_IWICImagingFactory,
+                                   reinterpret_cast<void**>(&wf)))) {
+      loader.Initialize(wf);
+      wf->Release();
+    }
+  }
   while (true) {
     PipeTask t;
     {
@@ -457,6 +467,15 @@ static void CdrWorker() {
   CoInitializeEx(nullptr, COINIT_MULTITHREADED);
   CImageLoader loader;
   loader.m_bPopulateCdrCache = false; // server never uses the page-nav cache
+  {
+    IWICImagingFactory* wf = nullptr;
+    if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr,
+                                   CLSCTX_INPROC_SERVER, IID_IWICImagingFactory,
+                                   reinterpret_cast<void**>(&wf)))) {
+      loader.Initialize(wf);
+      wf->Release();
+    }
+  }
   while (true) {
     PipeTask t;
     {
@@ -475,6 +494,15 @@ static void CdrWorker() {
 static void LargeWorker() {
   CoInitializeEx(nullptr, COINIT_MULTITHREADED);
   CImageLoader loader;
+  {
+    IWICImagingFactory* wf = nullptr;
+    if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr,
+                                   CLSCTX_INPROC_SERVER, IID_IWICImagingFactory,
+                                   reinterpret_cast<void**>(&wf)))) {
+      loader.Initialize(wf);
+      wf->Release();
+    }
+  }
   while (true) {
     PipeTask t;
     {
