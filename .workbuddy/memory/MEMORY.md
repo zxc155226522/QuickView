@@ -36,11 +36,12 @@
 - `g_cdrPageCache`(ImageLoader.cpp:62) 是 CDR 唯一跨线程共享可变状态。给 `CImageLoader` 加 `bool m_bPopulateCdrCache=true`（public）；`LoadCDR` 在 false 时用局部 `firstPageData` 产出 outFrame、不碰全局。缩略图服务置 false → 多 CDR 线程安全。**改了 ImageLoader.h → 须 `--clean-first` 全量重建**。
 
 ## TIF 大文件优化（2026-08-11）
-- `MiniTiff::Load` 在 `ctx.forcePreview`(缩略图/预览)时**枚举所有 IFD/SubIFDs**(`EnumerateTiffIfds`)，用 `SelectThumbIfd` 选"够用的最小分辨率层"（优先 NewSubfileType bit1 缩略图子文件，否则最小≥目标），只解码该层→**多分辨率/金字塔大 TIF 缩略图提速显著**；主视图(`forcePreview=false`)保持全分辨率，**清晰度零影响**。**仅 MiniTiff.cpp 内部 static 改动，未动头文件**（增量即可）。单 IFD 扁平超大 TIF 仍走全解，但已被"大文件通道降档128 + 60s 超时 + OpenMP 并行"兜底。
+- `MiniTiff::Load` 在 `ctx.forcePreview`(缩略图/预览)时**枚举所有 IFD/SubIFDs**(`EnumerateTiffIfds`)，用 `SelectThumbIfd` 选"够用的最小分辨率层"（优先 NewSubfileType bit1 缩略图子文件，否则最小≥目标），只解码该层→**多分辨率/金字塔大 TIF 缩略图提速显著**；主视图(`forcePreview=false`)保持全分辨率，**清晰度零影响**。**仅 MiniTiff.cpp 内部 static 改动，未动头文件**（增量即可）。**已新增未压缩快路径**（`LoadUncompressedPreview`+`DecodePreviewOrFull`，同文件）：当 `forcePreview` 且 `compression==1`(未压缩)+stripped+8bit+chunky+predictor==1+灰/RGB 时，按 `targetPx` 算步长，只 `seek` 采样行并 copy 采样像素直接产小图，I/O/内存降 ~step²(常>1000x)，无需解码/线程/GPU；不满足则回退 `LoadRegion`。**周氏目录 7 个 TIF 实测均为 stripped+未压缩**，正是该路径甜区，缩略图将瞬时出图。压缩(LZW/Deflate/JPEG)/CMYK/Palette/tiled 仍走原路径。
 
 ## TIF 缩略图 GPU 加速评估（2026-08-11）
 - 结论：**不划算，不做**。缩略图服务是 headless 常驻进程(`--thumbnail-server`)：①解码环节(TIFF LZW/Deflate+predictor 还原)顺序/逐像素、有串行依赖，GPU 无成熟解码库且不擅长，当前已是软件解码+OpenMP 多 tile 并行；②缩放环节已被"解码时降采样直接出小图"绕过，256px 缩放本身微秒级，GPU 收益可忽略；③headless 进程建 D3D/Vulkan 上下文本身是负担，还可能无 GPU(远程/服务器)、需多 GPU 选择与回退，**工程成本爆炸而收益近零**。正解=解码时降采样(砍解码量)+已有 OpenMP 多 tile 并行，甜区在 tiled 大图。GPU 真正甜区在主视图大图渲染(主程序 renderEngine)，非后台缩略图服务。
 
 ## 编译部署坑（2026-08-11）
-- 链接写 `QuickViewThumbnailProvider.dll` 被实时防病毒拦截(permission denied)——**非进程锁**(`Get-Process` 模块扫描为空)，是 Defender 对该路径 DLL 写保护；本会话 `Add-MpPreference` 不可用。本地部署须将 `out\build\Release-LTO` 加 Defender 排除或临时关实时保护后重链。
+- 链接写 `QuickViewThumbnailProvider.dll` 与 `QuickView.exe` 均被实时防病毒拦截(permission denied)——**非单纯进程锁**：①`Get-Process` 模块扫描为空说明不是 Explorer 加载锁；②但**残留 QuickView 进程持有 exe/dll 句柄**也会报同样错，链接前须 `Stop-Process -Name QuickView -Force` 清空再链；③本会话 `Add-MpPreference` 不可用无法加 Defender 排除。本地部署须将 `out\build\Release-LTO` 加 Defender 排除或临时关实时保护后重链。Defender **只阻止写入不阻止执行**，故已成功链接的旧 exe 可直接 `Start-Process` 启动验证（含全部源码改动）。
 - 绕开技巧：`--clean-first` 清理阶段会因 DLL 被锁报 Access denied 中断；可改为删 `CMakeFiles/QuickView.dir` 触发增量全重编，但会丢 PCH 源 `cmake_pch.cxx`，需先 `cmake -S $JP -B out/build/Release-LTO` 重新 configure 再生；单纯验证主程序可 `cmake --build ... --target QuickView` 单独链主 exe（绕开被锁的 provider DLL）。
+- `看图软件编译并启动.ps1` 在编译后(含失败)会**清理 ASCII junction `E:\qv_build_tmp`**，故脚本跑完 junction 消失；下次编译需脚本自动重建或手动 `New-Item -ItemType Junction -Path E:\qv_build_tmp -Target E:\项目\看图软件`。
