@@ -306,6 +306,13 @@ add_library(dav1d::dav1d STATIC IMPORTED)
 set_property(TARGET dav1d::dav1d PROPERTY IMPORTED_LOCATION_RELEASE "${DAV1D_LIB_RELEASE}")
 set_property(TARGET dav1d::dav1d PROPERTY IMPORTED_LOCATION_DEBUG "${DAV1D_LIB_DEBUG}")
 
+# resvg C-API：Rust 静态库（预编译于 third_party/resvg/lib/resvg.lib）。
+# 用 IMPORTED 目标并指向 junction 源目录（CMAKE_SOURCE_DIR=E:/qv_build_tmp），
+# 既避免 CMake 把 "resvg.lib" 当成库名又补一次 .lib 变成 "resvg.lib.lib"，
+# 也避免真实中文路径泄漏进链接响应文件。
+add_library(resvg_static STATIC IMPORTED)
+set_property(TARGET resvg_static PROPERTY IMPORTED_LOCATION "${CMAKE_SOURCE_DIR}/third_party/resvg/lib/resvg.lib")
+
 target_link_libraries(QuickView PRIVATE
     avif
     libjpeg-turbo::turbojpeg-static
@@ -325,7 +332,7 @@ target_link_libraries(QuickView PRIVATE
     unrar-mini
     librevenge
     libcdr
-    third_party/resvg/lib/resvg.lib
+    resvg_static
     unofficial::libmupdf::libmupdf
     libdxfrw::libdxfrw
     # Windows system libraries
