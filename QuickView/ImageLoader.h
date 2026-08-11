@@ -17,6 +17,12 @@ namespace Codec {
 struct DecodeContext;
 struct DecodeResult;
 } // namespace Codec
+
+// [CDR Fix] Upscale SVG stroke-width attributes so thin strokes remain visible
+// when an SVG with a large viewBox is scaled down to fit the viewport.
+// scale = fitScale (target / viewBox); minVisiblePx = minimum on-screen stroke width (px).
+bool QvUpscaleSvgStrokeWidths(std::string &svgXml, float minVisiblePx, float scale);
+
 } // namespace QuickView
 
 /// <summary>

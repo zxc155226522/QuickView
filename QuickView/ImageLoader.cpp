@@ -4055,6 +4055,35 @@ static HRESULT LoadThumbJXL_Sampled(const uint8_t *pFile, size_t fileSize,
   return cleanup(S_OK);
 }
 
+namespace QuickView {
+// [CDR Fix] Mirror of the former inline thumbnail stroke-upscaling, extracted so
+// the main view reuses it. Without this, a stroke-width of 1-2 SVG units in a
+// large-viewBox SVG becomes <0.3px after downscaling -> invisible.
+bool QvUpscaleSvgStrokeWidths(std::string &svgXml, float minVisiblePx, float scale) {
+  if (scale >= 1.0f)
+    return false; // no downscale -> strokes already visible
+  const float minStrokeInSvgUnits = minVisiblePx / scale;
+  static const std::string needle = "stroke-width=\"";
+  size_t pos = 0;
+  bool changed = false;
+  while ((pos = svgXml.find(needle, pos)) != std::string::npos) {
+    size_t valStart = pos + needle.length();
+    size_t valEnd = svgXml.find('"', valStart);
+    if (valEnd == std::string::npos)
+      break;
+    float curW = std::strtof(svgXml.c_str() + valStart, nullptr);
+    if (curW > 0 && curW < minStrokeInSvgUnits) {
+      std::string replacement = std::to_string(minStrokeInSvgUnits);
+      svgXml.replace(valStart, valEnd - valStart, replacement);
+      valEnd = valStart + replacement.length();
+      changed = true;
+    }
+    pos = valEnd + 1;
+  }
+  return changed;
+}
+} // namespace QuickView
+
 static HRESULT RasterizeSvgThumbnail(const std::vector<uint8_t> &xmlData,
                                      float viewBoxW, float viewBoxH,
                                      int targetSize,
@@ -4077,24 +4106,10 @@ static HRESULT RasterizeSvgThumbnail(const std::vector<uint8_t> &xmlData,
   // fragmented/invisible.
   std::vector<uint8_t> processedXml = xmlData;
   if (scale < 1.0f) {
-    const float minVisiblePx = 2.0f;  // at least 2px wide strokes
-    const float minStrokeInSvgUnits = minVisiblePx / scale;
-    // Replace stroke-width="X" with stroke-width="max(X, minStrokeInSvgUnits)"
-    const std::string needle = "stroke-width=\"";
+    // [CDR Fix] Reuse the shared stroke-upscaling helper so thin lines stay
+    // visible when the SVG is downscaled to a small thumbnail.
     std::string xmlStr(processedXml.begin(), processedXml.end());
-    size_t pos = 0;
-    while ((pos = xmlStr.find(needle, pos)) != std::string::npos) {
-      size_t valStart = pos + needle.length();
-      size_t valEnd = xmlStr.find('"', valStart);
-      if (valEnd == std::string::npos) break;
-      float curW = std::strtof(xmlStr.c_str() + valStart, nullptr);
-      if (curW > 0 && curW < minStrokeInSvgUnits) {
-        std::string replacement = std::to_string(minStrokeInSvgUnits);
-        xmlStr.replace(valStart, valEnd - valStart, replacement);
-        valEnd = valStart + replacement.length();
-      }
-      pos = valEnd + 1;
-    }
+    QuickView::QvUpscaleSvgStrokeWidths(xmlStr, 2.0f, scale);
     processedXml.assign(xmlStr.begin(), xmlStr.end());
   }
 

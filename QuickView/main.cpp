@@ -11417,19 +11417,46 @@ void ProcessEngineEvents(HWND hwnd) {
                      ComPtr<ID2D1DeviceContext5> ctx5;
                      
                      if (ctxBase && SUCCEEDED(ctxBase.As(&ctx5))) {
-                         const auto& xml = evt.rawFrame->svg->xmlData;
-                         
-                         // Create Stream
-                         ComPtr<IStream> stream;
-                         HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, xml.size());
-                         if (hMem) {
-                             void* pMem = GlobalLock(hMem);
-                             if (pMem) {
-                                 memcpy(pMem, xml.data(), xml.size());
-                                 GlobalUnlock(hMem);
-                                 CreateStreamOnHGlobal(hMem, TRUE, &stream);
-                             } else GlobalFree(hMem);
-                         }
+                        const auto& xml = evt.rawFrame->svg->xmlData;
+                        const float svgW = evt.rawFrame->svg->viewBoxW;
+                        const float svgH = evt.rawFrame->svg->viewBoxH;
+
+                        // [CDR Fix] Large-coordinate CDR SVG scaled to fit the window
+                        // becomes sub-pixel thin and the white page rect dominates ->
+                        // blank main view. Upscale stroke widths at the initial fit
+                        // scale (mirrors RasterizeSvgThumbnail logic).
+                        const uint8_t* streamData = xml.data();
+                        size_t streamSize = xml.size();
+                        std::string upscaledXml;
+                        {
+                            RECT rcClient{};
+                            GetClientRect(hwnd, &rcClient);
+                            const ImageViewportLayout layout =
+                                ComputeImageViewportLayout((float)rcClient.right, (float)rcClient.bottom);
+                            const float paneW = (std::max)(0.0f, layout.Right - layout.Left);
+                            const float paneH = (std::max)(0.0f, layout.Bottom - layout.Top);
+                            if (paneW > 1.0f && paneH > 1.0f && svgW > 0.0f && svgH > 0.0f) {
+                                const float fitScale = (std::min)(paneW / svgW, paneH / svgH);
+                                if (fitScale < 1.0f) {
+                                    upscaledXml.assign((const char*)xml.data(), xml.size());
+                                    QuickView::QvUpscaleSvgStrokeWidths(upscaledXml, 2.0f, fitScale);
+                                    streamData = (const uint8_t*)upscaledXml.data();
+                                    streamSize = upscaledXml.size();
+                                }
+                            }
+                        }
+
+                        // Create Stream
+                        ComPtr<IStream> stream;
+                        HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, streamSize);
+                        if (hMem) {
+                            void* pMem = GlobalLock(hMem);
+                            if (pMem) {
+                                memcpy(pMem, streamData, streamSize);
+                                GlobalUnlock(hMem);
+                                CreateStreamOnHGlobal(hMem, TRUE, &stream);
+                            } else GlobalFree(hMem);
+                        }
                          
                          if (stream) {
                              D2D1_SIZE_F vpSize = { GetPaneContext(PaneSlot::Primary).resource.svgW, GetPaneContext(PaneSlot::Primary).resource.svgH };
