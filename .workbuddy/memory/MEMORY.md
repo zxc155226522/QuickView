@@ -36,7 +36,13 @@
 - `g_cdrPageCache`(ImageLoader.cpp:62) 是 CDR 唯一跨线程共享可变状态。给 `CImageLoader` 加 `bool m_bPopulateCdrCache=true`（public）；`LoadCDR` 在 false 时用局部 `firstPageData` 产出 outFrame、不碰全局。缩略图服务置 false → 多 CDR 线程安全。**改了 ImageLoader.h → 须 `--clean-first` 全量重建**。
 
 ## TIF 大文件优化（2026-08-11）
-- `MiniTiff::Load` 在 `ctx.forcePreview`(缩略图/预览)时**枚举所有 IFD/SubIFDs**(`EnumerateTiffIfds`)，用 `SelectThumbIfd` 选"够用的最小分辨率层"（优先 NewSubfileType bit1 缩略图子文件，否则最小≥目标），只解码该层→**多分辨率/金字塔大 TIF 缩略图提速显著**；主视图(`forcePreview=false`)保持全分辨率，**清晰度零影响**。**仅 MiniTiff.cpp 内部 static 改动，未动头文件**（增量即可）。**已新增未压缩快路径**（`LoadUncompressedPreview`+`DecodePreviewOrFull`，同文件）：当 `forcePreview` 且 `compression==1`(未压缩)+stripped+8bit+chunky+predictor==1+灰/RGB 时，按 `targetPx` 算步长，只 `seek` 采样行并 copy 采样像素直接产小图，I/O/内存降 ~step²(常>1000x)，无需解码/线程/GPU；不满足则回退 `LoadRegion`。**周氏目录 7 个 TIF 实测均为 stripped+未压缩**，正是该路径甜区，缩略图将瞬时出图。压缩(LZW/Deflate/JPEG)/CMYK/Palette/tiled 仍走原路径。
+- `MiniTiff::Load` 在 `ctx.forcePreview`(缩略图/预览)时**枚举所有 IFD/SubIFDs**(`EnumerateTiffIfds`)，用 `SelectThumbIfd` 选"够用的最小分辨率层"（优先 NewSubfileType bit1 缩略图子文件，否则最小≥目标），只解码该层→**多分辨率/金字塔大 TIF 缩略图提速显著**；主视图(`forcePreview=false`)保持全分辨率，**清晰度零影响**。**仅 MiniTiff.cpp 内部 static 改动，未动头文件**（增量即可）。
+- **未压缩快路径**(`LoadUncompressedPreview`+`DecodePreviewOrFull`)：`forcePreview` 且 `compression==1`(未压缩)+stripped+8bit+chunky+predictor==1 时，按 `targetPx` 算步长，只 `seek` 采样行并进采样像素直接产小图，I/O/内存降 ~step²(常>1000x)，无需解码/线程/GPU；不满足（压缩/Palette/tiled 等）回退 `LoadRegion`。**已支持 灰/RGB/CMYK**(photometric 0/1/2/5，samples 1/3/4/5)：CMYK 分支**复用主视图同款 `ConvertCmykToBgra`**(`cmykPremultiply=(extraSamples!=1)`)，保证缩略图与主图视觉一致。
+- 实测关键事实：**周氏两批 TIF（8-10、8-7）全部是 未压缩+stripped+**CMYK**+单 IFD(无金字塔)**；8-7 共 27 个，其中 **7 个 >200MB**(最大 302MB)。CMYK 是 Corel 烫画导出印刷图的常态——最初"RGB 才命中快路径"漏掉了这批主力文件，是 8-7 "有些获取不到"的根因之一。
+
+## provider 超大文件根因与修复（2026-08-11）
+- 根因：`ThumbnailProvider.cpp` 的 `IInitializeWithStream::Initialize` 原本**把整条流读进内存**，超 `kMaxBytes=200MB` 直接 `return E_OUTOFMEMORY` 丢弃 → **>200MB 的 TIF 缩略图确定性拿不到**（8-7 的 7 个超大 TIF 正是此因）。这是我方发现的第二层根因。
+- 修复：改为**流式 spill**——先读 64 字节前缀做 magic 判定，再边读流(64KB 缓冲)边写临时文件，内存恒定；**去掉 200MB 上限**（仅保留 2GB 级上限防异常流无限循环）。任意大 TIF 都能 spill 成功交给 worker。仅改 `ThumbnailProvider.cpp`（增删约 45 行）。
 
 ## TIF 缩略图 GPU 加速评估（2026-08-11）
 - 结论：**不划算，不做**。缩略图服务是 headless 常驻进程(`--thumbnail-server`)：①解码环节(TIFF LZW/Deflate+predictor 还原)顺序/逐像素、有串行依赖，GPU 无成熟解码库且不擅长，当前已是软件解码+OpenMP 多 tile 并行；②缩放环节已被"解码时降采样直接出小图"绕过，256px 缩放本身微秒级，GPU 收益可忽略；③headless 进程建 D3D/Vulkan 上下文本身是负担，还可能无 GPU(远程/服务器)、需多 GPU 选择与回退，**工程成本爆炸而收益近零**。正解=解码时降采样(砍解码量)+已有 OpenMP 多 tile 并行，甜区在 tiled 大图。GPU 真正甜区在主视图大图渲染(主程序 renderEngine)，非后台缩略图服务。
