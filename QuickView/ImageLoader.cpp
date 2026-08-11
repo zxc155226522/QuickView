@@ -11239,10 +11239,15 @@ HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
     return E_FAIL;
   }
 
-  // [Multi-page] Process ALL pages and cache them for page navigation.
-  // Most CDR documents are single-page, but multi-page ones are fully supported.
-  g_cdrPageCache.clear();
-  g_cdrPageCache.reserve(svgPages.size());
+  // [Multi-page] Process ALL pages. When m_bPopulateCdrCache is true (main
+  // app, page navigation) the parsed pages are cached in the shared global
+  // g_cdrPageCache. The thumbnail server sets it false so it never touches
+  // that global -> CDR rendering is safe on multiple worker threads.
+  CdrPageData firstPageDataLocal;
+  if (m_bPopulateCdrCache) {
+    g_cdrPageCache.clear();
+    g_cdrPageCache.reserve(svgPages.size());
+  }
 
   for (size_t i = 0; i < svgPages.size(); ++i) {
     std::string svgContent(svgPages[i].cstr());
@@ -11300,11 +11305,16 @@ HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
     pageData.xmlData.assign(svgContent.begin(), svgContent.end());
     pageData.viewBoxW = svgW;
     pageData.viewBoxH = svgH;
-    g_cdrPageCache.push_back(std::move(pageData));
+    if (m_bPopulateCdrCache) {
+      g_cdrPageCache.push_back(std::move(pageData));
+    } else if (i == 0) {
+      firstPageDataLocal = std::move(pageData);
+    }
   }
 
   // Use first page for the output frame
-  const auto& firstPage = g_cdrPageCache[0];
+  const CdrPageData& firstPage =
+      (m_bPopulateCdrCache ? g_cdrPageCache[0] : firstPageDataLocal);
   const float svgW = firstPage.viewBoxW;
   const float svgH = firstPage.viewBoxH;
 

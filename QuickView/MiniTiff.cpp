@@ -39,6 +39,7 @@ struct TiffImageDesc {
     uint16_t predictor = 1;
     uint16_t orientation = 1;
     uint16_t extraSamples = 0;
+    uint16_t newSubfileType = 0;
     uint32_t rowsPerStrip = 0;
     bool isTiled = false;
     uint32_t tileWidth = 0;
@@ -115,7 +116,8 @@ static bool DecompressDeflate(const uint8_t* src, size_t srcLen, uint8_t* dst, s
     return false;
 }
 
-static Status ParseTiffIFD(const uint8_t* data, size_t size, TiffImageDesc& desc) {
+static Status ParseTiffIFD(const uint8_t* data, size_t size, TiffImageDesc& desc,
+                           uint32_t ifdOffsetArg = 0) {
     if (size < 8) return Status::NotTiff;
 
     bool isLE = false;
@@ -160,7 +162,7 @@ static Status ParseTiffIFD(const uint8_t* data, size_t size, TiffImageDesc& desc
         return 0;
     };
 
-    uint32_t ifdOffset = read32(4);
+    uint32_t ifdOffset = (ifdOffsetArg == 0) ? read32(4) : ifdOffsetArg;
     if (ifdOffset == 0 || ifdOffset + 2 > size) {
         return Status::Corrupt;
     }
@@ -194,6 +196,9 @@ static Status ParseTiffIFD(const uint8_t* data, size_t size, TiffImageDesc& desc
         uint32_t count = read32(entryOff + 4);
 
         switch (tag) {
+            case 254: // NewSubfileType (bit0=reduced-res, bit1=thumbnail)
+                desc.newSubfileType = static_cast<uint16_t>(getTagValue(entryOff, type, count));
+                break;
             case 256: // ImageWidth
                 desc.width = getTagValue(entryOff, type, count);
                 break;
@@ -905,9 +910,151 @@ dstRow[dx * 4 + 3] = a;
     return S_OK;
 }
 
+// ---------------------------------------------------------------------------
+// Reduced-resolution IFD selection (thumbnail/preview acceleration).
+// Large TIFFs often embed a pyramid of reduced-resolution sub-IFDs or an
+// explicit thumbnail subfile. For a small thumbnail we only need to decode the
+// smallest IFD that is still >= the target size, instead of the
+// full-resolution primary IFD. This turns a multi-hundred-megapixel decode
+// into a tiny one.
+// ---------------------------------------------------------------------------
+struct IfdInfo {
+    uint32_t off = 0;
+    uint16_t entryCount = 0;
+    uint32_t w = 0;
+    uint32_t h = 0;
+    uint16_t newSubfileType = 0;
+};
+
+static bool TiffIsLE(const uint8_t* data, size_t size) {
+    if (size < 4) return false;
+    if (data[0] == 0x49 && data[1] == 0x49 && data[2] == 0x2A && data[3] == 0x00) return true;
+    if (data[0] == 0x4D && data[1] == 0x4D && data[2] == 0x00 && data[3] == 0x2A) return false;
+    return false;
+}
+
+// Parse width/height/newSubfileType and collect SubIFD offsets from one IFD.
+static bool ParseIfdDims(const uint8_t* data, size_t size, bool le, uint32_t off,
+                         IfdInfo& info, std::vector<uint32_t>& subOffsets) {
+    auto rd16 = [&](size_t o) -> uint16_t {
+        if (o + 2 > size) return 0;
+        if (le) return static_cast<uint16_t>(data[o] | (data[o + 1] << 8));
+        return static_cast<uint16_t>((data[o] << 8) | data[o + 1]);
+    };
+    auto rd32 = [&](size_t o) -> uint32_t {
+        if (o + 4 > size) return 0;
+        if (le) return data[o] | (data[o + 1] << 8) | (data[o + 2] << 16) | (data[o + 3] << 24);
+        return (data[o] << 24) | (data[o + 1] << 16) | (data[o + 2] << 8) | data[o + 3];
+    };
+    if (off + 2 > size) return false;
+    uint16_t n = rd16(off);
+    size_t cur = off + 2;
+    if (cur + static_cast<size_t>(n) * 12u > size) return false;
+    uint32_t subIfdsOff = 0, subIfdsCount = 0, subIfdsType = 0;
+    for (uint16_t i = 0; i < n; ++i) {
+        size_t e = cur + static_cast<size_t>(i) * 12u;
+        uint16_t tag = rd16(e);
+        uint16_t type = rd16(e + 2);
+        uint32_t cnt = rd32(e + 4);
+        switch (tag) {
+            case 256: info.w = (type == 3) ? rd16(e + 8) : rd32(e + 8); break;
+            case 257: info.h = (type == 3) ? rd16(e + 8) : rd32(e + 8); break;
+            case 254: info.newSubfileType = (type == 3) ? rd16(e + 8) : rd32(e + 8); break;
+            case 0x014A: // SubIFDs
+                subIfdsOff = e + 8; subIfdsCount = cnt; subIfdsType = type; break;
+            default: break;
+        }
+    }
+    info.off = off;
+    info.entryCount = n;
+    if (subIfdsCount > 0 && subIfdsCount < 1024 && subIfdsType == 4) {
+        uint32_t valOff = rd32(subIfdsOff);
+        if (valOff + subIfdsCount * 4u <= size) {
+            for (uint32_t i = 0; i < subIfdsCount; ++i)
+                subOffsets.push_back(rd32(valOff + i * 4u));
+        }
+    }
+    return true;
+}
+
+static std::vector<IfdInfo> EnumerateTiffIfds(const uint8_t* data, size_t size) {
+    std::vector<IfdInfo> out;
+    if (size < 8) return out;
+    bool le = TiffIsLE(data, size);
+    if (data[0] != 0x49 && data[0] != 0x4D) return out;
+    auto rd32 = [&](size_t o) -> uint32_t {
+        if (o + 4 > size) return 0;
+        if (le) return data[o] | (data[o + 1] << 8) | (data[o + 2] << 16) | (data[o + 3] << 24);
+        return (data[o] << 24) | (data[o + 1] << 16) | (data[o + 2] << 8) | data[o + 3];
+    };
+    uint32_t off = rd32(4);
+    std::vector<uint32_t> visited;
+    int guard = 0;
+    while (off != 0 && off + 2 <= size && guard++ < 256) {
+        bool dup = false;
+        for (uint32_t v : visited) if (v == off) { dup = true; break; }
+        if (dup) break;
+        visited.push_back(off);
+        IfdInfo info;
+        std::vector<uint32_t> subs;
+        if (!ParseIfdDims(data, size, le, off, info, subs)) break;
+        out.push_back(info);
+        for (uint32_t s : subs) {
+            IfdInfo sinfo;
+            std::vector<uint32_t> dummy;
+            if (ParseIfdDims(data, size, le, s, sinfo, dummy)) out.push_back(sinfo);
+        }
+        size_t nextPos = static_cast<size_t>(off) + 2 + static_cast<size_t>(info.entryCount) * 12u;
+        if (nextPos + 4 > size) break;
+        off = rd32(nextPos);
+    }
+    return out;
+}
+
+static const IfdInfo* SelectThumbIfd(const std::vector<IfdInfo>& ifds, uint32_t targetPx) {
+    if (ifds.empty()) return nullptr;
+    // 1) explicit thumbnail subfile (NewSubfileType bit1) if adequate
+    for (auto& i : ifds)
+        if ((i.newSubfileType & 0x1) && i.w >= targetPx && i.h >= targetPx) return &i;
+    // 2) smallest IFD whose max dimension >= targetPx
+    const IfdInfo* best = nullptr;
+    uint32_t bestMax = UINT32_MAX;
+    for (auto& i : ifds) {
+        uint32_t m = std::max(i.w, i.h);
+        if (m >= targetPx && m < bestMax) { best = &i; bestMax = m; }
+    }
+    if (best) return best;
+    // 3) fallback: largest IFD (primary full-res) — caller decodes full res
+    best = &ifds[0];
+    uint32_t bm = 0;
+    for (auto& i : ifds) {
+        uint32_t m = std::max(i.w, i.h);
+        if (m > bm) { best = &i; bm = m; }
+    }
+    return best;
+}
+
 HRESULT Load(const uint8_t* data, size_t size,
              const QuickView::Codec::DecodeContext& ctx,
              QuickView::Codec::DecodeResult& result) {
+    // Preview/thumbnail request: decode only a reduced-resolution IFD when the
+    // file has one, instead of the full-resolution primary IFD.
+    if (ctx.forcePreview) {
+        std::vector<IfdInfo> ifds = EnumerateTiffIfds(data, size);
+        uint32_t targetPx = (ctx.targetWidth > 0)
+                                ? static_cast<uint32_t>(ctx.targetWidth)
+                                : 256;
+        const IfdInfo* pick = SelectThumbIfd(ifds, targetPx);
+        if (pick) {
+            TiffImageDesc desc;
+            Status st = ParseTiffIFD(data, size, desc, pick->off);
+            if (st == Status::Ok && CapabilityGate(desc) == Status::Ok)
+                return LoadRegion(data, size, ctx, result, 0, 0, desc.width, desc.height);
+            // Chosen IFD unsupported (exotic bit depth): fall through to the
+            // primary IFD below so we never regress to "no thumbnail".
+        }
+    }
+
     TiffImageDesc desc;
     Status status = ParseTiffIFD(data, size, desc);
     if (status != Status::Ok) {

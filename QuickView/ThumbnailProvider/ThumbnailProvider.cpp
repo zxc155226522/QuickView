@@ -21,6 +21,13 @@
 #include <vector>
 #include <cctype>
 #include <objidl.h>          // STATSTG, STATFLAG_NONAME
+#include <atomic>            // bounded one-shot worker fallback
+
+// Bound concurrent one-shot worker spawns so extreme server overflow (e.g.
+// >kSlowCap CDR requests at once) cannot re-create the old per-thumbnail
+// process storm.
+static const int kOneShotMax = 4;
+static std::atomic<int> g_oneShotActive{0};
 
 // ============================================================================
 // Manual interface declarations (kept minimal; the project's adaptive SDK
@@ -592,12 +599,20 @@ public:
         // drops are rare; the fallback only covers overflow, so it cannot
         // re-create the old per-thumbnail process storm.
         if (!hbmp) {
-            DbgLog(L"  fallback one-shot worker");
-            std::wstring tmpBmp = MakeTempBmpPath();
-            if (!tmpBmp.empty()) {
-                if (RunThumbnailWorker(exePath, inputPath, tmpBmp, cx))
-                    hbmp = LoadWorkerBmp(tmpBmp);
-                DeleteFileW(tmpBmp.c_str());
+            int cur = g_oneShotActive.load(std::memory_order_relaxed);
+            if (cur < kOneShotMax &&
+                g_oneShotActive.compare_exchange_weak(cur, cur + 1,
+                                                      std::memory_order_acq_rel)) {
+                DbgLog(L"  fallback one-shot worker");
+                std::wstring tmpBmp = MakeTempBmpPath();
+                if (!tmpBmp.empty()) {
+                    if (RunThumbnailWorker(exePath, inputPath, tmpBmp, cx))
+                        hbmp = LoadWorkerBmp(tmpBmp);
+                    DeleteFileW(tmpBmp.c_str());
+                }
+                --g_oneShotActive;
+            } else {
+                DbgLog(L"  one-shot fallback skipped (concurrency cap reached)");
             }
         }
 

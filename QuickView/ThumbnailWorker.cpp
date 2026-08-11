@@ -244,9 +244,17 @@ static std::queue<PipeTask> g_largeQ;
 static std::mutex g_largeMtx;
 static std::condition_variable g_largeCv;
 
-// Capacity of each slow (single-threaded) channel. Higher than the old shared
-// 4 so a folder full of CDR/large files queues instead of being dropped stale.
-static const size_t kSlowCap = 16;
+// Capacity of each slow channel. High enough that a folder with dozens of
+// CDR/large files queues instead of being dropped stale (the real cause of
+// ">16 CDR at once" failures). Overflow beyond this is rare and handled by the
+// bounded one-shot fallback in the provider.
+static const size_t kSlowCap = 64;
+
+// Number of CDR/CMX worker threads. Each owns its own CImageLoader with
+// m_bPopulateCdrCache=false (so it never touches the shared g_cdrPageCache),
+// letting CDR render in parallel. The original single-thread limit existed
+// only because of that shared global; isolating it makes N threads safe.
+static const int kCdrThreads = 2;
 
 // Decode-target cap for large-file thumbnails: render at a smaller size to cut
 // decode cost / timeout risk (the on-screen thumbnail is tiny anyway).
@@ -448,6 +456,7 @@ static void ParallelWorker() {
 static void CdrWorker() {
   CoInitializeEx(nullptr, COINIT_MULTITHREADED);
   CImageLoader loader;
+  loader.m_bPopulateCdrCache = false; // server never uses the page-nav cache
   while (true) {
     PipeTask t;
     {
@@ -568,7 +577,8 @@ int QuickView::RunThumbnailServer(int argc, LPWSTR* argv) {
   std::vector<std::thread> workers;
   for (int i = 0; i < g_cfg.threads; ++i)
     workers.emplace_back(ParallelWorker);
-  workers.emplace_back(CdrWorker);
+  for (int i = 0; i < kCdrThreads; ++i)
+    workers.emplace_back(CdrWorker);
   workers.emplace_back(LargeWorker);
 
   OVERLAPPED ol = {};

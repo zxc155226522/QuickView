@@ -553,6 +553,17 @@ private:
 
   // Custom PCX Decoder
   HRESULT LoadPCX(LPCWSTR filePath, IWICBitmap **ppBitmap);
+
+  // Thumbnail server sets this false so LoadCDR skips the shared global
+  // g_cdrPageCache (ImageLoader.cpp:62); lets CDR render on multiple worker
+  // threads without locking. Main app keeps it true for page-navigation
+  // caching.
+  public:
+  // Thumbnail server sets this false so LoadCDR skips the shared global
+  // g_cdrPageCache (ImageLoader.cpp:62); lets CDR render on multiple worker
+  // threads without locking. Main app keeps it true for page-navigation
+  // caching.
+  bool m_bPopulateCdrCache = true;
 };
 
 // [CDR/CMX Multi-page] Cached SVG page data for multi-page CDR/CMX documents.
