@@ -23,6 +23,19 @@ struct DecodeResult;
 // scale = fitScale (target / viewBox); minVisiblePx = minimum on-screen stroke width (px).
 bool QvUpscaleSvgStrokeWidths(std::string &svgXml, float minVisiblePx, float scale);
 
+// [resvg] Rasterize an in-memory SVG (xml) to a straight BGRA8888 buffer,
+// scaling the SVG's natural size by `zoom`. Optional out params return the
+// natural size and the actual rendered size. Replaces the D2D
+// ID2D1SvgDocument path (which only supports a SVG subset and drops
+// <image>/filters/clips, causing blank main view for CDR/AI that embed
+// bitmaps). whiteBg composites over white; loadFonts loads system fonts
+// (only needed for the main view, not cheap thumbnails).
+HRESULT QvRasterizeSvgResvg(const std::vector<uint8_t> &xml, float zoom,
+                            std::vector<uint8_t> &outBgra, bool whiteBg,
+                            bool loadFonts = false, uint32_t *outNaturalW = nullptr,
+                            uint32_t *outNaturalH = nullptr, uint32_t *outW = nullptr,
+                            uint32_t *outH = nullptr);
+
 } // namespace QuickView
 
 /// <summary>

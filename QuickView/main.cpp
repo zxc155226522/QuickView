@@ -11421,6 +11421,56 @@ void ProcessEngineEvents(HWND hwnd) {
                         const float svgW = evt.rawFrame->svg->viewBoxW;
                         const float svgH = evt.rawFrame->svg->viewBoxH;
 
+                        // [resvg] Detect embedded bitmaps (<image>). D2D's
+                        // ID2D1SvgDocument only supports a SVG subset and cannot
+                        // render <image>/filters/clips/masks, which would leave
+                        // the main view blank for many CDR/AI files. Those are
+                        // routed through resvg (full SVG support) as a raster
+                        // bitmap; everything else keeps the crisp D2D vector path.
+                        auto svgContains = [&](const char* needle) -> bool {
+                            const size_t nl = strlen(needle);
+                            if (xml.size() < nl) return false;
+                            for (size_t i = 0; i + nl <= xml.size(); ++i)
+                                if (memcmp(xml.data() + i, needle, nl) == 0) return true;
+                            return false;
+                        };
+                        const bool hasEmbeddedImage =
+                            svgContains("<image") ||
+                            svgContains("xlink:href=\"data:image") ||
+                            svgContains("href=\"data:image");
+
+                        // [resvg] Render the SVG via the resvg library into a D2D
+                        // bitmap. Used for embedded-bitmap SVGs and as a safety
+                        // net when D2D's SVG subset fails. isSvg stays false so
+                        // the proven bitmap pipeline displays it (crisp via
+                        // supersampling; capped inside the helper).
+                        auto renderSvgViaResvg = [&]() -> bool {
+                            if (!g_renderEngine) return false;
+                            std::vector<uint8_t> bgra;
+                            uint32_t nW=0,nH=0,rW=0,rH=0;
+                            if (FAILED(QuickView::QvRasterizeSvgResvg(
+                                    xml, 3.0f, bgra, true, true, &nW, &nH, &rW, &rH)))
+                                return false;
+                            if (rW == 0 || rH == 0) return false;
+                            QuickView::RawImageFrame frame;
+                            frame.pixels = bgra.data();
+                            frame.width = (int)rW;
+                            frame.height = (int)rH;
+                            frame.stride = (int)(rW * 4);
+                            frame.format = QuickView::PixelFormat::BGRA8888;
+                            ComPtr<ID2D1Bitmap> bmp;
+                            if (FAILED(g_renderEngine->UploadRawFrameToGPU(frame, &bmp)) || !bmp)
+                                return false;
+                            GetPaneContext(PaneSlot::Primary).resource.Reset();
+                            GetPaneContext(PaneSlot::Primary).resource.bitmap = bmp;
+                            return true;
+                        };
+
+                        if (hasEmbeddedImage) {
+                            // Route embedded-bitmap SVGs through resvg directly.
+                            if (renderSvgViaResvg()) { resourceReady = true; hr = S_OK; }
+                            else hr = E_FAIL;
+                        } else {
                         // [CDR Fix] Large-coordinate CDR SVG scaled to fit the window
                         // becomes sub-pixel thin and the white page rect dominates ->
                         // blank main view. Upscale stroke widths at the initial fit
@@ -11465,6 +11515,15 @@ void ProcessEngineEvents(HWND hwnd) {
                              
                              hr = ctx5->CreateSvgDocument(stream.Get(), vpSize, &GetPaneContext(PaneSlot::Primary).resource.svgDoc);
                          } else hr = E_OUTOFMEMORY;
+
+                         if (SUCCEEDED(hr)) {
+                             resourceReady = true;
+                         } else if (renderSvgViaResvg()) {
+                             // [resvg] D2D SVG subset failed -> safety net.
+                             resourceReady = true;
+                             hr = S_OK;
+                         }
+                        } // end else (D2D vector path)
                      } else hr = E_NOINTERFACE;
                      
                      if (SUCCEEDED(hr)) {
@@ -13938,6 +13997,8 @@ void HandleCdrPageStep(HWND hwnd, uint32_t targetPage) {
     const float svgH = pageData.viewBoxH;
     if (svgW <= 0 || svgH <= 0) return;
 
+    auto& pane = GetPaneContext(PaneSlot::Primary);
+
     // Create D2D SvgDocument from cached XML (same logic as FullReady SVG path)
     ComPtr<ID2D1DeviceContext> ctxBase = g_renderEngine->GetDeviceContext();
     ComPtr<ID2D1DeviceContext5> ctx5;
@@ -13965,23 +14026,66 @@ void HandleCdrPageStep(HWND hwnd, uint32_t targetPage) {
     if (vpSize.width <= 0) vpSize.width = 100;
     if (vpSize.height <= 0) vpSize.height = 100;
 
-    ComPtr<ID2D1SvgDocument> svgDoc;
-    HRESULT hr = ctx5->CreateSvgDocument(stream.Get(), vpSize, &svgDoc);
-    if (FAILED(hr) || !svgDoc) {
-        g_osd.Show(hwnd, L"SVG 文档创建失败", true);
-        return;
+    // [resvg] D2D cannot render <image>/filters/clips/masks; route those
+    // (and any D2D failure) through resvg as a raster bitmap so paged CDR/AI
+    // with embedded bitmaps no longer show blank in the page panel.
+    auto pageContains = [&](const char* needle) -> bool {
+        const size_t nl = strlen(needle);
+        const auto& pd = pageData.xmlData;
+        if (pd.size() < nl) return false;
+        for (size_t i = 0; i + nl <= pd.size(); ++i)
+            if (memcmp(pd.data() + i, needle, nl) == 0) return true;
+        return false;
+    };
+    const bool pageHasImage = pageContains("<image") ||
+                              pageContains("xlink:href=\"data:image") ||
+                              pageContains("href=\"data:image");
+
+    auto renderPageViaResvg = [&]() -> bool {
+        if (!g_renderEngine) return false;
+        std::vector<uint8_t> bgra;
+        uint32_t nW=0,nH=0,rW=0,rH=0;
+        if (FAILED(QuickView::QvRasterizeSvgResvg(pageData.xmlData, 3.0f, bgra,
+                true, true, &nW, &nH, &rW, &rH))) return false;
+        if (rW == 0 || rH == 0) return false;
+        QuickView::RawImageFrame frame;
+        frame.pixels = bgra.data();
+        frame.width = (int)rW;
+        frame.height = (int)rH;
+        frame.stride = (int)(rW * 4);
+        frame.format = QuickView::PixelFormat::BGRA8888;
+        ComPtr<ID2D1Bitmap> bmp;
+        if (FAILED(g_renderEngine->UploadRawFrameToGPU(frame, &bmp)) || !bmp) return false;
+        pane.resource.Reset();
+        pane.resource.bitmap = bmp;
+        return true;
+    };
+
+    if (pageHasImage) {
+        if (!renderPageViaResvg()) {
+            g_osd.Show(hwnd, L"SVG 位图渲染失败", true);
+            return;
+        }
+    } else {
+        ComPtr<ID2D1SvgDocument> svgDoc;
+        HRESULT hr = ctx5->CreateSvgDocument(stream.Get(), vpSize, &svgDoc);
+        if (FAILED(hr) || !svgDoc) {
+            // [resvg] D2D SVG subset failed -> safety net.
+            if (!renderPageViaResvg()) {
+                g_osd.Show(hwnd, L"SVG 文档创建失败", true);
+                return;
+            }
+        } else {
+            pane.resource.Reset();
+            pane.resource.isSvg = true;
+            pane.resource.svgW = svgW;
+            pane.resource.svgH = svgH;
+            pane.resource.svgDoc = svgDoc;
+        }
     }
 
     // Update paged state
     g_pagedDoc.currentPage = targetPage;
-
-    // Update resources
-    auto& pane = GetPaneContext(PaneSlot::Primary);
-    pane.resource.Reset();
-    pane.resource.isSvg = true;
-    pane.resource.svgW = svgW;
-    pane.resource.svgH = svgH;
-    pane.resource.svgDoc = svgDoc;
 
     // Update metadata for new page dimensions
     pane.metadata.Width = (UINT)svgW;

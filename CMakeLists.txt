@@ -138,7 +138,7 @@ endif()
 set_target_properties(QuickView PROPERTIES LINK_FLAGS "${QUICKVIEW_LINK_FLAGS}")
 
 # Include paths
-target_include_directories(QuickView PRIVATE QuickView third_party/yyjson third_party/unrar-mini)
+target_include_directories(QuickView PRIVATE QuickView third_party/yyjson third_party/unrar-mini third_party/resvg/include)
 
 # Precompiled Headers (PCH) - CXX only to avoid conflict with C source (yyjson.c)
 target_precompile_headers(QuickView PRIVATE $<$<COMPILE_LANGUAGE:CXX>:pch.h>)
@@ -325,6 +325,7 @@ target_link_libraries(QuickView PRIVATE
     unrar-mini
     librevenge
     libcdr
+    third_party/resvg/lib/resvg.lib
     unofficial::libmupdf::libmupdf
     libdxfrw::libdxfrw
     # Windows system libraries
@@ -334,6 +335,18 @@ target_link_libraries(QuickView PRIVATE
     shlwapi.lib
     shell32.lib
     mscms.lib
+    # resvg C-API 是 Rust 静态库，其 Rust std 依赖以下 Windows 导入库（否则 lld-link 报 undefined symbol）
+    ntdll.lib
+    userenv.lib
+    advapi32.lib
+    kernel32.lib
+    user32.lib
+    gdi32.lib
+    ws2_32.lib
+    bcrypt.lib
+    crypt32.lib
+    iphlpapi.lib
+    normaliz.lib
 )
 
 # ============================================================================

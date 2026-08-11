@@ -8,6 +8,7 @@
 #include <vector>
 #include <wincodec.h>
 #include <wincodecsdk.h>
+#include "resvg.h"            // [resvg] Rust/MIT SVG rasterizer (replaces D2D SVG subset)
 
 
 #include "ImageLoader.h"
@@ -4082,6 +4083,92 @@ bool QvUpscaleSvgStrokeWidths(std::string &svgXml, float minVisiblePx, float sca
   }
   return changed;
 }
+
+// [resvg] See header. Renders SVG via the resvg library (Rust/MIT) into a
+// straight BGRA8888 buffer. resvg supports the full SVG feature set including
+// <image>, filters, clips and masks — unlike D2D's ID2D1SvgDocument subset.
+HRESULT QvRasterizeSvgResvg(const std::vector<uint8_t> &xml, float zoom,
+                            std::vector<uint8_t> &outBgra, bool whiteBg,
+                            bool loadFonts, uint32_t *outNaturalW,
+                            uint32_t *outNaturalH, uint32_t *outW,
+                            uint32_t *outH) {
+  if (xml.empty() || zoom <= 0.0f)
+    return E_INVALIDARG;
+
+  resvg_options *opt = resvg_options_create();
+  if (!opt)
+    return E_OUTOFMEMORY;
+  if (loadFonts)
+    resvg_options_load_system_fonts(opt);
+
+  resvg_render_tree *tree = nullptr;
+  int32_t err = resvg_parse_tree_from_data(
+      reinterpret_cast<const char *>(xml.data()), xml.size(), opt, &tree);
+  resvg_options_destroy(opt);
+  if (err != RESVG_OK || !tree)
+    return E_FAIL;
+
+  resvg_size size = resvg_get_image_size(tree);
+  uint32_t nW = (uint32_t)std::lround(size.width);
+  uint32_t nH = (uint32_t)std::lround(size.height);
+  if (nW == 0) nW = 1;
+  if (nH == 0) nH = 1;
+  uint32_t rW = (uint32_t)std::lround(size.width * zoom);
+  uint32_t rH = (uint32_t)std::lround(size.height * zoom);
+  if (rW == 0) rW = 1;
+  if (rH == 0) rH = 1;
+  // [resvg] Cap the rendered bitmap so a huge viewBox (e.g. CDR at 0 0 50000)
+  // doesn't allocate gigabytes. Preserve aspect ratio.
+  const uint32_t kMaxResvgDim = 8192;
+  if (rW > kMaxResvgDim || rH > kMaxResvgDim) {
+    float k = (float)kMaxResvgDim / (float)std::max(rW, rH);
+    rW = (uint32_t)std::lround(rW * k);
+    rH = (uint32_t)std::lround(rH * k);
+  }
+  if (outNaturalW) *outNaturalW = nW;
+  if (outNaturalH) *outNaturalH = nH;
+  if (outW) *outW = rW;
+  if (outH) *outH = rH;
+
+  std::vector<uint8_t> pixmap((size_t)rW * rH * 4, 0);
+  resvg_transform t = {zoom, 0.0f, 0.0f, zoom, 0.0f, 0.0f};
+  resvg_render(tree, t, rW, rH, reinterpret_cast<char *>(pixmap.data()));
+  resvg_tree_destroy(tree);
+
+  // resvg emits premultiplied RGBA8888; convert to straight BGRA8888.
+  outBgra.assign((size_t)rW * rH * 4, 0);
+  for (uint32_t i = 0; i < rW * rH; ++i) {
+    const uint8_t *src = pixmap.data() + (size_t)i * 4;
+    uint8_t *dst = outBgra.data() + (size_t)i * 4;
+    const uint8_t pa = src[3];
+    if (pa == 0) {
+      if (whiteBg) {
+        dst[0] = dst[1] = dst[2] = 255;
+        dst[3] = 255;
+      } else {
+        dst[0] = dst[1] = dst[2] = dst[3] = 0;
+      }
+    } else {
+      const uint32_t invA = 65025U / pa; // 255*255/pa
+      const uint8_t r = (uint8_t)((uint32_t)src[0] * invA / 255);
+      const uint8_t g = (uint8_t)((uint32_t)src[1] * invA / 255);
+      const uint8_t bl = (uint8_t)((uint32_t)src[2] * invA / 255);
+      if (whiteBg) {
+        dst[0] = (uint8_t)bl + (255 - pa);
+        dst[1] = (uint8_t)g + (255 - pa);
+        dst[2] = (uint8_t)r + (255 - pa);
+        dst[3] = 255;
+      } else {
+        dst[0] = bl;
+        dst[1] = g;
+        dst[2] = r;
+        dst[3] = pa;
+      }
+    }
+  }
+  return S_OK;
+}
+
 } // namespace QuickView
 
 static HRESULT RasterizeSvgThumbnail(const std::vector<uint8_t> &xmlData,
@@ -4097,8 +4184,6 @@ static HRESULT RasterizeSvgThumbnail(const std::vector<uint8_t> &xmlData,
   const int maxDim = targetSize > 0 ? targetSize : 512;
   const float scale =
       (std::min)(1.0f, (float)maxDim / (std::max)(safeW, safeH));
-  const UINT outW = (UINT)(std::max)(1, (int)std::lround(safeW * scale));
-  const UINT outH = (UINT)(std::max)(1, (int)std::lround(safeH * scale));
 
   // [Fix] Scale up stroke-width in SVG XML so lines remain visible when
   // rasterized to a small thumbnail. Without this, a stroke-width of 1-2
@@ -4113,160 +4198,29 @@ static HRESULT RasterizeSvgThumbnail(const std::vector<uint8_t> &xmlData,
     processedXml.assign(xmlStr.begin(), xmlStr.end());
   }
 
-  // [Perf] Reuse D3D/D2D device across calls (thread_local) to avoid
-  // creating a WARP device per thumbnail — which froze the system when
-  // processing 70+ vector files in rapid succession.
-  struct SvgRasterDevice {
-    ComPtr<ID3D11Device> d3dDevice;
-    ComPtr<ID3D11DeviceContext> d3dContext;
-    ComPtr<ID2D1Factory1> d2dFactory;
-    ComPtr<ID2D1Device> d2dDevice;
-    ComPtr<ID2D1DeviceContext5> d2dContext5;
-    bool init = false;
-  };
-  thread_local SvgRasterDevice t_dev;
-
-  if (!t_dev.init) {
-    UINT creationFlags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
-    D3D_FEATURE_LEVEL fl = D3D_FEATURE_LEVEL_11_0;
-    HRESULT hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr,
-                                   creationFlags, &fl, 1, D3D11_SDK_VERSION,
-                                   &t_dev.d3dDevice, nullptr, &t_dev.d3dContext);
-    if (FAILED(hr))
-      return hr;
-
-    D2D1_FACTORY_OPTIONS options = {};
-    hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED,
-                           __uuidof(ID2D1Factory1), &options,
-                           reinterpret_cast<void **>(t_dev.d2dFactory.GetAddressOf()));
-    if (FAILED(hr))
-      return hr;
-
-    ComPtr<IDXGIDevice> dxgiDevice;
-    hr = t_dev.d3dDevice.As(&dxgiDevice);
-    if (FAILED(hr))
-      return hr;
-
-    hr = t_dev.d2dFactory->CreateDevice(dxgiDevice.Get(), &t_dev.d2dDevice);
-    if (FAILED(hr))
-      return hr;
-
-    ComPtr<ID2D1DeviceContext> d2dCtx;
-    hr = t_dev.d2dDevice->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE,
-                                              &d2dCtx);
-    if (FAILED(hr))
-      return hr;
-
-    hr = d2dCtx.As(&t_dev.d2dContext5);
-    if (FAILED(hr))
-      return hr;
-
-    t_dev.init = true;
-  }
-
-  HRESULT hr = S_OK;
-
-  D3D11_TEXTURE2D_DESC texDesc = {};
-  texDesc.Width = outW;
-  texDesc.Height = outH;
-  texDesc.MipLevels = 1;
-  texDesc.ArraySize = 1;
-  texDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-  texDesc.SampleDesc.Count = 1;
-  texDesc.Usage = D3D11_USAGE_DEFAULT;
-  texDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-
-  ComPtr<ID3D11Texture2D> renderTex;
-  hr = t_dev.d3dDevice->CreateTexture2D(&texDesc, nullptr, &renderTex);
+  // [resvg] Render via the resvg library instead of D2D's ID2D1SvgDocument.
+  // resvg supports the full SVG feature set (<image>, filters, clips, masks),
+  // so CDR/AI/SVG/PDF that embed bitmaps no longer render blank. It also drops
+  // the per-thread WARP D3D device that used to freeze the thumbnail server.
+  std::vector<uint8_t> bgra;
+  uint32_t rw = 0, rh = 0;
+  HRESULT hr = QuickView::QvRasterizeSvgResvg(processedXml, scale, bgra,
+                                              !transparentBg, false, nullptr,
+                                              nullptr, &rw, &rh);
   if (FAILED(hr))
     return hr;
 
-  ComPtr<IDXGISurface> dxgiSurface;
-  hr = renderTex.As(&dxgiSurface);
-  if (FAILED(hr))
-    return hr;
+  pData->width = (int)rw;
+  pData->height = (int)rh;
+  pData->stride = CalculateAlignedStride((int)rw, 4);
+  pData->pixels.resize((size_t)pData->stride * rh);
 
-  D2D1_BITMAP_PROPERTIES1 targetProps = D2D1::BitmapProperties1(
-      D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
-      D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM,
-                        D2D1_ALPHA_MODE_PREMULTIPLIED),
-      96.0f, 96.0f);
-
-  ComPtr<ID2D1Bitmap1> targetBitmap;
-  hr = t_dev.d2dContext5->CreateBitmapFromDxgiSurface(dxgiSurface.Get(), &targetProps,
-                                                &targetBitmap);
-  if (FAILED(hr))
-    return hr;
-
-  HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, processedXml.size());
-  if (!hMem)
-    return E_OUTOFMEMORY;
-
-  ComPtr<IStream> stream;
-  void *mem = GlobalLock(hMem);
-  if (!mem) {
-    GlobalFree(hMem);
-    return E_OUTOFMEMORY;
-  }
-  memcpy(mem, processedXml.data(), processedXml.size());
-  GlobalUnlock(hMem);
-  hr = CreateStreamOnHGlobal(hMem, TRUE, &stream);
-  if (FAILED(hr)) {
-    GlobalFree(hMem);
-    return hr;
-  }
-
-  ComPtr<ID2D1SvgDocument> svgDoc;
-  hr = t_dev.d2dContext5->CreateSvgDocument(stream.Get(), D2D1::SizeF(safeW, safeH),
-                                      &svgDoc);
-  if (FAILED(hr))
-    return hr;
-
-  t_dev.d2dContext5->SetTarget(targetBitmap.Get());
-  t_dev.d2dContext5->BeginDraw();
-  // Shell thumbnail worker uses transparent background (Explorer draws its
-  // own plate behind the thumbnail); in-app gallery keeps the white plate.
-  t_dev.d2dContext5->Clear(transparentBg
-                               ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f)
-                               : D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f));
-  t_dev.d2dContext5->SetTransform(
-      D2D1::Matrix3x2F::Scale((float)outW / safeW, (float)outH / safeH));
-  t_dev.d2dContext5->DrawSvgDocument(svgDoc.Get());
-  hr = t_dev.d2dContext5->EndDraw();
-  if (FAILED(hr))
-    return hr;
-
-  D3D11_TEXTURE2D_DESC stagingDesc = texDesc;
-  stagingDesc.BindFlags = 0;
-  stagingDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-  stagingDesc.Usage = D3D11_USAGE_STAGING;
-  stagingDesc.MiscFlags = 0;
-
-  ComPtr<ID3D11Texture2D> stagingTex;
-  hr = t_dev.d3dDevice->CreateTexture2D(&stagingDesc, nullptr, &stagingTex);
-  if (FAILED(hr))
-    return hr;
-
-  t_dev.d3dContext->CopyResource(stagingTex.Get(), renderTex.Get());
-
-  D3D11_MAPPED_SUBRESOURCE mapped = {};
-  hr = t_dev.d3dContext->Map(stagingTex.Get(), 0, D3D11_MAP_READ, 0, &mapped);
-  if (FAILED(hr))
-    return hr;
-
-  pData->width = (int)outW;
-  pData->height = (int)outH;
-  pData->stride = CalculateAlignedStride((int)outW, 4);
-  pData->pixels.resize((size_t)pData->stride * outH);
-
-  for (UINT y = 0; y < outH; ++y) {
+  const UINT rowBytes = rw * 4;
+  for (UINT y = 0; y < rh; ++y) {
     memcpy(pData->pixels.data() + (size_t)y * pData->stride,
-           static_cast<const uint8_t *>(mapped.pData) +
-               (size_t)y * mapped.RowPitch,
-           outW * 4);
+           bgra.data() + (size_t)y * rowBytes, rowBytes);
   }
 
-  t_dev.d3dContext->Unmap(stagingTex.Get(), 0);
   pData->isValid = true;
   pData->isBlurry = false;
   return S_OK;

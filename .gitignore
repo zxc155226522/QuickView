@@ -133,3 +133,6 @@ Local-Files/
 # Debug residue (stray > redirect output, not source) — blocks `git add -A` on reserved/invalid names
 nul
 QuickView.Vector
+
+# resvg cargo 源码（可重新 clone，体积巨大）；预编译库在 third_party/resvg/lib（由 *.lib 规则忽略）
+third_party/resvg_src/
