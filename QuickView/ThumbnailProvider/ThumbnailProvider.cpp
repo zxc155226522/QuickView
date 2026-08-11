@@ -468,47 +468,23 @@ public:
         if (!pstream) return E_POINTER;
         if (!m_path.empty()) return HRESULT_FROM_WIN32(ERROR_ALREADY_INITIALIZED);
 
-        // 读取流内容到内存。优先用 Stat() 取真实大小后一次性读取，
-        // 避免依赖某些 Shell IStream 在 EOF 上不可靠的终止信号
-        // （否则会无限读取直到触发上限熔断，导致缩略图全部失效）。
-        std::vector<uint8_t> buf;
-        const ULONGLONG kMaxBytes = 200ull * 1024ull * 1024ull;
-        STATSTG stat = {0};
-        ULARGE_INTEGER cb = {0};
-        if (SUCCEEDED(pstream->Stat(&stat, STATFLAG_NONAME))) cb = stat.cbSize;
-        if (cb.QuadPart > 0 && cb.QuadPart <= kMaxBytes) {
-            buf.resize((size_t)cb.QuadPart);
-            ULONG got = 0;
-            HRESULT shr = pstream->Read(buf.data(), (ULONG)cb.QuadPart, &got);
-            if (FAILED(shr) || got == 0) { buf.clear(); }
-            else { buf.resize(got); }
-        }
-        if (buf.empty()) {
-            // 退化路径：流式读取，带"无进展"熔断，防止个别流不推进位置而无限循环。
-            BYTE chunk[4096];
-            ULONG got = 0;
-            ULONGLONG lastSize = 0;
-            for (;;) {
-                HRESULT shr = pstream->Read(chunk, sizeof(chunk), &got);
-                if (got == 0) break;
-                if (FAILED(shr)) break;
-                buf.insert(buf.end(), chunk, chunk + got);
-                if (buf.size() > kMaxBytes) { DbgLog(L"  stream too large, abort"); return E_OUTOFMEMORY; }
-                if (buf.size() == lastSize) break; // 无进展熔断
-                lastSize = buf.size();
-                if (got < sizeof(chunk)) break;
-            }
-        }
-        if (buf.empty()) { DbgLog(L"  stream empty/read fail"); return E_FAIL; }
+        // 流式 spill：先读前缀用于 magic 判定，后续边读流边写临时文件。
+        // 内存恒定（仅 64KB 缓冲），去掉原先 200MB 内存上限，
+        // 超大 TIF（300MB+）也能顺利交给 worker。仅保留 2GB 上限防异常流。
+        std::vector<uint8_t> head(64);
+        ULONG got = 0;
+        HRESULT shr = pstream->Read(head.data(), (ULONG)head.size(), &got);
+        if (FAILED(shr) || got == 0) { DbgLog(L"  stream read head fail"); return E_FAIL; }
+        head.resize(got);
 
         // Magic-byte detection. Order matters: PDF/CDR/DWG headers are
         // unambiguous; DXF is a known ASCII prologue; PLT/HPGL is anything
         // else that looks like plain ASCII text.
         // 跳过 UTF-8 BOM（EF BB BF）。带 BOM 的 SVG/XML 在第 0 字节是 0xEF，
         // 直接比 "<svg"/"<?xml" 会失败，被下方 ASCII 兜底误判为 plt 而渲染失败
-        // （桌面导出的 SVG 常带 BOM）。仅用于 magic 判定；写临时文件仍用原始 buf。
-        const unsigned char* p = buf.data();
-        size_t n = buf.size();
+        // （桌面导出的 SVG 常带 BOM）。仅用于 magic 判定；写临时文件用原始 head（未被偏移改动）。
+        const unsigned char* p = head.data();
+        size_t n = head.size();
         if (n >= 3 && p[0] == 0xEF && p[1] == 0xBB && p[2] == 0xBF) { p += 3; n -= 3; }
 
         const wchar_t* ext = L"bin";
@@ -552,11 +528,32 @@ public:
         HANDLE h = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
                                FILE_ATTRIBUTE_NORMAL, nullptr);
         if (h == INVALID_HANDLE_VALUE) return E_FAIL;
+        // 写前缀（原始字节，魔法判定只用了偏移后的 p，head 本身未改动）
         DWORD written = 0;
-        BOOL ok = WriteFile(h, buf.data(), (DWORD)buf.size(), &written, nullptr) != 0
-                  && written == buf.size();
+        if (!WriteFile(h, head.data(), (DWORD)head.size(), &written, nullptr)
+            || written != head.size()) {
+            CloseHandle(h); DeleteFileW(path); return E_FAIL;
+        }
+        // 流式读剩余内容并追加（内存恒定，仅 chunk 缓冲）
+        const ULONGLONG kMaxStream = 2ULL * 1024 * 1024 * 1024; // 2GB 防异常流
+        BYTE chunk[65536];
+        ULONGLONG total = head.size();
+        for (;;) {
+            ULONG r = 0;
+            HRESULT sr = pstream->Read(chunk, sizeof(chunk), &r);
+            if (r == 0) break;
+            if (FAILED(sr)) break;
+            DWORD w = 0;
+            if (!WriteFile(h, chunk, r, &w, nullptr) || w != r) {
+                CloseHandle(h); DeleteFileW(path); return E_FAIL;
+            }
+            total += r;
+            if (total > kMaxStream) {
+                DbgLog(L"  stream too large, abort");
+                CloseHandle(h); DeleteFileW(path); return E_OUTOFMEMORY;
+            }
+        }
         CloseHandle(h);
-        if (!ok) { DeleteFileW(path); return E_FAIL; }
 
         m_path = path;
         DbgLog((std::wstring(L"  temp=") + m_path).c_str());

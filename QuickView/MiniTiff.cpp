@@ -1100,6 +1100,12 @@ static HRESULT LoadUncompressedPreview(const uint8_t* data, size_t size,
             if (photometric == 2) {                   // RGB / RGBA
                 r = sp[0]; g = sp[1]; b = sp[2];
                 a = (samples >= 4) ? sp[3] : 255;
+            } else if (photometric == 5) {            // CMYK / CMYKA
+                // 复用主视图同款 CMYK→BGRA 转换，保证缩略图与主图视觉一致。
+                bool cmykPremultiply = (desc.extraSamples != 1);
+                ConvertCmykToBgra(sp, dstRow + static_cast<int>(ox) * 4, 1,
+                                  samples, cmykPremultiply);
+                continue;   // 已写入 dstRow，跳过下方直接赋值
             } else {                                   // Grayscale (0=white-is-0, 1=black-is-0)
                 uint8_t v = sp[0];
                 if (photometric == 0) v = static_cast<uint8_t>(255 - v);
@@ -1143,8 +1149,10 @@ static HRESULT DecodePreviewOrFull(const uint8_t* data, size_t size,
                                    uint32_t targetPx) {
     if (ctx.forcePreview && desc.compression == 1 && !desc.isTiled &&
         desc.bitsPerSample == 8 && desc.planarConfig == 1 && desc.predictor == 1 &&
-        (desc.photometric == 0 || desc.photometric == 1 || desc.photometric == 2) &&
-        (desc.samples == 1 || desc.samples == 3 || desc.samples == 4)) {
+        (desc.photometric == 0 || desc.photometric == 1 || desc.photometric == 2
+         || desc.photometric == 5) &&
+        (desc.samples == 1 || desc.samples == 3 || desc.samples == 4
+         || desc.samples == 5)) {
         HRESULT hr = LoadUncompressedPreview(data, size, ctx, result, desc, targetPx);
         if (hr == S_OK) return hr;
     }
