@@ -98,7 +98,7 @@ static const wchar_t* kThumbnailExts[] = {
 
 // Hard cap for a single thumbnail render. Explorer calls us on a thread pool;
 // a hung worker must not block extraction forever.
-static constexpr DWORD kWorkerTimeoutMs = 15000;
+static constexpr DWORD kPipeTimeoutMs = 60000; // raised from 15s: large/CDR thumbs need more time
 
 static LONG g_cRefModule = 0;
 static LONG g_cRefServer = 0;
@@ -163,7 +163,7 @@ static bool RunThumbnailWorker(const std::wstring& exePath,
         return false;
     }
 
-    DWORD wait = WaitForSingleObject(pi.hProcess, kWorkerTimeoutMs);
+    DWORD wait = WaitForSingleObject(pi.hProcess, kPipeTimeoutMs);
     bool ok = false;
     if (wait == WAIT_OBJECT_0) {
         DWORD exitCode = 1;
@@ -344,19 +344,19 @@ static PipeResult PipeTransaction(HANDLE hPipe, const std::wstring& inputPath, U
     if (!hEvent) return PipeResult::Error;
 
     uint32_t pathByteLen = static_cast<uint32_t>(inputPath.size() * sizeof(wchar_t));
-    bool ok = PipeWriteAll(hPipe, hEvent, &pathByteLen, sizeof(pathByteLen), 15000) &&
-              PipeWriteAll(hPipe, hEvent, inputPath.c_str(), pathByteLen, 15000) &&
-              PipeWriteAll(hPipe, hEvent, &size, sizeof(uint32_t), 15000);
+    bool ok = PipeWriteAll(hPipe, hEvent, &pathByteLen, sizeof(pathByteLen), kPipeTimeoutMs) &&
+              PipeWriteAll(hPipe, hEvent, inputPath.c_str(), pathByteLen, kPipeTimeoutMs) &&
+              PipeWriteAll(hPipe, hEvent, &size, sizeof(uint32_t), kPipeTimeoutMs);
     PipeResult result = PipeResult::Error;
     if (ok) {
         uint32_t status = 1;
-        if (PipeReadExact(hPipe, hEvent, &status, sizeof(status), 15000)) {
+        if (PipeReadExact(hPipe, hEvent, &status, sizeof(status), kPipeTimeoutMs)) {
             if (status == 0) {
                 uint32_t bmpLen = 0;
-                if (PipeReadExact(hPipe, hEvent, &bmpLen, sizeof(bmpLen), 15000) &&
+                if (PipeReadExact(hPipe, hEvent, &bmpLen, sizeof(bmpLen), kPipeTimeoutMs) &&
                     bmpLen > 0 && bmpLen <= 20 * 1024 * 1024) {
                     outBmp.resize(bmpLen);
-                    ok = PipeReadExact(hPipe, hEvent, outBmp.data(), bmpLen, 15000);
+                    ok = PipeReadExact(hPipe, hEvent, outBmp.data(), bmpLen, kPipeTimeoutMs);
                     result = ok ? PipeResult::Ok : PipeResult::Error;
                 } else {
                     result = PipeResult::Error;
@@ -584,11 +584,15 @@ public:
         PipeResult r = RequestThumbnailViaPipe(exePath, inputPath, cx, bmp);
         if (r == PipeResult::Ok)
             hbmp = BmpBytesToHBITMAP(bmp.data(), bmp.size());
-        else if (r == PipeResult::Stale)
-            DbgLog(L"  server dropped as stale (folder switched?), skip fallback");
+        else
+            DbgLog(L"  pipe not Ok (stale/error) -> fallback one-shot worker");
 
-        if (!hbmp && r != PipeResult::Stale) {
-            DbgLog(L"  pipe path unavailable, fallback one-shot worker");
+        // Any non-Ok result (server stale-drop or pipe error) falls back to the
+        // one-shot worker. The slow channels now queue (kSlowCap=16) so stale
+        // drops are rare; the fallback only covers overflow, so it cannot
+        // re-create the old per-thumbnail process storm.
+        if (!hbmp) {
+            DbgLog(L"  fallback one-shot worker");
             std::wstring tmpBmp = MakeTempBmpPath();
             if (!tmpBmp.empty()) {
                 if (RunThumbnailWorker(exePath, inputPath, tmpBmp, cx))

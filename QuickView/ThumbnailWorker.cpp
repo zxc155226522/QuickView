@@ -202,6 +202,11 @@ struct ServerConfig {
   uint64_t smallFileBytes = 5ULL * 1024 * 1024; // 5 MB default
 };
 
+// Pipe I/O timeout for the server side writing the response back to the
+// provider (mirrors the provider's kPipeTimeoutMs). Raised from 15s so large /
+// complex files don't get their response cut off mid-write.
+static constexpr DWORD kPipeTimeoutMs = 60000;
+
 struct PipeTask {
   HANDLE hPipe = INVALID_HANDLE_VALUE; // owned by this task once enqueued
   std::wstring path;
@@ -225,13 +230,27 @@ static std::mutex g_parallelMtx;
 static std::condition_variable g_parallelCv;
 static const size_t kParallelCap = 32;
 
-// Serial channel (large files + CDR/CMX): a single worker. Only this thread
-// ever touches g_cdrPageCache, so that shared global stays race-free without
-// any locking.
-static std::queue<PipeTask> g_serialQ;
-static std::mutex g_serialMtx;
-static std::condition_variable g_serialCv;
-static const size_t kSerialCap = 4;
+// CDR/CMX dedicated channel: a single worker. Only this thread ever touches
+// g_cdrPageCache (ImageLoader.cpp:62), so the shared global stays race-free
+// without locking. Splitting it from the large-file channel means CDR
+// thumbnails are never starved by (or block) large-file rendering.
+static std::queue<PipeTask> g_cdrQ;
+static std::mutex g_cdrMtx;
+static std::condition_variable g_cdrCv;
+
+// Large-file (non-CDR/CMX) dedicated channel: a single worker. Decoupled from
+// CDR so heavy large-file work doesn't serialize behind CDR parsing.
+static std::queue<PipeTask> g_largeQ;
+static std::mutex g_largeMtx;
+static std::condition_variable g_largeCv;
+
+// Capacity of each slow (single-threaded) channel. Higher than the old shared
+// 4 so a folder full of CDR/large files queues instead of being dropped stale.
+static const size_t kSlowCap = 16;
+
+// Decode-target cap for large-file thumbnails: render at a smaller size to cut
+// decode cost / timeout risk (the on-screen thumbnail is tiny anyway).
+static const uint32_t kLargeThumbMax = 128;
 
 // Locate QuickView.ini the same way the main app does: portable copy next to
 // the exe, otherwise %APPDATA%\QuickView\QuickView.ini.
@@ -288,13 +307,21 @@ static uint64_t GetFileSizeSafe(const std::wstring& path) {
 
 // Small AND parallel-safe format => parallel channel. CDR/CMX are excluded
 // because they rewrite the shared global g_cdrPageCache (ImageLoader.cpp:62),
-// which has no lock. Large files go serial (one at a time) by design.
+// which has no lock. Large files go to their own channel (one at a time).
 static bool IsSmallAndParallelSafe(const std::wstring& path) {
   if (GetFileSizeSafe(path) >= g_smallFileBytes.load()) return false;
   std::wstring_view ext = QuickView::ExtensionOf(path);
   if (QuickView::ExtEqualsIgnoreCase(ext, L".cdr") ||
       QuickView::ExtEqualsIgnoreCase(ext, L".cmx")) return false;
   return true;
+}
+
+// CDR/CMX are routed to their own dedicated single-threaded channel so they
+// never contend with large-file rendering.
+static bool IsCdr(const std::wstring& path) {
+  std::wstring_view ext = QuickView::ExtensionOf(path);
+  return QuickView::ExtEqualsIgnoreCase(ext, L".cdr") ||
+         QuickView::ExtEqualsIgnoreCase(ext, L".cmx");
 }
 
 // Reply STALE(3) to a dropped request so the provider returns immediately
@@ -325,17 +352,28 @@ static void Enqueue(PipeTask t) {
     }
     g_parallelQ.push(std::move(t));
     g_parallelCv.notify_one();
-  } else {
-    std::unique_lock<std::mutex> lk(g_serialMtx);
-    while (g_serialQ.size() >= kSerialCap) {
-      PipeTask old = std::move(g_serialQ.front());
-      g_serialQ.pop();
+  } else if (IsCdr(t.path)) {
+    std::unique_lock<std::mutex> lk(g_cdrMtx);
+    while (g_cdrQ.size() >= kSlowCap) {
+      PipeTask old = std::move(g_cdrQ.front());
+      g_cdrQ.pop();
       lk.unlock();
       StaleAndClose(old);
       lk.lock();
     }
-    g_serialQ.push(std::move(t));
-    g_serialCv.notify_one();
+    g_cdrQ.push(std::move(t));
+    g_cdrCv.notify_one();
+  } else {
+    std::unique_lock<std::mutex> lk(g_largeMtx);
+    while (g_largeQ.size() >= kSlowCap) {
+      PipeTask old = std::move(g_largeQ.front());
+      g_largeQ.pop();
+      lk.unlock();
+      StaleAndClose(old);
+      lk.lock();
+    }
+    g_largeQ.push(std::move(t));
+    g_largeCv.notify_one();
   }
 }
 
@@ -343,15 +381,16 @@ static void Enqueue(PipeTask t) {
 // own CImageLoader instance, so there is no shared per-instance mutable state
 // across threads. The only process-global mutable state (g_cdrPageCache) is
 // reached solely via the serial worker (CDR/CMX), hence race-free.
-static void RenderAndRespond(PipeTask& t, CImageLoader& loader) {
+static void RenderAndRespond(PipeTask& t, CImageLoader& loader, bool degrade) {
   auto t0 = std::chrono::steady_clock::now();
   CImageLoader::ThumbData thumb;
   const bool transparentBg = WantsTransparentBackground(t.path);
   // Guard the decode: a malformed file must never crash the shared server
   // process (a one-shot worker tolerated this because it was isolated).
   HRESULT hr = E_FAIL;
+  int targetSize = degrade ? (int)std::min((uint32_t)t.size, kLargeThumbMax) : (int)t.size;
   __try {
-    hr = loader.LoadThumbnail(t.path.c_str(), static_cast<int>(t.size), &thumb, true, transparentBg);
+    hr = loader.LoadThumbnail(t.path.c_str(), targetSize, &thumb, true, transparentBg);
   } __except (EXCEPTION_EXECUTE_HANDLER) {
     hr = E_FAIL;
     ServerLog(L"LoadThumbnail threw, path=" + t.path);
@@ -366,12 +405,12 @@ static void RenderAndRespond(PipeTask& t, CImageLoader& loader) {
   HANDLE hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
   uint32_t status = ok ? 0u : 1u;
   if (hEvent) {
-    if (!PipeWriteAll(t.hPipe, &status, sizeof(status), 15000)) {
+    if (!PipeWriteAll(t.hPipe, &status, sizeof(status), kPipeTimeoutMs)) {
       // client gone (folder switched / scrolled away) -> nothing to write
     } else if (ok) {
       uint32_t bmpLen = static_cast<uint32_t>(bmp.size());
-      if (!PipeWriteAll(t.hPipe, &bmpLen, sizeof(bmpLen), 15000) ||
-          !PipeWriteAll(t.hPipe, bmp.data(), bmpLen, 15000)) {
+      if (!PipeWriteAll(t.hPipe, &bmpLen, sizeof(bmpLen), kPipeTimeoutMs) ||
+          !PipeWriteAll(t.hPipe, bmp.data(), bmpLen, kPipeTimeoutMs)) {
         ServerLog(L"write bmp failed");
       }
     }
@@ -401,25 +440,45 @@ static void ParallelWorker() {
       t = std::move(g_parallelQ.front());
       g_parallelQ.pop();
     }
-    RenderAndRespond(t, loader);
+    RenderAndRespond(t, loader, false);
   }
   CoUninitialize();
 }
 
-static void SerialWorker() {
+static void CdrWorker() {
   CoInitializeEx(nullptr, COINIT_MULTITHREADED);
   CImageLoader loader;
   while (true) {
     PipeTask t;
     {
-      std::unique_lock<std::mutex> lk(g_serialMtx);
-      g_serialCv.wait(lk, [] { return g_shutdown.load() || !g_serialQ.empty(); });
-      if (g_shutdown.load() && g_serialQ.empty()) break;
-      if (g_serialQ.empty()) continue;
-      t = std::move(g_serialQ.front());
-      g_serialQ.pop();
+      std::unique_lock<std::mutex> lk(g_cdrMtx);
+      g_cdrCv.wait(lk, [] { return g_shutdown.load() || !g_cdrQ.empty(); });
+      if (g_shutdown.load() && g_cdrQ.empty()) break;
+      if (g_cdrQ.empty()) continue;
+      t = std::move(g_cdrQ.front());
+      g_cdrQ.pop();
     }
-    RenderAndRespond(t, loader);
+    RenderAndRespond(t, loader, false);
+  }
+  CoUninitialize();
+}
+
+static void LargeWorker() {
+  CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+  CImageLoader loader;
+  while (true) {
+    PipeTask t;
+    {
+      std::unique_lock<std::mutex> lk(g_largeMtx);
+      g_largeCv.wait(lk, [] { return g_shutdown.load() || !g_largeQ.empty(); });
+      if (g_shutdown.load() && g_largeQ.empty()) break;
+      if (g_largeQ.empty()) continue;
+      t = std::move(g_largeQ.front());
+      g_largeQ.pop();
+    }
+    // Large files render at a reduced target size (see kLargeThumbMax) to
+    // avoid decode timeouts on very big images.
+    RenderAndRespond(t, loader, true);
   }
   CoUninitialize();
 }
@@ -509,7 +568,8 @@ int QuickView::RunThumbnailServer(int argc, LPWSTR* argv) {
   std::vector<std::thread> workers;
   for (int i = 0; i < g_cfg.threads; ++i)
     workers.emplace_back(ParallelWorker);
-  workers.emplace_back(SerialWorker);
+  workers.emplace_back(CdrWorker);
+  workers.emplace_back(LargeWorker);
 
   OVERLAPPED ol = {};
   ol.hEvent = hEvent;
@@ -571,7 +631,7 @@ int QuickView::RunThumbnailServer(int argc, LPWSTR* argv) {
 
     if (isConnected) {
       uint32_t pathByteLen = 0;
-      if (!PipeReadExact(hPipe, &pathByteLen, sizeof(pathByteLen), 15000)) {
+      if (!PipeReadExact(hPipe, &pathByteLen, sizeof(pathByteLen), kPipeTimeoutMs)) {
         DisconnectNamedPipe(hPipe);
         continue;
       }
@@ -581,12 +641,12 @@ int QuickView::RunThumbnailServer(int argc, LPWSTR* argv) {
       }
       std::wstring path;
       path.resize(pathByteLen / 2);
-      if (!PipeReadExact(hPipe, path.data(), pathByteLen, 15000)) {
+      if (!PipeReadExact(hPipe, path.data(), pathByteLen, kPipeTimeoutMs)) {
         DisconnectNamedPipe(hPipe);
         continue;
       }
       uint32_t size = 0;
-      if (!PipeReadExact(hPipe, &size, sizeof(size), 15000)) {
+      if (!PipeReadExact(hPipe, &size, sizeof(size), kPipeTimeoutMs)) {
         DisconnectNamedPipe(hPipe);
         continue;
       }
@@ -602,7 +662,8 @@ int QuickView::RunThumbnailServer(int argc, LPWSTR* argv) {
   // Shutdown: stop accepting, let queued/in-flight tasks drain, then join.
   g_shutdown = true;
   g_parallelCv.notify_all();
-  g_serialCv.notify_all();
+  g_cdrCv.notify_all();
+  g_largeCv.notify_all();
   for (auto& t : workers) {
     if (t.joinable()) t.join();
   }
