@@ -5773,6 +5773,19 @@ static int RunDecodeWorker(int argc, LPWSTR* argv) {
     do {
         // Minimal loader instance (no D2D/DComp needed)
         CImageLoader loader;
+        {
+          // [Fix] Initialize a WIC factory so the LoadToFrame fallback inside
+          // this decode-worker subprocess cannot deref a null m_wicFactory
+          // (LoadToMemory WIC fallback -> 0xc0000005). Mirror the safeguard
+          // used by the thumbnail workers.
+          IWICImagingFactory* wf = nullptr;
+          if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr,
+                                         CLSCTX_INPROC_SERVER, IID_IWICImagingFactory,
+                                         reinterpret_cast<void**>(&wf)))) {
+            loader.Initialize(wf);
+            wf->Release();
+          }
+        }
 
         QuickView::RawImageFrame rawFrame;
         std::wstring loaderName;

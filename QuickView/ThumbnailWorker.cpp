@@ -438,17 +438,20 @@ static void RenderAndRespond(PipeTask& t, CImageLoader& loader, bool degrade) {
 
 static void ParallelWorker() {
   CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-  CImageLoader loader;
   {
-    IWICImagingFactory* wf = nullptr;
-    if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr,
-                                   CLSCTX_INPROC_SERVER, IID_IWICImagingFactory,
-                                   reinterpret_cast<void**>(&wf)))) {
-      loader.Initialize(wf);
-      wf->Release();
+    // [Fix] loader (and its m_wicFactory ComPtr) is scoped so it is destroyed
+    // BEFORE CoUninitialize: releasing a COM object on a torn-down apartment AVs.
+    CImageLoader loader;
+    {
+      IWICImagingFactory* wf = nullptr;
+      if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr,
+                                     CLSCTX_INPROC_SERVER, IID_IWICImagingFactory,
+                                     reinterpret_cast<void**>(&wf)))) {
+        loader.Initialize(wf);
+        wf->Release();
+      }
     }
-  }
-  while (true) {
+    while (true) {
     PipeTask t;
     {
       std::unique_lock<std::mutex> lk(g_parallelMtx);
@@ -460,13 +463,17 @@ static void ParallelWorker() {
     }
     RenderAndRespond(t, loader, false);
   }
+  }  // loader destroyed here, before CoUninitialize
   CoUninitialize();
 }
 
 static void CdrWorker() {
   CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-  CImageLoader loader;
-  loader.m_bPopulateCdrCache = false; // server never uses the page-nav cache
+  {
+    // [Fix] loader (and its m_wicFactory ComPtr) is scoped so it is destroyed
+    // BEFORE CoUninitialize: releasing a COM object on a torn-down apartment AVs.
+    CImageLoader loader;
+    loader.m_bPopulateCdrCache = false; // server never uses the page-nav cache
   {
     IWICImagingFactory* wf = nullptr;
     if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr,
@@ -488,12 +495,16 @@ static void CdrWorker() {
     }
     RenderAndRespond(t, loader, false);
   }
+  }  // loader destroyed here, before CoUninitialize
   CoUninitialize();
 }
 
 static void LargeWorker() {
   CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-  CImageLoader loader;
+  {
+    // [Fix] loader (and its m_wicFactory ComPtr) is scoped so it is destroyed
+    // BEFORE CoUninitialize: releasing a COM object on a torn-down apartment AVs.
+    CImageLoader loader;
   {
     IWICImagingFactory* wf = nullptr;
     if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr,
@@ -517,6 +528,7 @@ static void LargeWorker() {
     // avoid decode timeouts on very big images.
     RenderAndRespond(t, loader, true);
   }
+  }  // loader destroyed here, before CoUninitialize
   CoUninitialize();
 }
 
@@ -535,15 +547,35 @@ int QuickView::RunThumbnailWorker(int argc, LPWSTR* argv) {
   // WIC is used by some thumbnail fallbacks inside LoadThumbnail.
   HRESULT coHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
-  CImageLoader loader;
-  CImageLoader::ThumbData thumb;
-  const bool transparentBg = WantsTransparentBackground(inputPath);
-  HRESULT hr =
-      loader.LoadThumbnail(inputPath.c_str(), size, &thumb, true, transparentBg);
+  // [Fix] Initialize a WIC factory so the WIC fallback inside LoadThumbnail
+  // (LoadToMemory -> m_wicFactory->CreateStream) cannot deref a null factory.
+  // Without this the one-shot thumbnail worker crashed (0xc0000005) on any
+  // format that reaches the WIC fallback, breaking Explorer thumbnails for
+  // CDR/AI/etc. (same root cause already fixed for the server's three
+  // internal worker threads).
+  // The loader (and its m_wicFactory ComPtr) is scoped so it is destroyed
+  // BEFORE CoUninitialize: releasing a COM object on a torn-down apartment AVs.
+  bool ok = false;
+  {
+    CImageLoader loader;
+    {
+      IWICImagingFactory* wf = nullptr;
+      if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr,
+                                     CLSCTX_INPROC_SERVER, IID_IWICImagingFactory,
+                                     reinterpret_cast<void**>(&wf)))) {
+        loader.Initialize(wf);
+        wf->Release();
+      }
+    }
+    CImageLoader::ThumbData thumb;
+    const bool transparentBg = WantsTransparentBackground(inputPath);
+    HRESULT hr =
+        loader.LoadThumbnail(inputPath.c_str(), size, &thumb, true, transparentBg);
 
-  bool ok = SUCCEEDED(hr) && thumb.isValid && !thumb.pixels.empty() &&
-            WriteBmp32(outPath, thumb.pixels.data(), thumb.width, thumb.height,
-                       thumb.stride);
+    ok = SUCCEEDED(hr) && thumb.isValid && !thumb.pixels.empty() &&
+         WriteBmp32(outPath, thumb.pixels.data(), thumb.width, thumb.height,
+                    thumb.stride);
+  }  // loader (m_wicFactory) released here while COM is still initialized
 
   if (SUCCEEDED(coHr)) CoUninitialize();
   return ok ? 0 : 2;
