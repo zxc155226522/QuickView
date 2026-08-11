@@ -20,6 +20,7 @@
 
 #include "ImageLoader.h"
 #include <cstdint>
+#include <lcms2.h>
 
 namespace QuickView::MiniTiff {
 
@@ -43,8 +44,26 @@ HRESULT LoadRegion(const uint8_t* data, size_t size,
                    QuickView::Codec::DecodeResult& result,
                    int cropX, int cropY, int cropW, int cropH);
 
-// Internal helper for Phase 3 CMYK to BGRA conversion
-void ConvertCmykToBgra(const uint8_t* src, uint8_t* dst, int width, int samples, bool premultiply);
+// RAII wrapper that builds a CMYK(embedded ICC) -> sRGB transform via lcms2.
+// Used by ConvertCmykToBgra so CMYK TIFFs (e.g. Corel heat-transfer exports)
+// decode with accurate device color instead of the naive (255-C)*(255-K)
+// approximation. Stays nullptr (naive fallback) when no suitable ICC exists.
+struct CmykIccXform {
+    cmsHPROFILE   hIn   = nullptr;
+    cmsHPROFILE   hOut  = nullptr;
+    cmsHTRANSFORM xform = nullptr;
+    bool Build(const uint8_t* icc, size_t iccLen);
+    ~CmykIccXform();
+    explicit operator bool() const { return xform != nullptr; }
+    CmykIccXform() = default;
+    CmykIccXform(const CmykIccXform&) = delete;
+    CmykIccXform& operator=(const CmykIccXform&) = delete;
+};
+
+// Internal helper for Phase 3 CMYK to BGRA conversion.
+// When xform != nullptr (embedded CMYK ICC available), converts via lcms2
+// (CMYK -> sRGB, accurate). Otherwise falls back to the naive formula.
+void ConvertCmykToBgra(const uint8_t* src, uint8_t* dst, int width, int samples, bool premultiply, cmsHTRANSFORM xform = nullptr);
 
 // Internal helper for Phase 1 LZW decompression
 bool DecompressLzw(const uint8_t* src, size_t srcLen, uint8_t* dst, size_t dstLen);

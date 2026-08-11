@@ -18,11 +18,67 @@
 
 #include "pch.h"
 #include "MiniTiff.h"
+#include <vector>
 
 namespace QuickView::MiniTiff {
 
-void ConvertCmykToBgra(const uint8_t* src, uint8_t* dst, int width, int samples, bool premultiply) {
+bool CmykIccXform::Build(const uint8_t* icc, size_t iccLen) {
+    if (!icc || iccLen < 128) return false;
+    hIn = cmsOpenProfileFromMem(icc, static_cast<cmsUInt32Number>(iccLen));
+    if (!hIn) return false;
+    // Only apply when the embedded profile is actually a CMYK color space.
+    if (cmsGetColorSpace(hIn) != cmsSigCmykData) {
+        cmsCloseProfile(hIn); hIn = nullptr; return false;
+    }
+    hOut = cmsCreate_sRGBProfile();
+    if (!hOut) { cmsCloseProfile(hIn); hIn = nullptr; return false; }
+    xform = cmsCreateTransform(hIn, TYPE_CMYK_8, hOut, TYPE_BGRA_8,
+                               INTENT_RELATIVE_COLORIMETRIC,
+                               cmsFLAGS_BLACKPOINTCOMPENSATION);
+    if (!xform) { cmsCloseProfile(hOut); cmsCloseProfile(hIn); hOut = nullptr; hIn = nullptr; return false; }
+    return true;
+}
+
+CmykIccXform::~CmykIccXform() {
+    if (xform) cmsDeleteTransform(xform);   // must delete before closing profiles
+    if (hOut)  cmsCloseProfile(hOut);
+    if (hIn)   cmsCloseProfile(hIn);
+}
+
+void ConvertCmykToBgra(const uint8_t* src, uint8_t* dst, int width, int samples, bool premultiply, cmsHTRANSFORM xform) {
     bool hasAlpha = (samples >= 5);
+
+    if (xform != nullptr) {
+        // Accurate CMYK -> sRGB via the embedded ICC profile.
+        // lcms expects tightly packed 4-channel CMYK input (TYPE_CMYK_8).
+        if (samples == 4) {
+            cmsDoTransform(xform, const_cast<uint8_t*>(src), dst, width);
+            for (int x = 0; x < width; ++x) dst[x * 4 + 3] = 255;   // opaque
+            return;
+        }
+        // samples > 4 (e.g. CMYKA): compact the CMYK channels into a temp row,
+        // transform, then re-apply the alpha (lcms output alpha is meaningless).
+        std::vector<uint8_t> cmyk(static_cast<size_t>(width) * 4);
+        for (int x = 0; x < width; ++x) {
+            cmyk[x * 4 + 0] = src[x * samples + 0];
+            cmyk[x * 4 + 1] = src[x * samples + 1];
+            cmyk[x * 4 + 2] = src[x * samples + 2];
+            cmyk[x * 4 + 3] = src[x * samples + 3];
+        }
+        cmsDoTransform(xform, cmyk.data(), dst, width);
+        for (int x = 0; x < width; ++x) {
+            uint8_t a = hasAlpha ? src[x * samples + 4] : 255;
+            if (premultiply && hasAlpha) {
+                dst[x * 4 + 2] = static_cast<uint8_t>((dst[x * 4 + 2] * a + 127) / 255);
+                dst[x * 4 + 1] = static_cast<uint8_t>((dst[x * 4 + 1] * a + 127) / 255);
+                dst[x * 4 + 0] = static_cast<uint8_t>((dst[x * 4 + 0] * a + 127) / 255);
+            }
+            dst[x * 4 + 3] = a;
+        }
+        return;
+    }
+
+    // ---- Fallback: naive formula (no/unsuitable ICC, 16-bit, etc.) ----
     for (int x = 0; x < width; ++x) {
         uint8_t c = src[x * samples + 0];
         uint8_t m = src[x * samples + 1];

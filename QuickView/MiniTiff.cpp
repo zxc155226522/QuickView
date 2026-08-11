@@ -26,6 +26,10 @@
 #include <zlib.h>
 #include <algorithm>
 
+// Debug aid: emits a line to the debugger (DebugView / Output window) so we can
+// confirm whether a CMYK TIFF decoded via its embedded ICC or the naive fallback.
+static void QvCmykDbg(const char* msg) { ::OutputDebugStringA(msg); }
+
 namespace QuickView::MiniTiff {
 
 struct TiffImageDesc {
@@ -464,6 +468,18 @@ HRESULT LoadRegion(const uint8_t* data, size_t size,
     uint16_t predictor = desc.predictor;
     uint16_t photometric = desc.photometric;
 
+    // CMYK ICC transform: if an embedded CMYK profile is present, decode via
+    // lcms2 for accurate color. Built once per region decode; stays nullptr otherwise.
+    CmykIccXform cmykXform;
+    if (photometric == 5 && !desc.iccProfile.empty()) {
+        if (cmykXform.Build(desc.iccProfile.data(), desc.iccProfile.size()))
+            QvCmykDbg("QV: CMYK decoded via embedded ICC (lcms2)\n");
+        else
+            QvCmykDbg("QV: CMYK ICC present but build failed -> naive\n");
+    } else if (photometric == 5) {
+        QvCmykDbg("QV: CMYK without embedded ICC -> naive\n");
+    }
+
     bool decodeFailed = false;
 
     if (desc.isTiled) {
@@ -641,7 +657,7 @@ int outXStart = intersectX - cropX;
 int runWidth = intersectEndX - intersectX;
 bool cmykPremultiply = (desc.extraSamples != 1);
 if (bytesPerSample == 1) {
-ConvertCmykToBgra(srcRow + localXStart * pixelStride, dstRow + outXStart * 4, runWidth, samples, cmykPremultiply);
+ConvertCmykToBgra(srcRow + localXStart * pixelStride, dstRow + outXStart * 4, runWidth, samples, cmykPremultiply, cmykXform.xform);
 } else {
 for (int dx = 0; dx < runWidth; ++dx) {
 uint8_t c = srcRow[(localXStart + dx) * pixelStride + 0 * bytesPerSample + highByteOffset];
@@ -829,7 +845,7 @@ dstRow[(outXStart + dx) * 4 + 3] = a;
 } else if (photometric == 5) {
 bool cmykPremultiply = (desc.extraSamples != 1);
 if (bytesPerSample == 1) {
-ConvertCmykToBgra(srcRow + cropX * pixelStride, dstRow, cropW, samples, cmykPremultiply);
+ConvertCmykToBgra(srcRow + cropX * pixelStride, dstRow, cropW, samples, cmykPremultiply, cmykXform.xform);
 } else {
 for (int dx = 0; dx < cropW; ++dx) {
 uint8_t c = srcRow[(cropX + dx) * pixelStride + 0 * bytesPerSample + highByteOffset];
@@ -1085,6 +1101,18 @@ static HRESULT LoadUncompressedPreview(const uint8_t* data, size_t size,
     std::memset(pixels, 0, total);
 
     const uint16_t photometric = desc.photometric;
+
+    // CMYK ICC transform for the preview fast path (same rationale as LoadRegion).
+    CmykIccXform cmykXform;
+    if (photometric == 5 && !desc.iccProfile.empty()) {
+        if (cmykXform.Build(desc.iccProfile.data(), desc.iccProfile.size()))
+            QvCmykDbg("QV: CMYK(preview) decoded via embedded ICC (lcms2)\n");
+        else
+            QvCmykDbg("QV: CMYK(preview) ICC present but build failed -> naive\n");
+    } else if (photometric == 5) {
+        QvCmykDbg("QV: CMYK(preview) without embedded ICC -> naive\n");
+    }
+
     for (uint32_t oy = 0; oy < outH; ++oy) {
         uint32_t sy = oy * step;
         if (sy >= h) break;
@@ -1104,7 +1132,7 @@ static HRESULT LoadUncompressedPreview(const uint8_t* data, size_t size,
                 // 复用主视图同款 CMYK→BGRA 转换，保证缩略图与主图视觉一致。
                 bool cmykPremultiply = (desc.extraSamples != 1);
                 ConvertCmykToBgra(sp, dstRow + static_cast<int>(ox) * 4, 1,
-                                  samples, cmykPremultiply);
+                                  samples, cmykPremultiply, cmykXform.xform);
                 continue;   // 已写入 dstRow，跳过下方直接赋值
             } else {                                   // Grayscale (0=white-is-0, 1=black-is-0)
                 uint8_t v = sp[0];
@@ -1152,7 +1180,7 @@ static HRESULT DecodePreviewOrFull(const uint8_t* data, size_t size,
         (desc.photometric == 0 || desc.photometric == 1 || desc.photometric == 2
          || desc.photometric == 5) &&
         (desc.samples == 1 || desc.samples == 3 || desc.samples == 4
-         || desc.samples == 5)) {
+         || desc.samples == 5 || desc.samples == 6)) {
         HRESULT hr = LoadUncompressedPreview(data, size, ctx, result, desc, targetPx);
         if (hr == S_OK) return hr;
     }
