@@ -35,6 +35,11 @@
 ## CDR 并行安全（2026-08-11）
 - `g_cdrPageCache`(ImageLoader.cpp:62) 是 CDR 唯一跨线程共享可变状态。给 `CImageLoader` 加 `bool m_bPopulateCdrCache=true`（public）；`LoadCDR` 在 false 时用局部 `firstPageData` 产出 outFrame、不碰全局。缩略图服务置 false → 多 CDR 线程安全。**改了 ImageLoader.h → 须 `--clean-first` 全量重建**。
 
+## CDR 渲染架构与保真度瓶颈（2026-08-11）
+- CDR/CMX 渲染实际链路：`ImageLoader::LoadCDR`(11184) 读文件到内存→`libcdr::CDRDocument::parse`/`CMXDocument::parse` + `librevenge::RVNGSVGDrawingGenerator`(空命名空间前缀) 产出 SVG(`svgPages`)→SVG 后处理(`InlineSvgStyleAttrs`/`CropSvgWhitespace`/插页面矩形)→`outFrame(SVG_XML)`→`RasterizeSvgThumbnail`(4058) 用 **D2D `ID2D1SvgDocument`**(`CreateSvgDocument`+`DrawSvgDocument`,4204-4219, WARP) 栅格化成位图。
+- **结论：解析那半早就是 libcdr（与 Inkscape/LibreOffice 同款），不是自研；"cdr解析有问题"真正的瓶颈是最后一公里 SVG→位图用的 D2D 内置 SVG 渲染器，仅支持 SVG 1.1 子集（滤镜/裁剪/蒙版/图案/复杂 CSS 静默丢弃）→ 缺元素/空白/偏色等保真度问题，而非解析失败。**
+- 修复方向（待用户确认）：把 SVG 栅格化后端从 D2D `ID2D1SvgDocument` 换成 **resvg**(Rust,MIT,静态库,SVG 支持最全,无系统依赖)；收益覆盖所有走 SVG 的格式(CDR/CMX/PLT/AI 等)。代价：构建引入 Rust 工具链 + 链接一个静态 lib（自包含，不影响 EXE 授权）。解析端零改动：`libcdr`/`librevenge` 已在 `CMakeLists.txt:225-226` 加子目录、`326-327` 链接，`RVNGSVGDrawingGenerator.cpp:16` 已编译。
+
 ## TIF 大文件优化（2026-08-11）
 - `MiniTiff::Load` 在 `ctx.forcePreview`(缩略图/预览)时**枚举所有 IFD/SubIFDs**(`EnumerateTiffIfds`)，用 `SelectThumbIfd` 选"够用的最小分辨率层"（优先 NewSubfileType bit1 缩略图子文件，否则最小≥目标），只解码该层→**多分辨率/金字塔大 TIF 缩略图提速显著**；主视图(`forcePreview=false`)保持全分辨率，**清晰度零影响**。**仅 MiniTiff.cpp 内部 static 改动，未动头文件**（增量即可）。
 - **未压缩快路径**(`LoadUncompressedPreview`+`DecodePreviewOrFull`)：`forcePreview` 且 `compression==1`(未压缩)+stripped+8bit+chunky+predictor==1 时，按 `targetPx` 算步长，只 `seek` 采样行并进采样像素直接产小图，I/O/内存降 ~step²(常>1000x)，无需解码/线程/GPU；不满足（压缩/Palette/tiled 等）回退 `LoadRegion`。**已支持 灰/RGB/CMYK**(photometric 0/1/2/5，samples 1/3/4/5)：CMYK 分支**复用主视图同款 `ConvertCmykToBgra`**(`cmykPremultiply=(extraSamples!=1)`)，保证缩略图与主图视觉一致。
