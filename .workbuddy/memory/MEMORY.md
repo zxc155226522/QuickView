@@ -35,3 +35,4 @@
 ## 已知待修复（2026-08-11 诊断：Z:\2026打版\8-10\周氏 缩略图失败）
 - 根因三道关卡：①串行通道 `kSerialCap=4`（`ThumbnailWorker.cpp:234`）过小，Shell 并发请求瞬间塞满→超出部分被标 stale 丢弃；②provider 端 `kMaxBytes=200MB`（`ThumbnailProvider.cpp:468`）超限直接 abort；③客户端管道 `kWorkerTimeoutMs=15000`（`ThumbnailProvider.cpp:101`）超时，慢渲染(CDR/大文件)被砍。且 `RequestThumbnailViaPipe` 对 Stale 静默返回、不重试/不兜底。
 - 修复方向（详见对话方案）：A 放宽 kSerialCap；B CDR 与大文件分离通道；C Stale 后兜底/重试；D 大文件降级渲染；E 放宽客户端超时；F CDR 渲染加速。最小改动集 = A+C+E。
+- **编译部署坑（2026-08-11 新增）**：链接写 `QuickViewThumbnailProvider.dll` 被实时防病毒拦截(permission denied)——非进程锁(`Get-Process` 模块扫描为空)，是 Defender 对该路径 DLL 的写保护；本会话 `Add-MpPreference` 不可用无法加排除。本地部署需将 `out\build\Release-LTO` 加 Defender 排除，或临时关实时保护/重启后替换。
