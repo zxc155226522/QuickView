@@ -5,6 +5,7 @@
 #include "HelpOverlay.h"
 #include "GalleryOverlay.h"
 #include "AppStrings.h"
+#include "ThumbnailWorker.h"
 #include "ImageEngine.h"
 #include "DialogController.h"
 #include "OSDState.h"
@@ -2546,6 +2547,37 @@ void SettingsOverlay::BuildMenu() {
     };
     tabAdvanced.items.push_back(itemReset);
 
+    // Thumbnail server (Shell 缩略图常驻服务) — 高级性能参数
+    tabAdvanced.items.push_back({ L"缩略图渲染", OptionType::Header });
+
+    SettingsItem itemThumbThreads = { L"并行线程数", OptionType::Slider, nullptr, &g_config.ThumbnailThreads };
+    itemThumbThreads.minVal = 1.0f;
+    itemThumbThreads.maxVal = 64.0f;
+    itemThumbThreads.step = 1.0f;
+    itemThumbThreads.displayFormat = L"%.0f";
+    itemThumbThreads.tooltipText = L"缩略图常驻服务并行渲染线程数（1-64）。越大文件夹并发渲染越快，但更占 CPU。改完即时重启服务生效。";
+    itemThumbThreads.onChange = [](SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) {
+        if (g_config.ThumbnailThreads < 1.0f) g_config.ThumbnailThreads = 1.0f;
+        if (g_config.ThumbnailThreads > 64.0f) g_config.ThumbnailThreads = 64.0f;
+        SaveConfig();
+        QuickView::KillThumbnailServer();
+        if (overlay && overlay->m_hwnd) InvalidateRect(overlay->m_hwnd, nullptr, FALSE);
+    };
+    tabAdvanced.items.push_back(itemThumbThreads);
+
+    SettingsItem itemThumbThr = { L"小文件并行阈值 (MB)", OptionType::Slider, nullptr, &g_config.ThumbnailSmallFileThresholdMB };
+    itemThumbThr.minVal = 1.0f;
+    itemThumbThr.maxVal = 1024.0f;
+    itemThumbThr.step = 1.0f;
+    itemThumbThr.displayFormat = L"%.0f MB";
+    itemThumbThr.tooltipText = L"小于此值(MB)且非 CDR/CMX 的文件走并行通道；更大文件或 CDR/CMX 走串行通道。改完下次请求即时生效。";
+    itemThumbThr.onChange = [](SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) {
+        if (g_config.ThumbnailSmallFileThresholdMB < 1.0f) g_config.ThumbnailSmallFileThresholdMB = 1.0f;
+        if (g_config.ThumbnailSmallFileThresholdMB > 1024.0f) g_config.ThumbnailSmallFileThresholdMB = 1024.0f;
+        SaveConfig();
+        if (overlay && overlay->m_hwnd) InvalidateRect(overlay->m_hwnd, nullptr, FALSE);
+    };
+    tabAdvanced.items.push_back(itemThumbThr);
 
     m_tabs.push_back(tabAdvanced);
 

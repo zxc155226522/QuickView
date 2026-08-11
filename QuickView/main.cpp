@@ -4156,6 +4156,10 @@ void SaveConfig() {
     WriteConfigInt(L"Controls", L"GalleryFilmstripHeight", g_config.GalleryFilmstripHeight, iniPath.c_str());
     // NavIndicator moved to View section
 
+    // Thumbnail server (Shell 缩略图常驻服务)
+    WriteConfigInt(L"Thumbnail", L"ThumbnailThreads", (int)(g_config.ThumbnailThreads + 0.5f), iniPath.c_str());
+    WriteConfigInt(L"Thumbnail", L"ThumbnailSmallFileThresholdMB", (int)(g_config.ThumbnailSmallFileThresholdMB + 0.5f), iniPath.c_str());
+
     // Loupe (activation key lives in the [Hotkeys] Loupe binding)
     WriteConfigBool(L"Controls", L"LoupeEnabled", g_config.LoupeEnabled, iniPath.c_str());
     WriteConfigInt(L"Controls", L"LoupeShape", g_config.LoupeShape, iniPath.c_str());
@@ -4506,6 +4510,9 @@ g_config.AlwaysOnTop = GetPrivateProfileIntW(L"View", L"AlwaysOnTop", 0, iniPath
     GetPrivateProfileStringW(L"Controls", L"GalleryExitDelay", L"0.80", buf, 64, iniPath.c_str());
     g_config.GalleryExitDelay = std::clamp((float)_wtof(buf), 0.10f, 3.00f);
     g_config.GalleryThumbnailSize = std::clamp((int)GetPrivateProfileIntW(L"Controls", L"GalleryThumbnailSize", 0, iniPath.c_str()), 0, 300);
+    // Thumbnail server (Shell 缩略图常驻服务)
+    g_config.ThumbnailThreads = (float)std::clamp((int)GetPrivateProfileIntW(L"Thumbnail", L"ThumbnailThreads", 4, iniPath.c_str()), 1, 64);
+    g_config.ThumbnailSmallFileThresholdMB = (float)std::clamp((int)GetPrivateProfileIntW(L"Thumbnail", L"ThumbnailSmallFileThresholdMB", 5, iniPath.c_str()), 1, 1024);
     GetPrivateProfileStringW(L"Controls", L"GalleryFilmstripHeight", L"-1.0", buf, 64, iniPath.c_str());
     {
         float loadedH = (float)_wtof(buf);

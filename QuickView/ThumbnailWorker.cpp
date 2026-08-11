@@ -211,6 +211,14 @@ struct PipeTask {
 static ServerConfig g_cfg;
 static std::atomic<bool> g_shutdown{false};
 
+// Hot-reloadable small-file threshold (atomic so the accept thread can update
+// it while worker threads read it without locking).
+static std::atomic<uint64_t> g_smallFileBytes{5ULL * 1024 * 1024};
+// Named event letting the settings UI gracefully stop a running server so it
+// respawns with updated settings (e.g. thread count).
+static const wchar_t* kStopEventName = L"Local\\QuickViewThumbStop";
+static HANDLE g_hStopEvent = nullptr;
+
 // Parallel channel (small, non-CDR/CMX): N worker threads.
 static std::queue<PipeTask> g_parallelQ;
 static std::mutex g_parallelMtx;
@@ -257,6 +265,17 @@ static ServerConfig ReadServerConfig() {
   return cfg;
 }
 
+// Re-read the small-file threshold so settings changes apply on the next
+// request without restarting the server (thread count still needs a restart).
+static void ReloadThreshold() {
+  std::wstring ini = ResolveIniPath();
+  wchar_t buf[32] = {};
+  if (GetPrivateProfileStringW(L"Thumbnail", L"ThumbnailSmallFileThresholdMB", L"5", buf, 32, ini.c_str())) {
+    long mb = wcstol(buf, nullptr, 10);
+    if (mb >= 1 && mb <= 1024) g_smallFileBytes.store((uint64_t)mb * 1024 * 1024);
+  }
+}
+
 static uint64_t GetFileSizeSafe(const std::wstring& path) {
   HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
                          OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -271,7 +290,7 @@ static uint64_t GetFileSizeSafe(const std::wstring& path) {
 // because they rewrite the shared global g_cdrPageCache (ImageLoader.cpp:62),
 // which has no lock. Large files go serial (one at a time) by design.
 static bool IsSmallAndParallelSafe(const std::wstring& path) {
-  if (GetFileSizeSafe(path) >= g_cfg.smallFileBytes) return false;
+  if (GetFileSizeSafe(path) >= g_smallFileBytes.load()) return false;
   std::wstring_view ext = QuickView::ExtensionOf(path);
   if (QuickView::ExtEqualsIgnoreCase(ext, L".cdr") ||
       QuickView::ExtEqualsIgnoreCase(ext, L".cmx")) return false;
@@ -443,6 +462,7 @@ int QuickView::RunThumbnailServer(int argc, LPWSTR* argv) {
   }
 
   g_cfg = ReadServerConfig();
+  g_smallFileBytes.store(g_cfg.smallFileBytes);
   g_shutdown = false;
 
   HRESULT coHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -475,6 +495,11 @@ int QuickView::RunThumbnailServer(int argc, LPWSTR* argv) {
     return 2;
   }
 
+  // Named stop event so the settings UI can gracefully terminate this server
+  // (e.g. when the parallel-thread count changes) and force a fresh process.
+  g_hStopEvent = CreateEventW(nullptr, TRUE, FALSE, kStopEventName);
+  if (!g_hStopEvent) ServerLog(L"warn: cannot create stop event");
+
   ServerLog(L"Server started threads=" + std::to_wstring(g_cfg.threads) +
             L" smallMB=" + std::to_wstring(g_cfg.smallFileBytes / (1024 * 1024)) +
             L" idle=" + std::to_wstring(idleSec) + L"s");
@@ -489,6 +514,10 @@ int QuickView::RunThumbnailServer(int argc, LPWSTR* argv) {
   OVERLAPPED ol = {};
   ol.hEvent = hEvent;
   while (true) {
+    if (g_hStopEvent && WaitForSingleObject(g_hStopEvent, 0) == WAIT_OBJECT_0) {
+      ServerLog(L"Stop event signaled, exiting");
+      break;
+    }
     // Ensure we have a pipe instance to accept the next client on. A fresh
     // instance is created per accepted connection so acceptance never blocks
     // on rendering (the connected handle is handed to a worker).
@@ -504,6 +533,7 @@ int QuickView::RunThumbnailServer(int argc, LPWSTR* argv) {
       }
     }
 
+    ReloadThreshold(); // pick up threshold changes without restarting
     ResetEvent(hEvent);
     ol = {};
     ol.hEvent = hEvent;
@@ -516,7 +546,9 @@ int QuickView::RunThumbnailServer(int argc, LPWSTR* argv) {
       if (err == ERROR_PIPE_CONNECTED) {
         isConnected = true; // client connected between CreateNamedPipe and here
       } else if (err == ERROR_IO_PENDING) {
-        DWORD w = WaitForSingleObject(hEvent, idleTimeoutMs);
+        HANDLE waits[2] = { hEvent, g_hStopEvent };
+        DWORD nWaits = (g_hStopEvent ? 2 : 1);
+        DWORD w = WaitForMultipleObjects(nWaits, waits, FALSE, idleTimeoutMs);
         if (w == WAIT_TIMEOUT) {
           CancelIo(hPipe);
           DWORD dummy = 0;
@@ -525,6 +557,9 @@ int QuickView::RunThumbnailServer(int argc, LPWSTR* argv) {
           break;
         } else if (w == WAIT_OBJECT_0) {
           isConnected = true;
+        } else if (w == WAIT_OBJECT_0 + 1) {
+          ServerLog(L"Stop event signaled, exiting");
+          break;
         } else {
           break; // wait failed
         }
@@ -572,9 +607,20 @@ int QuickView::RunThumbnailServer(int argc, LPWSTR* argv) {
     if (t.joinable()) t.join();
   }
 
+  if (g_hStopEvent) { CloseHandle(g_hStopEvent); g_hStopEvent = nullptr; }
   CloseHandle(hEvent);
   if (hPipe != INVALID_HANDLE_VALUE) CloseHandle(hPipe);
   if (SUCCEEDED(coHr)) CoUninitialize();
   ServerLog(L"Server stopped");
   return 0;
+}
+
+void QuickView::KillThumbnailServer() {
+  // Signal the running server's stop event so it exits gracefully; the next
+  // shell request then spawns a fresh process picking up updated settings.
+  HANDLE h = OpenEventW(EVENT_MODIFY_STATE | SYNCHRONIZE, FALSE, kStopEventName);
+  if (h) {
+    SetEvent(h);
+    CloseHandle(h);
+  }
 }

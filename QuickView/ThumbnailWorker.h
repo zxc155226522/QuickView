@@ -20,4 +20,8 @@ int RunThumbnailWorker(int argc, LPWSTR* argv);
 // Returns process exit code (0 = clean idle exit, 2 = fatal).
 int RunThumbnailServer(int argc, LPWSTR* argv);
 
+// Gracefully stop a running thumbnail server (if any) so it respawns with
+// updated settings (e.g. parallel-thread count). Called from the settings UI.
+void KillThumbnailServer();
+
 } // namespace QuickView
