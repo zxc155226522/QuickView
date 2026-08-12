@@ -20,6 +20,10 @@
 #include <string>
 #include <vector>
 #include <cctype>
+#include <cwchar>
+#include <cwctype>
+#include <mutex>
+#include <gdiplus.h>
 #include <objidl.h>          // STATSTG, STATFLAG_NONAME
 #include <atomic>            // bounded one-shot worker fallback
 
@@ -408,6 +412,104 @@ static PipeResult RequestThumbnailViaPipe(const std::wstring& exePath,
 }
 
 // ============================================================================
+// Type badge (capsule, top-right, category color) composited into the
+// returned thumbnail bitmap via GDI+. Explorer owns the render loop, so the
+// badge can only travel WITH the thumbnail (baked in), never separately.
+// ============================================================================
+namespace {
+    // 扩展名 -> 基础色（GDI+ Color，alpha=255），绘制时再乘 alpha
+    Gdiplus::Color BadgeColorForGdi(const std::wstring& ext) {
+        auto in = [&](const wchar_t* s) -> bool {
+            return ext.size() == wcslen(s) && _wcsicmp(ext.c_str(), s) == 0;
+        };
+        if (in(L"PNG")||in(L"JPG")||in(L"JPEG")||in(L"BMP")||in(L"GIF")||in(L"WEBP")||in(L"HEIC")||in(L"TIF")||in(L"TIFF")) return Gdiplus::Color(16,185,129);
+        if (in(L"CR2")||in(L"CR3")||in(L"ARW")||in(L"NEF")||in(L"DNG")||in(L"RAF")||in(L"RW2")||in(L"ORF")) return Gdiplus::Color(139,92,246);
+        if (in(L"CDR")||in(L"CMX")||in(L"AI")||in(L"SVG")||in(L"SVGZ")||in(L"EPS")) return Gdiplus::Color(59,130,246);
+        if (in(L"PDF")||in(L"TXT")||in(L"DOC")||in(L"DOCX")||in(L"XLS")||in(L"XLSX")||in(L"PPT")||in(L"PPTX")) return Gdiplus::Color(239,68,68);
+        if (in(L"PLT")||in(L"DXF")||in(L"DWG")) return Gdiplus::Color(6,182,212);
+        if (in(L"MP4")||in(L"MOV")||in(L"AVI")||in(L"MKV")||in(L"WEBM")) return Gdiplus::Color(244,63,94);
+        if (in(L"MP3")||in(L"WAV")||in(L"FLAC")||in(L"OGG")||in(L"M4A")) return Gdiplus::Color(34,197,94);
+        if (in(L"ZIP")||in(L"RAR")||in(L"7Z")||in(L"TAR")) return Gdiplus::Color(245,158,11);
+        if (in(L"CPP")||in(L"H")||in(L"PY")||in(L"JS")||in(L"TS")||in(L"JSON")||in(L"XML")||in(L"HTML")) return Gdiplus::Color(99,102,241);
+        return Gdiplus::Color(100,116,139);
+    }
+
+    std::wstring GetExtUpper(const std::wstring& p) {
+        size_t dot = p.find_last_of(L'.');
+        if (dot == std::wstring::npos || dot + 1 >= p.size()) return L"";
+        std::wstring e = p.substr(dot + 1);
+        for (auto& c : e) c = (wchar_t)std::towupper((wint_t)c);
+        return e;
+    }
+
+    // 圆角矩形路径（r=半高即胶囊）
+    void AddRoundedRect(Gdiplus::GraphicsPath& path, float x, float y, float w, float h, float r) {
+        r = (std::min)(r, (std::min)(w, h) * 0.5f);
+        path.StartFigure();
+        path.AddLine(x + r, y, x + w - r, y);
+        path.AddArc(x + w - r, y, r, r, 270.0f, 90.0f);
+        path.AddLine(x + w, y + r, x + w, y + h - r);
+        path.AddArc(x + w - r, y + h - r, r, r, 0.0f, 90.0f);
+        path.AddLine(x + w - r, y + h, x + r, y + h);
+        path.AddArc(x + r, y + h - r, r, r, 90.0f, 90.0f);
+        path.AddLine(x, y + h - r, x, y + r);
+        path.AddArc(x, y, r, r, 180.0f, 90.0f);
+        path.CloseFigure();
+    }
+
+    // 把类型角标烤进缩略图位图（直写 DIB 像素，top-down 32bpp ARGB）
+    void CompositeTypeBadge(HBITMAP hbmp, const std::wstring& extUpper) {
+        if (!hbmp || extUpper.empty()) return;
+        BITMAP bm;
+        if (GetObject(hbmp, sizeof(bm), &bm) != sizeof(bm)) return;
+        if (bm.bmBitsPixel != 32 || !bm.bmBits) return;
+        const int w = bm.bmWidth, h = bm.bmHeight;
+        if (w <= 0 || h <= 0) return;
+
+        static std::once_flag s_init;
+        static ULONG_PTR s_token = 0;
+        std::call_once(s_init, []() {
+            Gdiplus::GdiplusStartupInput gsi;
+            Gdiplus::GdiplusStartup(&s_token, &gsi, nullptr);
+        });
+
+        Gdiplus::Bitmap gbm(w, h, w * 4, PixelFormat32bppARGB, (BYTE*)bm.bmBits);
+        Gdiplus::Graphics g(&gbm);
+        g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+        g.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
+
+        float fontSize = (float)h * 0.075f;
+        if (fontSize < 11.0f) fontSize = 11.0f;
+        if (fontSize > 30.0f) fontSize = 30.0f;
+        Gdiplus::Font font(L"Segoe UI", fontSize, Gdiplus::FontStyleBold);
+        Gdiplus::StringFormat sf;
+        sf.SetAlignment(Gdiplus::StringAlignmentCenter);
+        sf.SetLineAlignment(Gdiplus::StringAlignmentCenter);
+
+        Gdiplus::RectF layout(0, 0, (Gdiplus::REAL)w, (Gdiplus::REAL)h);
+        Gdiplus::RectF bound;
+        g.MeasureString(extUpper.c_str(), (INT)extUpper.length(), &font, layout, &sf, &bound);
+
+        const float bh = fontSize * 1.7f;
+        const float bw = bound.Width + fontSize * 1.1f;
+        const float margin = fontSize * 0.45f;
+        const float x = (float)w - margin - bw;
+        const float y = margin;
+        const float r = bh * 0.5f; // 胶囊
+
+        Gdiplus::Color base = BadgeColorForGdi(extUpper);
+        Gdiplus::SolidBrush brushPill(Gdiplus::Color(170, base.GetR(), base.GetG(), base.GetB()));
+        Gdiplus::GraphicsPath path;
+        AddRoundedRect(path, x, y, bw, bh, r);
+        g.FillPath(&brushPill, &path);
+
+        Gdiplus::SolidBrush brushText(Gdiplus::Color(255, 255, 255, 255));
+        g.DrawString(extUpper.c_str(), (INT)extUpper.length(), &font,
+                     Gdiplus::RectF(x, y, bw, bh), &sf, &brushText);
+    }
+}
+
+// ============================================================================
 // CThumbnailProvider
 // ============================================================================
 class CThumbnailProvider : public IInitializeWithFile, public IInitializeWithStream,
@@ -623,6 +725,8 @@ public:
 
         auto t1 = GetTickCount64();
         if (!hbmp) { DbgLog(L"  worker failed/timeout"); return E_FAIL; }
+        // 烤入右上角胶囊型分类型角标（扩展名权威取自 inputPath）
+        CompositeTypeBadge(hbmp, GetExtUpper(inputPath));
         *phbmp = hbmp;
         *pdwAlpha = WTSAT_ARGB;
         DbgLog((L"  OK (" + std::to_wstring(t1 - t0) + L"ms)").c_str());

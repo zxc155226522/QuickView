@@ -10,6 +10,24 @@
 #include "UIRenderer.h"
 #include <algorithm>
 #include <cmath>
+#include <cwctype>
+
+namespace {
+// 类型角标配色：扩展名 -> 基础色（a=1），绘制时再乘 alpha
+D2D1_COLOR_F BadgeColorFor(const std::wstring& ext) {
+    auto in = [&](const wchar_t* s) { return _wcsicmp(ext.c_str(), s) == 0; };
+    if (in(L"PNG")||in(L"JPG")||in(L"JPEG")||in(L"BMP")||in(L"GIF")||in(L"WEBP")||in(L"HEIC")||in(L"TIF")||in(L"TIFF")) return D2D1::ColorF(0.063f,0.725f,0.514f); // 翠绿
+    if (in(L"CR2")||in(L"CR3")||in(L"ARW")||in(L"NEF")||in(L"DNG")||in(L"RAF")||in(L"RW2")||in(L"ORF")) return D2D1::ColorF(0.545f,0.361f,0.965f); // 紫(RAW)
+    if (in(L"CDR")||in(L"CMX")||in(L"AI")||in(L"SVG")||in(L"SVGZ")||in(L"EPS")) return D2D1::ColorF(0.231f,0.510f,0.965f); // 蓝(矢量)
+    if (in(L"PDF")||in(L"TXT")||in(L"DOC")||in(L"DOCX")||in(L"XLS")||in(L"XLSX")||in(L"PPT")||in(L"PPTX")) return D2D1::ColorF(0.937f,0.267f,0.267f); // 玫红(文档)
+    if (in(L"PLT")||in(L"DXF")||in(L"DWG")) return D2D1::ColorF(0.024f,0.714f,0.831f); // 青(CAD)
+    if (in(L"MP4")||in(L"MOV")||in(L"AVI")||in(L"MKV")||in(L"WEBM")) return D2D1::ColorF(0.957f,0.247f,0.369f); // 粉(视频)
+    if (in(L"MP3")||in(L"WAV")||in(L"FLAC")||in(L"OGG")||in(L"M4A")) return D2D1::ColorF(0.133f,0.773f,0.369f); // 绿(音频)
+    if (in(L"ZIP")||in(L"RAR")||in(L"7Z")||in(L"TAR")) return D2D1::ColorF(0.961f,0.620f,0.043f); // 琥珀(压缩)
+    if (in(L"CPP")||in(L"H")||in(L"PY")||in(L"JS")||in(L"TS")||in(L"JSON")||in(L"XML")||in(L"HTML")) return D2D1::ColorF(0.388f,0.400f,0.945f); // 靛(代码)
+    return D2D1::ColorF(0.392f,0.455f,0.545f); // 中性灰(兜底)
+}
+}
 
 extern void RequestRepaint(QuickView::PaintLayer layerMask);
 extern AppConfig g_config;
@@ -794,25 +812,34 @@ void GalleryOverlay::Render(ID2D1DeviceContext *pDC, const D2D1_SIZE_F &size,
                 m_pThumbMgr->QueueRequest(imgId, path.c_str(), prio);
             }
         }
-        // [RAW+JPEG Pairing] "+CR3"-style badge: this item carries a hidden
-        // RAW. Theme-independent dark chip so it reads on any photo content.
-        if (const FileNavigator::PairedRaw* pairedRaw = m_pNav->GetPairedRaw(imgId)) {
-            const std::wstring badgeText = FileNavigator::PairedRawLabel(*pairedRaw);
-            const float bw = (8.0f + 6.5f * (float)badgeText.length()) * g_uiScale;
-            const float bh = 15.0f * g_uiScale;
-            const float bm = 5.0f * g_uiScale;
-            const float br = 3.5f * g_uiScale;
-            D2D1_RECT_F badge = D2D1::RectF(cellRect.right - bm - bw, cellRect.top + bm, cellRect.right - bm, cellRect.top + bm + bh);
-            m_brushBg->SetColor(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.55f));
-            m_brushBg->SetOpacity(m_transitionProgress);
-            pDC->FillRoundedRectangle(D2D1::RoundedRect(badge, br, br), m_brushBg.Get());
+        // [类型角标] 右上角悬浮胶囊，分类型配色；对所有文件生效（含占位方块）
+        {
+            std::wstring mainExt;
+            if (size_t dot = path.rfind(L'.'); dot != std::wstring::npos)
+                mainExt = path.substr(dot + 1);
+            for (auto& c : mainExt) c = (wchar_t)std::towupper((wint_t)c);
+            if (!mainExt.empty()) {
+                std::wstring label = mainExt;
+                if (const FileNavigator::PairedRaw* pairedRaw = m_pNav->GetPairedRaw(imgId))
+                    label = mainExt + FileNavigator::PairedRawLabel(*pairedRaw); // e.g. "JPG+CR3"
+                D2D1_COLOR_F base = BadgeColorFor(mainExt);
+                const float bw = (8.0f + 6.5f * (float)label.length()) * g_uiScale;
+                const float bh = 15.0f * g_uiScale;
+                const float bm = 5.0f * g_uiScale;
+                const float br = bh * 0.5f; // 胶囊：圆角=半高，两端半圆
+                D2D1_RECT_F badge = D2D1::RectF(cellRect.right - bm - bw, cellRect.top + bm,
+                                               cellRect.right - bm, cellRect.top + bm + bh);
+                m_brushBg->SetColor(D2D1::ColorF(base.r, base.g, base.b, 0.66f));
+                m_brushBg->SetOpacity(m_transitionProgress);
+                pDC->FillRoundedRectangle(D2D1::RoundedRect(badge, br, br), m_brushBg.Get());
 
-            D2D1_COLOR_F prevBadgeTxt = m_brushText->GetColor();
-            m_brushText->SetColor(D2D1::ColorF(D2D1::ColorF::White));
-            m_brushText->SetOpacity(m_transitionProgress * 0.95f);
-            pDC->DrawText(badgeText.c_str(), (UINT32)badgeText.length(), m_textFormatBadge.Get(), badge, m_brushText.Get());
-            m_brushText->SetColor(prevBadgeTxt);
-            m_brushText->SetOpacity(1.0f);
+                D2D1_COLOR_F prevTxt = m_brushText->GetColor();
+                m_brushText->SetColor(D2D1::ColorF(D2D1::ColorF::White));
+                m_brushText->SetOpacity(m_transitionProgress * 0.95f);
+                pDC->DrawText(label.c_str(), (UINT32)label.length(), m_textFormatBadge.Get(), badge, m_brushText.Get());
+                m_brushText->SetColor(prevTxt);
+                m_brushText->SetOpacity(1.0f);
+            }
         }
     };
     

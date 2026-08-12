@@ -445,6 +445,7 @@ target_link_libraries(QuickViewThumbnailProvider PRIVATE
     shlwapi.lib
     user32.lib
     gdi32.lib
+    gdiplus.lib
 )
 target_compile_definitions(QuickViewThumbnailProvider PRIVATE
     UNICODE _UNICODE
