@@ -179,6 +179,16 @@ static void ChildWatcherLoop(std::stop_token st) {
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 RouteResult TryRoute(bool singleInstanceEnabled) {
+    // Thumbnail extraction workers are spawned by the Explorer shell extension
+    // (ThumbnailProvider.dll) and must run independently. If they take part in
+    // single-instance routing, an existing Master window would "capture" the
+    // request and the thumbnail would never be produced — Explorer shows nothing
+    // for .cdr/.pdf/... This covers both --thumbnail and --thumbnail-server
+    // (the latter is a prefix of the former).
+    if (::wcsstr(::GetCommandLineW(), L"--thumbnail")) {
+        return RouteResult::Independent;
+    }
+
     if (!singleInstanceEnabled) {
         return RouteResult::Independent;
     }
