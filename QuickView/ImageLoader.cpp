@@ -4169,6 +4169,219 @@ HRESULT QvRasterizeSvgResvg(const std::vector<uint8_t> &xml, float zoom,
   return S_OK;
 }
 
+// ===========================================================================
+// [Export] Decode any supported file to a PNG on disk (headless --export-png).
+// Lets users get a decoded image without the main viewer UI.
+// ===========================================================================
+
+// Rewrite the root <svg> viewBox / width / height so the visible area covers
+// the given rectangle (used to show content outside the Corel page rect).
+static std::string RewriteSvgRootViewBox(const std::string& svg, double x, double y,
+                                         double w, double h) {
+  std::string s = svg;
+  char buf[160];
+  std::string vb = "viewBox=\"";
+  size_t pos = s.find(vb);
+  if (pos != std::string::npos) {
+    size_t end = s.find('"', pos + vb.size());
+    if (end != std::string::npos) {
+      snprintf(buf, sizeof(buf), "viewBox=\"%.3f %.3f %.3f %.3f\"", x, y, w, h);
+      s.replace(pos, end - pos + 1, buf);
+      // Remove width/height so resvg uses the expanded viewBox as the
+      // authoritative canvas size (width/height may have units like "pt"
+      // that would clip the expanded content).
+      std::string wt = " width=\"";
+      size_t wp = s.find(wt);
+      if (wp != std::string::npos) {
+        size_t we = s.find('"', wp + wt.size());
+        if (we != std::string::npos) s.erase(wp, we - wp + 1);
+      }
+      std::string ht = " height=\"";
+      size_t hp = s.find(ht);
+      if (hp != std::string::npos) {
+        size_t he = s.find('"', hp + ht.size());
+        if (he != std::string::npos) s.erase(hp, he - hp + 1);
+      }
+      return s;
+    }
+  }
+  // Fallback: no viewBox found; replace width/height numerically.
+  std::string wt = " width=\"";
+  pos = s.find(wt);
+  if (pos != std::string::npos) {
+    size_t end = s.find('"', pos + wt.size());
+    if (end != std::string::npos) {
+      snprintf(buf, sizeof(buf), " width=\"%.3f\"", w);
+      s.replace(pos, end - pos + 1, buf);
+    }
+  }
+  std::string ht = " height=\"";
+  pos = s.find(ht);
+  if (pos != std::string::npos) {
+    size_t end = s.find('"', pos + ht.size());
+    if (end != std::string::npos) {
+      snprintf(buf, sizeof(buf), " height=\"%.3f\"", h);
+      s.replace(pos, end - pos + 1, buf);
+    }
+  }
+  return s;
+}
+
+static HRESULT SaveBgraAsPng(IWICImagingFactory* wf, LPCWSTR outPath,
+                             const std::vector<uint8_t>& bgra, uint32_t w, uint32_t h) {
+  if (!wf || bgra.empty() || w == 0 || h == 0) return E_INVALIDARG;
+  ComPtr<IWICBitmapEncoder> enc;
+  HRESULT hr = wf->CreateEncoder(GUID_ContainerFormatPng, nullptr, &enc);
+  if (FAILED(hr)) return hr;
+  ComPtr<IWICStream> stream;
+  hr = wf->CreateStream(&stream);
+  if (FAILED(hr)) return hr;
+  hr = stream->InitializeFromFilename(outPath, GENERIC_WRITE);
+  if (FAILED(hr)) return hr;
+  hr = enc->Initialize(stream.Get(), WICBitmapEncoderNoCache);
+  if (FAILED(hr)) return hr;
+  ComPtr<IWICBitmapFrameEncode> fenc;
+  hr = enc->CreateNewFrame(&fenc, nullptr);
+  if (FAILED(hr)) return hr;
+  hr = fenc->Initialize(nullptr);
+  if (FAILED(hr)) return hr;
+  hr = fenc->SetSize(w, h);
+  if (FAILED(hr)) return hr;
+  WICPixelFormatGUID fmt = GUID_WICPixelFormat32bppBGRA;
+  hr = fenc->SetPixelFormat(&fmt);
+  if (FAILED(hr)) return hr;
+  UINT stride = w * 4;
+  UINT bufSize = stride * h;
+  hr = fenc->WritePixels(h, stride, bufSize, const_cast<BYTE*>(bgra.data()));
+  if (FAILED(hr)) return hr;
+  hr = fenc->Commit();
+  if (FAILED(hr)) return hr;
+  hr = enc->Commit();
+  if (FAILED(hr)) return hr;
+  return S_OK;
+}
+
+// Rasterize an SVG frame to BGRA. When includeOutsidePage is set, expand the
+// viewBox to the full content bounding box (resvg_get_image_bbox) so elements
+// outside the Corel page rectangle are not clipped.
+static HRESULT RenderSvgFrameToBgra(const RawImageFrame::SvgData& svgData, int maxDim,
+                                    bool whiteBg, bool includeOutsidePage,
+                                    std::vector<uint8_t>& outBgra, uint32_t& outW,
+                                    uint32_t& outH) {
+  const std::vector<uint8_t>& xml = svgData.xmlData;
+  if (xml.empty()) return E_INVALIDARG;
+
+  double rx = 0, ry = 0, rw = svgData.viewBoxW, rh = svgData.viewBoxH;
+  bool haveBBox = false;
+  resvg_rect cb = {};
+  if (includeOutsidePage && svgData.viewBoxW > 0 && svgData.viewBoxH > 0) {
+    resvg_options* opt = resvg_options_create();
+    if (opt) {
+      resvg_render_tree* tree = nullptr;
+      if (resvg_parse_tree_from_data(reinterpret_cast<const char*>(xml.data()),
+                                     xml.size(), opt, &tree) == RESVG_OK && tree) {
+        if (resvg_get_image_bbox(tree, &cb)) {
+          double nx = std::min(0.0, (double)cb.x);
+          double ny = std::min(0.0, (double)cb.y);
+          double mx = std::max((double)svgData.viewBoxW, (double)cb.x + (double)cb.width);
+          double my = std::max((double)svgData.viewBoxH, (double)cb.y + (double)cb.height);
+          rx = nx; ry = ny; rw = mx - nx; rh = my - ny;
+          haveBBox = true;
+        }
+        resvg_tree_destroy(tree);
+      }
+      resvg_options_destroy(opt);
+    }
+  }
+  if (haveBBox) {
+    fprintf(stderr, "[export] viewBox=%.1fx%.1f contentBbox=%.1f,%.1f,%.1f,%.1f final=%.1f,%.1f,%.1f,%.1f\n",
+            svgData.viewBoxW, svgData.viewBoxH,
+            cb.x, cb.y, cb.width, cb.height,
+            rx, ry, rw, rh);
+    // Heuristic: if the content bbox is wildly larger than the page rect,
+    // some hidden/guide element has inflated it. Fall back to page rect
+    // so the main design isn't shrunk to a few pixels.
+    double pageW = std::max((double)svgData.viewBoxW, 1.0);
+    double pageH = std::max((double)svgData.viewBoxH, 1.0);
+    if (rw > pageW * 8.0 || rh > pageH * 8.0) {
+      fprintf(stderr, "[export] content bbox too large (%.1fx%.1f vs page %.1fx%.1f), falling back to page rect\n",
+              rw, rh, pageW, pageH);
+      rx = 0; ry = 0; rw = svgData.viewBoxW; rh = svgData.viewBoxH;
+    }
+  }
+  if (!haveBBox) {
+    rx = 0; ry = 0; rw = svgData.viewBoxW; rh = svgData.viewBoxH;
+  }
+
+  std::string rewritten = RewriteSvgRootViewBox(
+      std::string(reinterpret_cast<const char*>(xml.data()), xml.size()), rx, ry, rw, rh);
+  std::vector<uint8_t> newXml(rewritten.begin(), rewritten.end());
+  fprintf(stderr, "[export] raw svg head: %.*s\n",
+          (int)std::min<size_t>(xml.size(), 500), reinterpret_cast<const char*>(xml.data()));
+  fprintf(stderr, "[export] rewritten svg head: %.*s\n",
+          (int)std::min<size_t>(newXml.size(), 500), reinterpret_cast<const char*>(newXml.data()));
+
+  float zoom = 1.0f;
+  // When no explicit maxDim is given, cap the long edge at 8192px to avoid
+  // allocating multi-GB buffers for CDR/AI files whose SVG viewBox is huge
+  // (Corel unit space can be tens of thousands of units).
+  double cap = (maxDim > 0) ? (double)maxDim : 8192.0;
+  if (rw > cap || rh > cap) {
+    zoom = (float)(cap / std::max(rw, rh));
+  }
+  uint32_t nW = 0, nH = 0, rW = 0, rH = 0;
+  HRESULT hr = QvRasterizeSvgResvg(newXml, zoom, outBgra, whiteBg, true,
+                                   &nW, &nH, &rW, &rH);
+  if (SUCCEEDED(hr)) { outW = rW; outH = rH; }
+  return hr;
+}
+
+HRESULT ExportToPng(LPCWSTR inPath, LPCWSTR outPath, int maxDim,
+                    bool whiteBg, bool includeOutsidePage) {
+  if (!inPath || !outPath) return E_INVALIDARG;
+  HRESULT coHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+  bool comOwned = SUCCEEDED(coHr);
+
+  IWICImagingFactory* wf = nullptr;
+  if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+                              IID_IWICImagingFactory, reinterpret_cast<void**>(&wf)))) {
+    wf = nullptr;
+  }
+
+  HRESULT hr = E_FAIL;
+  {
+    CImageLoader loader;
+    if (wf) loader.Initialize(wf);
+    RawImageFrame frame;
+    hr = loader.LoadToFrame(inPath, &frame);
+    if (SUCCEEDED(hr) && frame.IsValid()) {
+      if (frame.IsSvg() && frame.svg) {
+        std::vector<uint8_t> bgra;
+        uint32_t w = 0, h = 0;
+        hr = RenderSvgFrameToBgra(*frame.svg, maxDim, whiteBg, includeOutsidePage, bgra, w, h);
+        if (SUCCEEDED(hr) && !bgra.empty()) {
+          hr = SaveBgraAsPng(wf, outPath, bgra, w, h);
+        }
+      } else if (frame.pixels && frame.width > 0 && frame.height > 0) {
+        int stride = frame.stride ? frame.stride : frame.width * 4;
+        std::vector<uint8_t> buf(frame.pixels,
+                                 frame.pixels + (size_t)stride * frame.height);
+        hr = SaveBgraAsPng(wf, outPath, buf, (uint32_t)frame.width, (uint32_t)frame.height);
+      } else {
+        hr = E_FAIL;
+      }
+    }
+  }
+  if (wf) wf->Release();
+  if (comOwned) CoUninitialize();
+  if (SUCCEEDED(hr)) {
+    fprintf(stderr, "[export] wrote PNG %ls\n", outPath);
+  } else {
+    fprintf(stderr, "[export] failed hr=0x%08lX for %ls\n", hr, inPath);
+  }
+  return hr;
+}
+
 } // namespace QuickView
 
 static HRESULT RasterizeSvgThumbnail(const std::vector<uint8_t> &xmlData,

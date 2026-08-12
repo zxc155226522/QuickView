@@ -5848,6 +5848,31 @@ static int RunDecodeWorker(int argc, LPWSTR* argv) {
     return SUCCEEDED(hr) ? 0 : 2;
 }
 
+static int RunExportPng(int argc, wchar_t** argv) {
+  std::wstring inPath, outPath;
+  int maxDim = 0;
+  for (int i = 1; i < argc; ++i) {
+    if (_wcsicmp(argv[i], L"--export-png") == 0) {
+      if (i + 1 < argc) inPath = argv[++i];
+      if (i + 1 < argc) outPath = argv[++i];
+      if (i + 1 < argc) {
+        int v = _wtoi(argv[i + 1]);
+        if (v > 0) { maxDim = v; ++i; }
+      }
+    }
+  }
+  if (inPath.empty() || outPath.empty()) {
+    fwprintf(stderr, L"Usage: QuickView.exe --export-png <input> <output.png> [maxDim]\n");
+    return 2;
+  }
+  HRESULT hr = QuickView::ExportToPng(inPath.c_str(), outPath.c_str(), maxDim, true, true);
+  if (FAILED(hr)) {
+    fwprintf(stderr, L"ExportToPng failed: 0x%08X\n", hr);
+    return 3;
+  }
+  return 0;
+}
+
 static bool TryRunToolProcessFromCommandLine(int* outExitCode) {
     if (!outExitCode) return false;
 
@@ -5855,7 +5880,7 @@ static bool TryRunToolProcessFromCommandLine(int* outExitCode) {
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     if (!argv) return false;
 
-    enum class ToolMode { None, DecodeWorker, Uninstall, Thumbnail, ThumbnailServer };
+    enum class ToolMode { None, DecodeWorker, Uninstall, Thumbnail, ThumbnailServer, ExportPng };
     ToolMode mode = ToolMode::None;
 
     for (int i = 1; i < argc; ++i) {
@@ -5864,6 +5889,7 @@ static bool TryRunToolProcessFromCommandLine(int* outExitCode) {
         if (_wcsicmp(argv[i], L"--uninstall") == 0) { mode = ToolMode::Uninstall; break; }
         if (_wcsicmp(argv[i], L"--thumbnail") == 0) { mode = ToolMode::Thumbnail; break; }
         if (_wcsicmp(argv[i], L"--thumbnail-server") == 0) { mode = ToolMode::ThumbnailServer; break; }
+        if (_wcsicmp(argv[i], L"--export-png") == 0) { mode = ToolMode::ExportPng; break; }
     }
 
     if (mode == ToolMode::None) {
@@ -5881,6 +5907,7 @@ static bool TryRunToolProcessFromCommandLine(int* outExitCode) {
         // Runs before single-instance routing / window creation by design.
         case ToolMode::Thumbnail:    *outExitCode = QuickView::RunThumbnailWorker(argc, argv); break;
         case ToolMode::ThumbnailServer: *outExitCode = QuickView::RunThumbnailServer(argc, argv); break;
+        case ToolMode::ExportPng:       *outExitCode = RunExportPng(argc, argv); break;
         default:                     *outExitCode = 2; break;
     }
     LocalFree(argv);

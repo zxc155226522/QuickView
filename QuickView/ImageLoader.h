@@ -33,8 +33,14 @@ bool QvUpscaleSvgStrokeWidths(std::string &svgXml, float minVisiblePx, float sca
 HRESULT QvRasterizeSvgResvg(const std::vector<uint8_t> &xml, float zoom,
                             std::vector<uint8_t> &outBgra, bool whiteBg,
                             bool loadFonts = false, uint32_t *outNaturalW = nullptr,
-                            uint32_t *outNaturalH = nullptr, uint32_t *outW = nullptr,
+                            uint32_t *outNaturalH = nullptr,                             uint32_t *outW = nullptr,
                             uint32_t *outH = nullptr);
+
+// [Export] Decode any supported file to a PNG on disk.
+// includeOutsidePage expands the SVG viewBox to the full content bbox so
+// elements drawn outside the Corel page rectangle are not clipped.
+HRESULT ExportToPng(LPCWSTR inPath, LPCWSTR outPath, int maxDim = 0,
+                    bool whiteBg = true, bool includeOutsidePage = true);
 
 } // namespace QuickView
 
