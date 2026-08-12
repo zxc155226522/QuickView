@@ -630,12 +630,6 @@ public:
                  ((p[0] == 0x49 && p[1] == 0x49 && p[2] == 0x2A && p[3] == 0x00) ||
                   (p[0] == 0x4D && p[1] == 0x4D && p[2] == 0x00 && p[3] == 0x2A)))
             ext = L"tif";
-        // 位图格式：JPEG/PNG 头部明确，必须在 ASCII 兜底之前识别，
-        // 否则照片类文件（Explorer 走流路径、无真实扩展名）会落入 .bin 兜底，
-        // 导致角标误显示 BIN。
-        else if (n >= 3 && p[0] == 0xFF && p[1] == 0xD8 && p[2] == 0xFF) ext = L"jpg";
-        else if (n >= 4 && p[0] == 0x89 && p[1] == 'P' &&
-                 p[2] == 'N' && p[3] == 'G')                            ext = L"png";
         // 纯文本格式必须显式识别，否则会被下面的 ASCII 兜底误判为 plt。
         // 注意：真实 Explorer 仅调用 IInitializeWithStream（不调用 SetSite），
         // 没有真实扩展名可用，只能靠 magic 字节判定。
@@ -652,7 +646,6 @@ public:
             if (asc) ext = L"plt";
         }
         DbgLog((std::wstring(L"  ext=") + ext).c_str());
-        m_streamExt = ext;
 
         wchar_t tempDir[MAX_PATH];
         if (!GetTempPathW(MAX_PATH, tempDir)) return E_FAIL;
@@ -750,15 +743,10 @@ public:
 
         auto t1 = GetTickCount64();
         if (!hbmp) { DbgLog(L"  worker failed/timeout"); return E_FAIL; }
-        // 烤入右上角胶囊型分类型角标。扩展名优先级：真实路径文件名 > 流 magic > 不画。
-        std::wstring badgeExt;
-        if (!m_realPath.empty()) {
-            badgeExt = GetExtUpper(m_realPath);
-        } else if (!m_streamExt.empty() && m_streamExt != L"bin") {
-            badgeExt = m_streamExt;
-        }
-        if (!badgeExt.empty())
-            CompositeTypeBadge(hbmp, badgeExt);
+        // 烤入右上角胶囊型分类型角标。扩展名直接取自真实文件名；
+        // 取不到（SetSite 未提供路径）则不画，由 Explorer 显示默认图标。
+        if (!m_realPath.empty())
+            CompositeTypeBadge(hbmp, GetExtUpper(m_realPath));
         *phbmp = hbmp;
         *pdwAlpha = WTSAT_ARGB;
         DbgLog((L"  OK (" + std::to_wstring(t1 - t0) + L"ms)").c_str());
@@ -810,7 +798,6 @@ private:
     LONG m_cRef;
     std::wstring m_path;      // 临时文件路径（Initialize 写入，GetThumbnail 兜底用作 worker 输入）
     std::wstring m_realPath;  // SetSite 提供的真实文件路径（扩展名权威，优先传给 worker）
-    std::wstring m_streamExt; // 流路径 magic 检测到的扩展名（SetSite 取不到路径时兜底用）
 };
 
 // ============================================================================
