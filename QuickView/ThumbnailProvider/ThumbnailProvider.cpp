@@ -14,6 +14,7 @@
 #include <windows.h>
 #include <objbase.h>
 #include <shlobj.h>          // SHChangeNotify
+#include <shobjidl.h>        // IShellItem / SIGDN_FILESYSPATH
 #include <shlwapi.h>
 #include <strsafe.h>
 
@@ -23,6 +24,7 @@
 #include <cwchar>
 #include <cwctype>
 #include <mutex>
+#include <memory>
 #include <gdiplus.h>
 #include <objidl.h>          // STATSTG, STATFLAG_NONAME
 #include <atomic>            // bounded one-shot worker fallback
@@ -478,21 +480,37 @@ namespace {
         g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
         g.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
 
-        float fontSize = (float)h * 0.075f;
-        if (fontSize < 11.0f) fontSize = 11.0f;
-        if (fontSize > 30.0f) fontSize = 30.0f;
-        Gdiplus::Font font(L"Segoe UI", fontSize, Gdiplus::FontStyleBold);
+        // 字号随缩略图大小缩放，但严格限幅，避免小图上过大。
+        float fontSize = (float)h * 0.05f;
+        if (fontSize < 9.0f)  fontSize = 9.0f;
+        if (fontSize > 16.0f) fontSize = 16.0f;
+
+        // 右上角与图片之间的间隔（空隙，不贴边）。
+        const float margin = (std::max)(4.0f, (float)h * 0.04f);
+        const float availW = (float)w - 2.0f * margin;
+        const float availH = (float)h - 2.0f * margin;
+
         Gdiplus::StringFormat sf;
         sf.SetAlignment(Gdiplus::StringAlignmentCenter);
         sf.SetLineAlignment(Gdiplus::StringAlignmentCenter);
 
+        Gdiplus::Font font(L"Segoe UI", fontSize, Gdiplus::FontStyleBold);
         Gdiplus::RectF layout(0, 0, (Gdiplus::REAL)w, (Gdiplus::REAL)h);
         Gdiplus::RectF bound;
         g.MeasureString(extUpper.c_str(), (INT)extUpper.length(), &font, layout, &sf, &bound);
 
-        const float bh = fontSize * 1.7f;
-        const float bw = bound.Width + fontSize * 1.1f;
-        const float margin = fontSize * 0.45f;
+        float bh = fontSize * 1.6f;
+        float bw = bound.Width + fontSize * 1.0f;
+        // 边界保护：角标（含圆角）必须完整落在图内，越界则字号/尺寸等比缩小。
+        const bool needScale = (bw > availW || bh > availH);
+        std::unique_ptr<Gdiplus::Font> scaledFont;
+        const Gdiplus::Font* pFont = &font;
+        if (needScale) {
+            float s = (std::min)(availW / bw, availH / bh);
+            fontSize *= s; bh *= s; bw *= s;
+            scaledFont.reset(new Gdiplus::Font(L"Segoe UI", fontSize, Gdiplus::FontStyleBold));
+            pFont = scaledFont.get();
+        }
         const float x = (float)w - margin - bw;
         const float y = margin;
         const float r = bh * 0.5f; // 胶囊
@@ -504,7 +522,7 @@ namespace {
         g.FillPath(&brushPill, &path);
 
         Gdiplus::SolidBrush brushText(Gdiplus::Color(255, 255, 255, 255));
-        g.DrawString(extUpper.c_str(), (INT)extUpper.length(), &font,
+        g.DrawString(extUpper.c_str(), (INT)extUpper.length(), pFont,
                      Gdiplus::RectF(x, y, bw, bh), &sf, &brushText);
     }
 }
@@ -612,6 +630,12 @@ public:
                  ((p[0] == 0x49 && p[1] == 0x49 && p[2] == 0x2A && p[3] == 0x00) ||
                   (p[0] == 0x4D && p[1] == 0x4D && p[2] == 0x00 && p[3] == 0x2A)))
             ext = L"tif";
+        // 位图格式：JPEG/PNG 头部明确，必须在 ASCII 兜底之前识别，
+        // 否则照片类文件（Explorer 走流路径、无真实扩展名）会落入 .bin 兜底，
+        // 导致角标误显示 BIN。
+        else if (n >= 3 && p[0] == 0xFF && p[1] == 0xD8 && p[2] == 0xFF) ext = L"jpg";
+        else if (n >= 4 && p[0] == 0x89 && p[1] == 'P' &&
+                 p[2] == 'N' && p[3] == 'G')                            ext = L"png";
         // 纯文本格式必须显式识别，否则会被下面的 ASCII 兜底误判为 plt。
         // 注意：真实 Explorer 仅调用 IInitializeWithStream（不调用 SetSite），
         // 没有真实扩展名可用，只能靠 magic 字节判定。
@@ -628,6 +652,7 @@ public:
             if (asc) ext = L"plt";
         }
         DbgLog((std::wstring(L"  ext=") + ext).c_str());
+        m_streamExt = ext;
 
         wchar_t tempDir[MAX_PATH];
         if (!GetTempPathW(MAX_PATH, tempDir)) return E_FAIL;
@@ -725,8 +750,15 @@ public:
 
         auto t1 = GetTickCount64();
         if (!hbmp) { DbgLog(L"  worker failed/timeout"); return E_FAIL; }
-        // 烤入右上角胶囊型分类型角标（扩展名权威取自 inputPath）
-        CompositeTypeBadge(hbmp, GetExtUpper(inputPath));
+        // 烤入右上角胶囊型分类型角标。扩展名优先级：真实路径文件名 > 流 magic > 不画。
+        std::wstring badgeExt;
+        if (!m_realPath.empty()) {
+            badgeExt = GetExtUpper(m_realPath);
+        } else if (!m_streamExt.empty() && m_streamExt != L"bin") {
+            badgeExt = m_streamExt;
+        }
+        if (!badgeExt.empty())
+            CompositeTypeBadge(hbmp, badgeExt);
         *phbmp = hbmp;
         *pdwAlpha = WTSAT_ARGB;
         DbgLog((L"  OK (" + std::to_wstring(t1 - t0) + L"ms)").c_str());
@@ -740,19 +772,32 @@ public:
         DbgLog(L"SetSite called");
         m_realPath.clear();
         if (!pUnkSite) return S_OK;
-        PIDLIST_ABSOLUTE pidl = nullptr;
-        if (SUCCEEDED(SHGetIDListFromObject(pUnkSite, &pidl))) {
+        // 优先从站点直接取 IShellItem（最可靠地拿到磁盘路径/文件名），
+        // 扩展名直接取自文件名，无需 magic 猜测。
+        IShellItem* psi = nullptr;
+        if (SUCCEEDED(pUnkSite->QueryInterface(IID_PPV_ARGS(&psi)))) {
             PWSTR name = nullptr;
-            if (SUCCEEDED(SHGetNameFromIDList(pidl, SIGDN_FILESYSPATH, &name))) {
+            if (SUCCEEDED(psi->GetDisplayName(SIGDN_FILESYSPATH, &name))) {
                 m_realPath = name;
                 DbgLog((std::wstring(L"  site path=") + m_realPath).c_str());
                 CoTaskMemFree(name);
             } else {
-                DbgLog(L"  SHGetNameFromIDList failed");
+                DbgLog(L"  IShellItem.GetDisplayName failed");
             }
-            ILFree(pidl);
+            psi->Release();
         } else {
-            DbgLog(L"  SHGetIDListFromObject failed");
+            // 兜底：仍取不到 IShellItem 时退回 IDList 方式。
+            DbgLog(L"  no IShellItem from site, fallback to IDList");
+            PIDLIST_ABSOLUTE pidl = nullptr;
+            if (SUCCEEDED(SHGetIDListFromObject(pUnkSite, &pidl))) {
+                PWSTR name = nullptr;
+                if (SUCCEEDED(SHGetNameFromIDList(pidl, SIGDN_FILESYSPATH, &name))) {
+                    m_realPath = name;
+                    DbgLog((std::wstring(L"  site path=") + m_realPath).c_str());
+                    CoTaskMemFree(name);
+                }
+                ILFree(pidl);
+            }
         }
         return S_OK;
     }
@@ -765,6 +810,7 @@ private:
     LONG m_cRef;
     std::wstring m_path;      // 临时文件路径（Initialize 写入，GetThumbnail 兜底用作 worker 输入）
     std::wstring m_realPath;  // SetSite 提供的真实文件路径（扩展名权威，优先传给 worker）
+    std::wstring m_streamExt; // 流路径 magic 检测到的扩展名（SetSite 取不到路径时兜底用）
 };
 
 // ============================================================================
