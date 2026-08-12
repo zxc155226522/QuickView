@@ -444,18 +444,20 @@ namespace {
         return e;
     }
 
-    // 圆角矩形路径（r=半高即胶囊）
-    void AddRoundedRect(Gdiplus::GraphicsPath& path, float x, float y, float w, float h, float r) {
-        r = (std::min)(r, (std::min)(w, h) * 0.5f);
+    // 圆角矩形路径。radius 直接表示圆角半径（弧外接矩形边长 = 2*radius），
+    // 故传 radius = 半高 即得两端半圆胶囊。
+    void AddRoundedRect(Gdiplus::GraphicsPath& path, float x, float y, float w, float h, float radius) {
+        radius = (std::min)(radius, (std::min)(w, h) * 0.5f);
+        const float d = radius * 2.0f;
         path.StartFigure();
-        path.AddLine(x + r, y, x + w - r, y);
-        path.AddArc(x + w - r, y, r, r, 270.0f, 90.0f);
-        path.AddLine(x + w, y + r, x + w, y + h - r);
-        path.AddArc(x + w - r, y + h - r, r, r, 0.0f, 90.0f);
-        path.AddLine(x + w - r, y + h, x + r, y + h);
-        path.AddArc(x + r, y + h - r, r, r, 90.0f, 90.0f);
-        path.AddLine(x, y + h - r, x, y + r);
-        path.AddArc(x, y, r, r, 180.0f, 90.0f);
+        path.AddLine(x + radius, y, x + w - radius, y);
+        path.AddArc(x + w - d, y, d, d, 270.0f, 90.0f);
+        path.AddLine(x + w, y + radius, x + w, y + h - radius);
+        path.AddArc(x + w - d, y + h - d, d, d, 0.0f, 90.0f);
+        path.AddLine(x + w - radius, y + h, x + radius, y + h);
+        path.AddArc(x + radius, y + h - d, d, d, 90.0f, 90.0f);
+        path.AddLine(x, y + h - radius, x, y + radius);
+        path.AddArc(x, y, d, d, 180.0f, 90.0f);
         path.CloseFigure();
     }
 
@@ -485,8 +487,8 @@ namespace {
         if (fontSize < 9.0f)  fontSize = 9.0f;
         if (fontSize > 16.0f) fontSize = 16.0f;
 
-        // 右上角与图片之间的间隔（空隙，不贴边）。
-        const float margin = (std::max)(4.0f, (float)h * 0.04f);
+        // 右上角与图片之间的间隔（空隙，不贴边，避免与图内图标重叠）。
+        const float margin = (std::max)(6.0f, (float)h * 0.06f);
         const float availW = (float)w - 2.0f * margin;
         const float availH = (float)h - 2.0f * margin;
 
