@@ -530,13 +530,15 @@ namespace {
 // ============================================================================
 // CThumbnailProvider
 // ============================================================================
-class CThumbnailProvider : public IInitializeWithFile,
+class CThumbnailProvider : public IInitializeWithStream,
+                            public IInitializeWithFile,
                             public IThumbnailProvider, public IObjectWithSite {
 public:
     CThumbnailProvider() : m_cRef(1) {
         InterlockedIncrement(&g_cRefModule);
     }
     virtual ~CThumbnailProvider() {
+        if (m_spSite) m_spSite->Release();
         InterlockedDecrement(&g_cRefModule);
     }
 
@@ -549,6 +551,8 @@ public:
         const wchar_t* hit = L"";
         if (riid == __uuidof(IUnknown) || riid == __uuidof(IInitializeWithFile))
             { *ppv = static_cast<IInitializeWithFile*>(this); hit = L" ->IInitFile"; }
+        else if (riid == __uuidof(IInitializeWithStream))
+            { *ppv = static_cast<IInitializeWithStream*>(this); hit = L" ->IInitStream"; }
         else if (riid == __uuidof(IThumbnailProvider))
             { *ppv = static_cast<IThumbnailProvider*>(this); hit = L" ->IThumb"; }
         else if (riid == __uuidof(IObjectWithSite))
@@ -575,13 +579,103 @@ public:
         if (!pszFilePath) return E_POINTER;
         if (!m_path.empty()) return HRESULT_FROM_WIN32(ERROR_ALREADY_INITIALIZED);
         m_path = pszFilePath;
+        m_realPath = pszFilePath;
         return S_OK;
     }
 
-    // 仅实现 IInitializeWithFile：Explorer 优先用 IInitializeWithStream 时只给字节流、
-    // 拿不到真实路径（日志证实 Explorer 从不调用 SetSite，且 IInitializeWithFile 也未被调用）。
-    // 不暴露 IInitializeWithStream 后，Shell 回退到 IInitializeWithFile::Initialize(pszFilePath)，
-    // 直接拿到真实文件路径 —— 角标扩展名与 worker 解码均用真实文件名，无需 magic 猜测。
+    // IInitializeWithStream — Explorer 优先用此接口，只给字节流（无路径）。
+    // 把流落盘为临时文件交 worker 解码（恢复提取），同时用 IStream::Stat 取真实路径用于角标。
+    HRESULT STDMETHODCALLTYPE Initialize(IStream* pstream, DWORD) override {
+        DbgLog(L"IInitStream::Initialize");
+        if (!pstream) return E_POINTER;
+        if (!m_path.empty()) return HRESULT_FROM_WIN32(ERROR_ALREADY_INITIALIZED);
+
+        // 真实路径：Explorer 提供的文件流，Stat 名称通常为真实全路径（用于角标扩展名）。
+        STATSTG stg = {};
+        if (SUCCEEDED(pstream->Stat(&stg, STATFLAG_DEFAULT)) && stg.pwcsName) {
+            m_realPath = stg.pwcsName;
+            CoTaskMemFree(stg.pwcsName);
+            DbgLog((std::wstring(L"  realPath(Stat)=") + m_realPath).c_str());
+        }
+
+        // 流式 spill：先读前缀用于 magic 判定，后续边读流边写临时文件（内存恒定 64KB 缓冲）。
+        std::vector<uint8_t> head(64);
+        ULONG got = 0;
+        HRESULT shr = pstream->Read(head.data(), (ULONG)head.size(), &got);
+        if (FAILED(shr) || got == 0) { DbgLog(L"  stream read head fail"); return E_FAIL; }
+        head.resize(got);
+
+        const unsigned char* p = head.data();
+        size_t n = head.size();
+        if (n >= 3 && p[0] == 0xEF && p[1] == 0xBB && p[2] == 0xBF) { p += 3; n -= 3; }
+
+        const wchar_t* ext = L"bin";
+        if (n >= 4 && memcmp(p, "%PDF", 4) == 0)           ext = L"pdf";
+        else if (n >= 4 && p[0] == 'P' && p[1] == 'K' &&
+                 ((p[2] == 0x03 && p[3] == 0x04) ||
+                  (p[2] == 0x05 && p[3] == 0x06)))         ext = L"cdr";
+        else if (n >= 4 && memcmp(p, "RIFF", 4) == 0)      ext = L"cdr";
+        else if (n >= 4 &&
+                 (p[0] == 'A' || p[0] == 'a') && p[1] == 'C' &&
+                 p[2] >= '0' && p[2] <= '9')                              ext = L"dwg";
+        else if (n >= 4 && p[0] == ' ' && p[1] == ' ' &&
+                 p[2] == '0' && (p[3] == '\r' || p[3] == '\n'))          ext = L"dxf";
+        else if (n >= 4 &&
+                 ((p[0] == 0x49 && p[1] == 0x49 && p[2] == 0x2A && p[3] == 0x00) ||
+                  (p[0] == 0x4D && p[1] == 0x4D && p[2] == 0x00 && p[3] == 0x2A)))
+            ext = L"tif";
+        else if (n >= 5 && memcmp(p, "<?xml", 5) == 0)     ext = L"svg";
+        else if (n >= 4 && p[0] == '<' && p[1] == 's' &&
+                 p[2] == 'v' && p[3] == 'g')                              ext = L"svg";
+        else if (n >= 11 && memcmp(p, "%!PS-Adobe", 11) == 0) ext = L"ai";
+        else {
+            bool asc = true;
+            size_t probe = n < 1024 ? n : 1024;
+            for (size_t i = 0; i < probe; ++i) {
+                if (p[i] == 0) { asc = false; break; }
+            }
+            if (asc) ext = L"plt";
+        }
+        DbgLog((std::wstring(L"  ext=") + ext).c_str());
+
+        wchar_t tempDir[MAX_PATH];
+        if (!GetTempPathW(MAX_PATH, tempDir)) return E_FAIL;
+        wchar_t path[MAX_PATH];
+        StringCchPrintfW(path, MAX_PATH, L"%sqvstream_%lu_%lu_%ld.%s",
+                         tempDir, GetCurrentProcessId(), GetCurrentThreadId(),
+                         InterlockedIncrement(&g_tempCounter), ext);
+        HANDLE h = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                               FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (h == INVALID_HANDLE_VALUE) return E_FAIL;
+        DWORD written = 0;
+        if (!WriteFile(h, head.data(), (DWORD)head.size(), &written, nullptr)
+            || written != head.size()) {
+            CloseHandle(h); DeleteFileW(path); return E_FAIL;
+        }
+        const ULONGLONG kMaxStream = 2ULL * 1024 * 1024 * 1024;
+        BYTE chunk[65536];
+        ULONGLONG total = head.size();
+        for (;;) {
+            ULONG r = 0;
+            HRESULT sr = pstream->Read(chunk, sizeof(chunk), &r);
+            if (r == 0) break;
+            if (FAILED(sr)) break;
+            DWORD w = 0;
+            if (!WriteFile(h, chunk, r, &w, nullptr) || w != r) {
+                CloseHandle(h); DeleteFileW(path); return E_FAIL;
+            }
+            total += r;
+            if (total > kMaxStream) {
+                DbgLog(L"  stream too large, abort");
+                CloseHandle(h); DeleteFileW(path); return E_OUTOFMEMORY;
+            }
+        }
+        CloseHandle(h);
+
+        m_path = path;
+        DbgLog((std::wstring(L"  temp=") + m_path).c_str());
+        return S_OK;
+    }
 
     // IThumbnailProvider
     HRESULT STDMETHODCALLTYPE GetThumbnail(UINT cx, HBITMAP* phbmp, WTS_ALPHATYPE* pdwAlpha) override {
@@ -636,20 +730,30 @@ public:
 
         auto t1 = GetTickCount64();
         if (!hbmp) { DbgLog(L"  worker failed/timeout"); return E_FAIL; }
-        // 烤入右上角胶囊型分类型角标。扩展名取自真实文件名(m_path 即 IInitializeWithFile
-        // 传入的真实路径)，对注册格式(CDR/PDF/SVG/AI/DXF/DWG/PLT/CMX/TIF/TIFF/SVGZ)准确。
-        CompositeTypeBadge(hbmp, GetExtUpper(m_path));
+        // 烤入右上角胶囊型分类型角标。扩展名优先取真实文件名(m_realPath，来自 Stat/Site/
+        // IInitializeWithFile)，取不到再退回临时文件名的 magic 扩展名。
+        CompositeTypeBadge(hbmp, GetExtUpper(m_realPath.empty() ? m_path : m_realPath));
         *phbmp = hbmp;
         *pdwAlpha = WTSAT_ARGB;
         DbgLog((L"  OK (" + std::to_wstring(t1 - t0) + L"ms)").c_str());
         return S_OK;
     }
 
-    // IObjectWithSite。Explorer 走 IInitializeWithStream 初始化本提供器，
-    // SetSite 不会被调用，角标扩展名改由 GetThumbnail 从临时文件名(m_path)取得，
-    // 故此处无需取路径；保留空实现以满足 IObjectWithSite 契约。
+    // IObjectWithSite：尝试从 site 取 IShellItem 真实路径（角标扩展名来源之一，多重保险）。
     HRESULT STDMETHODCALLTYPE SetSite(IUnknown* pUnkSite) override {
-        (void)pUnkSite;
+        if (m_spSite) { m_spSite->Release(); m_spSite = nullptr; }
+        if (pUnkSite) {
+            m_spSite = pUnkSite; m_spSite->AddRef();
+            IShellItem* psi = nullptr;
+            if (SUCCEEDED(pUnkSite->QueryInterface(__uuidof(IShellItem), (void**)&psi))) {
+                PWSTR p = nullptr;
+                if (SUCCEEDED(psi->GetDisplayName(SIGDN_FILESYSPATH, &p))) {
+                    m_realPath = p; CoTaskMemFree(p);
+                    DbgLog((std::wstring(L"  realPath(Site)=") + m_realPath).c_str());
+                }
+                psi->Release();
+            }
+        }
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE GetSite(REFIID, void** ppvSite) override {
@@ -659,7 +763,9 @@ public:
 
 private:
     LONG m_cRef;
-    std::wstring m_path;      // 临时文件路径（Initialize 写入，保留原始扩展名，用作 worker 输入与角标扩展名来源）
+    std::wstring m_path;      // worker 解码输入（stream 落盘临时文件，或 IInitializeWithFile 真实路径）
+    std::wstring m_realPath;  // 真实文件路径（角标扩展名来源：Stat / Site / IInitializeWithFile）
+    IUnknown* m_spSite = nullptr;
 };
 
 // ============================================================================
