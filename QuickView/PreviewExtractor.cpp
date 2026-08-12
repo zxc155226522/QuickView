@@ -292,12 +292,12 @@ bool PreviewExtractor::InflateRaw(const uint8_t* src, size_t srcSize,
         strm.next_out = outBuf.data() + outBuf.size() - kChunk;
         strm.avail_out = static_cast<uInt>(kChunk);
         ret = inflate(&strm, Z_FINISH);
-    } while (ret == Z_OK);
+    } while (ret == Z_OK || ret == Z_BUF_ERROR);
     outBuf.resize(strm.total_out);
     inflateEnd(&strm);
-    // Accept complete (Z_STREAM_END) or truncated tail (Z_BUF_ERROR): a
-    // partially decoded thumbnail is still usable.
-    return (ret == Z_STREAM_END || ret == Z_BUF_ERROR) && !outBuf.empty();
+    // Only a fully decoded stream is usable; a truncated tail (Z_BUF_ERROR)
+    // means the output buffer was exhausted and the image is incomplete.
+    return ret == Z_STREAM_END && !outBuf.empty();
 }
 
 // Search an aligned BITMAPINFOHEADER (DIB) inside [start, end).
@@ -474,10 +474,10 @@ bool PreviewExtractor::ExtractFromCDR(const uint8_t* data, size_t size, Extracte
             if (isPng) score += 2;                                  // PNG 优先
             if (nl.find("thumb") != std::string::npos) score += 4;  // 缩略图 > 整页
             else if (nl.find("page") != std::string::npos) score += 1;
-            if (score > best.score ||
-                (score == best.score && uncompSize < best.uncompSize)) {
-                best = {localOff, compSize, uncompSize, method, score};
-            }
+        if (score > best.score ||
+            (score == best.score && uncompSize < best.uncompSize)) {
+            best = {localOff, compSize, uncompSize, method, score};
+        }
         }
         j += 46 + nameLen + extraLen + commLen;
     }
@@ -496,8 +496,9 @@ bool PreviewExtractor::ExtractFromCDR(const uint8_t* data, size_t size, Extracte
         out.buffer.assign(comp, comp + pick->compSize);
     } else if (pick->method == 8) {
         if (!InflateRaw(comp, pick->compSize, out.buffer,
-                        pick->uncompSize ? pick->uncompSize : pick->compSize * 4))
+                        pick->uncompSize ? pick->uncompSize : pick->compSize * 4)) {
             return false;
+        }
     } else {
         return false;
     }

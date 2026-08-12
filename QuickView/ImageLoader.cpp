@@ -38,6 +38,8 @@ extern struct AppConfig g_config;
 #include <turbojpeg.h>  // [v5.0] Required for JPEGLoader fallback logic
 #include <webp/demux.h> // [Phase 18] Required for Native WebP ICC extraction
 
+#include <cstdio>
+
 // libcdr: CorelDRAW (.cdr) and Corel Exchange (.cmx) vector format support
 #include <libcdr/libcdr.h>
 #include <librevenge-stream/librevenge-stream.h>
@@ -4768,8 +4770,8 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
        pathLower.ends_with(L".cmx")) &&
       mappedData && mappedSize > 0) {
     PreviewExtractor::ExtractedData exData;
-    if (PreviewExtractor::ExtractFromCDR(mappedData, mappedSize, exData) &&
-        exData.IsValid() &&
+    bool extOk = PreviewExtractor::ExtractFromCDR(mappedData, mappedSize, exData);
+    if (extOk && exData.IsValid() &&
         SUCCEEDED(LoadThumbImageFromMemoryWIC(exData.pData, exData.size,
                                               targetSize, pData)) &&
         pData->isValid) {
