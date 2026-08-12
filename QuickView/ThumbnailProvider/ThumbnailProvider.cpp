@@ -489,6 +489,14 @@ public:
 
         const wchar_t* ext = L"bin";
         if (n >= 4 && memcmp(p, "%PDF", 4) == 0)           ext = L"pdf";
+        // ZIP-based CorelDRAW (X4+): local/file header PK\x03\x04 or
+        // empty-archive marker PK\x05\x06. Without this, the stream path
+        // (no filename) falls through to ".bin" and the one-shot worker
+        // can't identify the format -> Explorer shows no thumbnail while
+        // the in-app viewer (real .cdr path) works fine.
+        else if (n >= 4 && p[0] == 'P' && p[1] == 'K' &&
+                 ((p[2] == 0x03 && p[3] == 0x04) ||
+                  (p[2] == 0x05 && p[3] == 0x06)))         ext = L"cdr";
         else if (n >= 4 && memcmp(p, "RIFF", 4) == 0)      ext = L"cdr";
         else if (n >= 4 &&
                  (p[0] == 'A' || p[0] == 'a') && p[1] == 'C' &&
