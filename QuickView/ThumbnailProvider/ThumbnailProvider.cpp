@@ -25,6 +25,8 @@
 #include <cwctype>
 #include <mutex>
 #include <memory>
+#include <map>
+#include <cmath>
 #include <gdiplus.h>
 #include <objidl.h>          // STATSTG, STATFLAG_NONAME
 #include <atomic>            // bounded one-shot worker fallback
@@ -419,7 +421,11 @@ static PipeResult RequestThumbnailViaPipe(const std::wstring& exePath,
 // badge can only travel WITH the thumbnail (baked in), never separately.
 // ============================================================================
 namespace {
-    // 扩展名 -> 基础色（GDI+ Color，alpha=255），绘制时再乘 alpha
+    // 胶囊位图缓存：key=扩展名@字号档，value=预渲染好的独立位图（背景透明、胶囊实色）。
+    static std::mutex s_badgeMtx;
+    static std::map<std::wstring, std::unique_ptr<Gdiplus::Bitmap>> s_badgeCache;
+
+    // 扩展名 -> 基础色（GDI+ Color，胶囊实色用）
     Gdiplus::Color BadgeColorForGdi(const std::wstring& ext) {
         auto in = [&](const wchar_t* s) -> bool {
             return ext.size() == wcslen(s) && _wcsicmp(ext.c_str(), s) == 0;
@@ -455,13 +461,53 @@ namespace {
         path.AddLine(x + w, y + radius, x + w, y + h - radius);
         path.AddArc(x + w - d, y + h - d, d, d, 0.0f, 90.0f);
         path.AddLine(x + w - radius, y + h, x + radius, y + h);
-        path.AddArc(x + radius, y + h - d, d, d, 90.0f, 90.0f);
+        path.AddArc(x, y + h - d, d, d, 90.0f, 90.0f);
         path.AddLine(x, y + h - radius, x, y + radius);
         path.AddArc(x, y, d, d, 180.0f, 90.0f);
         path.CloseFigure();
     }
 
-    // 把类型角标烤进缩略图位图（直写 DIB 像素，top-down 32bpp ARGB）
+    // 预渲染单枚胶囊位图：背景完全透明，胶囊本身为实色（alpha=255）。
+    // 缓存复用，避免每次 GetThumbnail 重复 MeasureString/FillPath/DrawString。
+    Gdiplus::Bitmap* CreateBadgeBmp(const std::wstring& extUpper, float fontSize,
+                                    float& outW, float& outH) {
+        Gdiplus::Font font(L"Segoe UI", fontSize, Gdiplus::FontStyleBold);
+        Gdiplus::StringFormat sf;
+        sf.SetAlignment(Gdiplus::StringAlignmentCenter);
+        sf.SetLineAlignment(Gdiplus::StringAlignmentCenter);
+
+        // 量文字宽度（临时位图 + Graphics，不实际绘制）
+        Gdiplus::Bitmap dummy(1, 1, PixelFormat32bppARGB);
+        Gdiplus::Graphics gdummy(&dummy);
+        gdummy.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
+        Gdiplus::RectF layout(0, 0, 10000, 10000);
+        Gdiplus::RectF bound;
+        gdummy.MeasureString(extUpper.c_str(), (INT)extUpper.length(), &font, layout, &sf, &bound);
+
+        const float bh = fontSize * 1.6f;
+        const float bw = bound.Width + fontSize * 1.0f;
+        const float radius = bh * 0.5f;
+        outW = bw; outH = bh;
+
+        Gdiplus::Bitmap* bmp = new Gdiplus::Bitmap((INT)std::ceil(bw), (INT)std::ceil(bh), PixelFormat32bppARGB);
+        Gdiplus::Graphics g(bmp);
+        g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+        g.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
+        g.Clear(Gdiplus::Color(0, 0, 0, 0));   // 背景透明
+
+        Gdiplus::Color base = BadgeColorForGdi(extUpper);
+        Gdiplus::SolidBrush brushPill(Gdiplus::Color(255, base.GetR(), base.GetG(), base.GetB()));
+        Gdiplus::GraphicsPath path;
+        AddRoundedRect(path, 0, 0, bw, bh, radius);
+        g.FillPath(&brushPill, &path);
+
+        Gdiplus::SolidBrush brushText(Gdiplus::Color(255, 255, 255, 255));
+        g.DrawString(extUpper.c_str(), (INT)extUpper.length(), &font, Gdiplus::RectF(0, 0, bw, bh), &sf, &brushText);
+        return bmp;
+    }
+
+    // 把类型角标烤进缩略图位图（直写 DIB 像素，top-down 32bpp ARGB）。
+    // 胶囊本身实色，从缓存位图 blit（alpha 混合：仅胶囊区覆盖图，背景透明不覆盖）。
     void CompositeTypeBadge(HBITMAP hbmp, const std::wstring& extUpper) {
         if (!hbmp || extUpper.empty()) return;
         BITMAP bm;
@@ -477,12 +523,7 @@ namespace {
             Gdiplus::GdiplusStartup(&s_token, &gsi, nullptr);
         });
 
-        Gdiplus::Bitmap gbm(w, h, w * 4, PixelFormat32bppARGB, (BYTE*)bm.bmBits);
-        Gdiplus::Graphics g(&gbm);
-        g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
-        g.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
-
-        // 字号随缩略图大小缩放，但严格限幅，避免小图上过大。
+        // 字号随缩略图大小缩放，严格限幅，避免小图上过大。
         float fontSize = (float)h * 0.05f;
         if (fontSize < 9.0f)  fontSize = 9.0f;
         if (fontSize > 16.0f) fontSize = 16.0f;
@@ -492,40 +533,40 @@ namespace {
         const float availW = (float)w - 2.0f * margin;
         const float availH = (float)h - 2.0f * margin;
 
-        Gdiplus::StringFormat sf;
-        sf.SetAlignment(Gdiplus::StringAlignmentCenter);
-        sf.SetLineAlignment(Gdiplus::StringAlignmentCenter);
+        // 取缓存胶囊（key=扩展名@字号档），未命中才生成并缓存（double-check 防重复）。
+        const std::wstring key = extUpper + L"@" + std::to_wstring((int)(fontSize * 100.0f));
+        Gdiplus::Bitmap* badge = nullptr;
+        {
+            std::lock_guard<std::mutex> lk(s_badgeMtx);
+            auto it = s_badgeCache.find(key);
+            if (it != s_badgeCache.end()) badge = it->second.get();
+        }
+        if (!badge) {
+            float cbw = 0, cbh = 0;
+            Gdiplus::Bitmap* created = CreateBadgeBmp(extUpper, fontSize, cbw, cbh);
+            if (created) {
+                std::lock_guard<std::mutex> lk(s_badgeMtx);
+                auto it = s_badgeCache.find(key);
+                if (it != s_badgeCache.end()) { delete created; badge = it->second.get(); }
+                else { s_badgeCache[key].reset(created); badge = created; }
+            }
+        }
+        if (!badge) return;
 
-        Gdiplus::Font font(L"Segoe UI", fontSize, Gdiplus::FontStyleBold);
-        Gdiplus::RectF layout(0, 0, (Gdiplus::REAL)w, (Gdiplus::REAL)h);
-        Gdiplus::RectF bound;
-        g.MeasureString(extUpper.c_str(), (INT)extUpper.length(), &font, layout, &sf, &bound);
-
-        float bh = fontSize * 1.6f;
-        float bw = bound.Width + fontSize * 1.0f;
-        // 边界保护：角标（含圆角）必须完整落在图内，越界则字号/尺寸等比缩小。
-        const bool needScale = (bw > availW || bh > availH);
-        std::unique_ptr<Gdiplus::Font> scaledFont;
-        const Gdiplus::Font* pFont = &font;
-        if (needScale) {
+        float bw = (float)badge->GetWidth();
+        float bh = (float)badge->GetHeight();
+        // 边界保护：角标（含圆角）须完整落在图内，越界则等比缩小绘制。
+        if (bw > availW || bh > availH) {
             float s = (std::min)(availW / bw, availH / bh);
-            fontSize *= s; bh *= s; bw *= s;
-            scaledFont.reset(new Gdiplus::Font(L"Segoe UI", fontSize, Gdiplus::FontStyleBold));
-            pFont = scaledFont.get();
+            bw *= s; bh *= s;
         }
         const float x = (float)w - margin - bw;
         const float y = margin;
-        const float r = bh * 0.5f; // 胶囊
 
-        Gdiplus::Color base = BadgeColorForGdi(extUpper);
-        Gdiplus::SolidBrush brushPill(Gdiplus::Color(170, base.GetR(), base.GetG(), base.GetB()));
-        Gdiplus::GraphicsPath path;
-        AddRoundedRect(path, x, y, bw, bh, r);
-        g.FillPath(&brushPill, &path);
-
-        Gdiplus::SolidBrush brushText(Gdiplus::Color(255, 255, 255, 255));
-        g.DrawString(extUpper.c_str(), (INT)extUpper.length(), pFont,
-                     Gdiplus::RectF(x, y, bw, bh), &sf, &brushText);
+        Gdiplus::Bitmap gbm(w, h, w * 4, PixelFormat32bppARGB, (BYTE*)bm.bmBits);
+        Gdiplus::Graphics g(&gbm);
+        g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+        g.DrawImage(badge, x, y, bw, bh);   // 仅胶囊区(实色)覆盖，背景透明不覆盖
     }
 }
 
