@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <map>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
 #include <wincodec.h>
@@ -4174,6 +4175,26 @@ HRESULT QvRasterizeSvgResvg(const std::vector<uint8_t> &xml, float zoom,
 // Lets users get a decoded image without the main viewer UI.
 // ===========================================================================
 
+// Parse the root <svg viewBox="x y w h"> attribute (floats, comma/space separated).
+static bool ParseSvgViewBox(const std::string& svg, double* outX, double* outY,
+                            double* outW, double* outH) {
+  if (!outX || !outY || !outW || !outH) return false;
+  const std::string token = "viewBox=\"";
+  size_t pos = svg.find(token);
+  if (pos == std::string::npos) return false;
+  pos += token.size();
+  size_t end = svg.find('"', pos);
+  if (end == std::string::npos) return false;
+  std::string vals = svg.substr(pos, end - pos);
+  for (char& c : vals) if (c == ',') c = ' ';
+  std::istringstream iss(vals);
+  double x = 0, y = 0, w = 0, h = 0;
+  if (!(iss >> x >> y >> w >> h)) return false;
+  if (w <= 0.0 || h <= 0.0) return false;
+  *outX = x; *outY = y; *outW = w; *outH = h;
+  return true;
+}
+
 // Rewrite the root <svg> viewBox / width / height so the visible area covers
 // the given rectangle (used to show content outside the Corel page rect).
 static std::string RewriteSvgRootViewBox(const std::string& svg, double x, double y,
@@ -4264,27 +4285,39 @@ static HRESULT SaveBgraAsPng(IWICImagingFactory* wf, LPCWSTR outPath,
 // Rasterize an SVG frame to BGRA. When includeOutsidePage is set, expand the
 // viewBox to the full content bounding box (resvg_get_image_bbox) so elements
 // outside the Corel page rectangle are not clipped.
-static HRESULT RenderSvgFrameToBgra(const RawImageFrame::SvgData& svgData, int maxDim,
+HRESULT QvRasterizeSvgFrameToBgra(const RawImageFrame::SvgData& svgData,
+                                    std::vector<uint8_t>& outBgra,
+                                    uint32_t& outW, uint32_t& outH,
                                     bool whiteBg, bool includeOutsidePage,
-                                    std::vector<uint8_t>& outBgra, uint32_t& outW,
-                                    uint32_t& outH) {
+                                    int maxDim) {
   const std::vector<uint8_t>& xml = svgData.xmlData;
   if (xml.empty()) return E_INVALIDARG;
 
-  double rx = 0, ry = 0, rw = svgData.viewBoxW, rh = svgData.viewBoxH;
+  std::string svgStr(reinterpret_cast<const char*>(xml.data()), xml.size());
+
+  // Use the real SVG viewBox (x y w h) as the page rectangle.  svgData.viewBoxW/H
+  // come from the width/height attributes (which may be in inches/pt), so they
+  // are not reliable for origin or true page bounds.
+  double pageX = 0, pageY = 0, pageW = svgData.viewBoxW, pageH = svgData.viewBoxH;
+  if (!ParseSvgViewBox(svgStr, &pageX, &pageY, &pageW, &pageH)) {
+    pageX = 0; pageY = 0;
+    pageW = std::max(1.0, (double)svgData.viewBoxW);
+    pageH = std::max(1.0, (double)svgData.viewBoxH);
+  }
+
+  double rx = pageX, ry = pageY, rw = pageW, rh = pageH;
   bool haveBBox = false;
   resvg_rect cb = {};
-  if (includeOutsidePage && svgData.viewBoxW > 0 && svgData.viewBoxH > 0) {
+  if (includeOutsidePage && pageW > 0 && pageH > 0) {
     resvg_options* opt = resvg_options_create();
     if (opt) {
       resvg_render_tree* tree = nullptr;
-      if (resvg_parse_tree_from_data(reinterpret_cast<const char*>(xml.data()),
-                                     xml.size(), opt, &tree) == RESVG_OK && tree) {
+      if (resvg_parse_tree_from_data(svgStr.c_str(), svgStr.size(), opt, &tree) == RESVG_OK && tree) {
         if (resvg_get_image_bbox(tree, &cb)) {
-          double nx = std::min(0.0, (double)cb.x);
-          double ny = std::min(0.0, (double)cb.y);
-          double mx = std::max((double)svgData.viewBoxW, (double)cb.x + (double)cb.width);
-          double my = std::max((double)svgData.viewBoxH, (double)cb.y + (double)cb.height);
+          double nx = std::min(pageX, (double)cb.x);
+          double ny = std::min(pageY, (double)cb.y);
+          double mx = std::max(pageX + pageW, (double)cb.x + (double)cb.width);
+          double my = std::max(pageY + pageH, (double)cb.y + (double)cb.height);
           rx = nx; ry = ny; rw = mx - nx; rh = my - ny;
           haveBBox = true;
         }
@@ -4293,39 +4326,27 @@ static HRESULT RenderSvgFrameToBgra(const RawImageFrame::SvgData& svgData, int m
       resvg_options_destroy(opt);
     }
   }
+
   if (haveBBox) {
-    fprintf(stderr, "[export] viewBox=%.1fx%.1f contentBbox=%.1f,%.1f,%.1f,%.1f final=%.1f,%.1f,%.1f,%.1f\n",
-            svgData.viewBoxW, svgData.viewBoxH,
+    fprintf(stderr, "[svg-render] page=%.1f,%.1f,%.1f,%.1f contentBbox=%.1f,%.1f,%.1f,%.1f final=%.1f,%.1f,%.1f,%.1f\n",
+            pageX, pageY, pageW, pageH,
             cb.x, cb.y, cb.width, cb.height,
             rx, ry, rw, rh);
     // Heuristic: if the content bbox is wildly larger than the page rect,
     // some hidden/guide element has inflated it. Fall back to page rect
     // so the main design isn't shrunk to a few pixels.
-    double pageW = std::max((double)svgData.viewBoxW, 1.0);
-    double pageH = std::max((double)svgData.viewBoxH, 1.0);
     if (rw > pageW * 8.0 || rh > pageH * 8.0) {
-      fprintf(stderr, "[export] content bbox too large (%.1fx%.1f vs page %.1fx%.1f), falling back to page rect\n",
+      fprintf(stderr, "[svg-render] content bbox too large (%.1fx%.1f vs page %.1fx%.1f), falling back to page rect\n",
               rw, rh, pageW, pageH);
-      rx = 0; ry = 0; rw = svgData.viewBoxW; rh = svgData.viewBoxH;
+      rx = pageX; ry = pageY; rw = pageW; rh = pageH;
     }
   }
-  if (!haveBBox) {
-    rx = 0; ry = 0; rw = svgData.viewBoxW; rh = svgData.viewBoxH;
-  }
 
-  std::string rewritten = RewriteSvgRootViewBox(
-      std::string(reinterpret_cast<const char*>(xml.data()), xml.size()), rx, ry, rw, rh);
+  std::string rewritten = RewriteSvgRootViewBox(svgStr, rx, ry, rw, rh);
   std::vector<uint8_t> newXml(rewritten.begin(), rewritten.end());
-  fprintf(stderr, "[export] raw svg head: %.*s\n",
-          (int)std::min<size_t>(xml.size(), 500), reinterpret_cast<const char*>(xml.data()));
-  fprintf(stderr, "[export] rewritten svg head: %.*s\n",
-          (int)std::min<size_t>(newXml.size(), 500), reinterpret_cast<const char*>(newXml.data()));
 
   float zoom = 1.0f;
-  // When no explicit maxDim is given, cap the long edge at 8192px to avoid
-  // allocating multi-GB buffers for CDR/AI files whose SVG viewBox is huge
-  // (Corel unit space can be tens of thousands of units).
-  double cap = (maxDim > 0) ? (double)maxDim : 8192.0;
+  int cap = (maxDim > 0) ? maxDim : 8192;
   if (rw > cap || rh > cap) {
     zoom = (float)(cap / std::max(rw, rh));
   }
@@ -4333,6 +4354,20 @@ static HRESULT RenderSvgFrameToBgra(const RawImageFrame::SvgData& svgData, int m
   HRESULT hr = QvRasterizeSvgResvg(newXml, zoom, outBgra, whiteBg, true,
                                    &nW, &nH, &rW, &rH);
   if (SUCCEEDED(hr)) { outW = rW; outH = rH; }
+  return hr;
+}
+
+// Thin wrapper kept for ExportToPng so it can log the raw/rewritten SVG heads.
+static HRESULT RenderSvgFrameToBgra(const RawImageFrame::SvgData& svgData, int maxDim,
+                                    bool whiteBg, bool includeOutsidePage,
+                                    std::vector<uint8_t>& outBgra, uint32_t& outW,
+                                    uint32_t& outH) {
+  HRESULT hr = QvRasterizeSvgFrameToBgra(svgData, outBgra, outW, outH,
+                                           whiteBg, includeOutsidePage,
+                                           maxDim > 0 ? maxDim : 8192);
+  if (SUCCEEDED(hr)) {
+    fprintf(stderr, "[export] wrote %ux%u bgra\n", outW, outH);
+  }
   return hr;
 }
 

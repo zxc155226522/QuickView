@@ -395,7 +395,7 @@ void ImageEngine::DispatchImageLoad(const std::wstring& path, ImageID imageId, u
     
     bool useFastLane = m_config.EnableScout;
     bool useHeavy = m_config.EnableHeavy;
-    
+
     // [Titan] Compliance: Force Heavy Lane for Base Layer
     // [Titan] Compliance: Force Heavy Lane for Base Layer
     if (enableTitan) {
@@ -575,6 +575,20 @@ void ImageEngine::DispatchImageLoad(const std::wstring& path, ImageID imageId, u
             m_heavyPool->Submit(path, imageId, primaryMMF, targetSlot, generationId);
         }
         return;
+    }
+
+    // [Vector/SVG Fix] HeavyLane's decode-worker transports only pixel buffers.
+    // SVG-producing formats (CDR/CMX/PLT/DXF/DWG/SVG) return RawImageFrame with
+    // format=SVG_XML and no pixels; the worker rejects stride*height==0 and
+    // the frame never reaches the main view -> infinite loading spinner.
+    // Force in-process FastLane for these vector formats, overriding any prior
+    // TypeA/TypeB classification that would send them to HeavyLane.
+    if (fmtUpper == L"CDR" || fmtUpper == L"CMX" || fmtUpper == L"PLT" ||
+        fmtUpper == L"DXF" || fmtUpper == L"DWG" || fmtUpper == L"SVG") {
+        useFastLane = true;
+        useHeavy = false;
+        QV_LOG("Dispatch_Route", TraceLoggingString("VectorForceFastLane", "Action"),
+               TraceLoggingWideString(fmtUpper.c_str(), "Format"));
     }
 
     // 7. Standard Routing

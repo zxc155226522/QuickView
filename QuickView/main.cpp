@@ -11326,7 +11326,8 @@ void ProcessEngineEvents(HWND hwnd) {
     auto events = g_imageEngine->PollState();
     for (auto& evt : events) {
         switch (evt.type) {
-            default: break;
+        default:
+            break;
         case EventType::PreviewReady:
         case EventType::FullReady: {
             if (!g_renderEngine) break;
@@ -11485,13 +11486,18 @@ void ProcessEngineEvents(HWND hwnd) {
                         // the proven bitmap pipeline displays it (crisp via
                         // supersampling; capped inside the helper).
                         auto renderSvgViaResvg = [&]() -> bool {
-                            if (!g_renderEngine) return false;
-                            std::vector<uint8_t> bgra;
-                            uint32_t nW=0,nH=0,rW=0,rH=0;
-                            if (FAILED(QuickView::QvRasterizeSvgResvg(
-                                    xml, 3.0f, bgra, true, true, &nW, &nH, &rW, &rH)))
+                            if (!g_renderEngine || !evt.rawFrame || !evt.rawFrame->svg) {
                                 return false;
-                            if (rW == 0 || rH == 0) return false;
+                            }
+                            std::vector<uint8_t> bgra;
+                            uint32_t rW = 0, rH = 0;
+                            // [resvg] Use the shared SVG renderer so huge Corel
+                            // coordinate spaces are fit to a sensible bitmap
+                            // (4096 cap) instead of hardcoded 3x zoom that tries
+                            // to allocate tens of thousands of pixels.
+                            HRESULT hr = QuickView::QvRasterizeSvgFrameToBgra(
+                                *evt.rawFrame->svg, bgra, rW, rH, true, true, 4096);
+                            if (FAILED(hr) || rW == 0 || rH == 0) return false;
                             QuickView::RawImageFrame frame;
                             frame.pixels = bgra.data();
                             frame.width = (int)rW;
@@ -11499,7 +11505,8 @@ void ProcessEngineEvents(HWND hwnd) {
                             frame.stride = (int)(rW * 4);
                             frame.format = QuickView::PixelFormat::BGRA8888;
                             ComPtr<ID2D1Bitmap> bmp;
-                            if (FAILED(g_renderEngine->UploadRawFrameToGPU(frame, &bmp)) || !bmp)
+                            hr = g_renderEngine->UploadRawFrameToGPU(frame, &bmp);
+                            if (FAILED(hr) || !bmp)
                                 return false;
                             GetPaneContext(PaneSlot::Primary).resource.Reset();
                             GetPaneContext(PaneSlot::Primary).resource.bitmap = bmp;

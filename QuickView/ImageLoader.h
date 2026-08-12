@@ -42,6 +42,15 @@ HRESULT QvRasterizeSvgResvg(const std::vector<uint8_t> &xml, float zoom,
 HRESULT ExportToPng(LPCWSTR inPath, LPCWSTR outPath, int maxDim = 0,
                     bool whiteBg = true, bool includeOutsidePage = true);
 
+// Render an SVG frame to BGRA. Expands the viewBox to include content outside
+// the declared page rectangle, then fits the output to maxDim (default 8192).
+HRESULT QvRasterizeSvgFrameToBgra(const RawImageFrame::SvgData &svgData,
+                                  std::vector<uint8_t> &outBgra,
+                                  uint32_t &outW, uint32_t &outH,
+                                  bool whiteBg = true,
+                                  bool includeOutsidePage = true,
+                                  int maxDim = 8192);
+
 } // namespace QuickView
 
 /// <summary>
