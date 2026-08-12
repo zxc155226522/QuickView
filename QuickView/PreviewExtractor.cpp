@@ -2,6 +2,7 @@
 #include "PreviewExtractor.h"
 #include <algorithm>
 #include <cstring>
+#include <zlib.h>
 
 // Helper Macros
 #define U16LE(p) (*(const uint16_t*)(p))
@@ -270,6 +271,240 @@ bool PreviewExtractor::ExtractFromPSD(const uint8_t* data, size_t size, Extracte
     }
     
     return false;
+}
+
+// --- CDR / CMX (CorelDRAW embedded preview) ---
+
+// Raw DEFLATE (no zlib header), as used by ZIP entries.
+bool PreviewExtractor::InflateRaw(const uint8_t* src, size_t srcSize,
+                                  std::vector<uint8_t>& outBuf, size_t hint) {
+    z_stream strm{};
+    if (inflateInit2(&strm, -MAX_WBITS) != Z_OK)
+        return false;
+    strm.next_in = const_cast<Bytef*>(src);
+    strm.avail_in = static_cast<uInt>(srcSize);
+    outBuf.clear();
+    outBuf.reserve(hint ? hint : srcSize * 4);
+    const size_t kChunk = 65536;
+    int ret = Z_OK;
+    do {
+        outBuf.resize(outBuf.size() + kChunk);
+        strm.next_out = outBuf.data() + outBuf.size() - kChunk;
+        strm.avail_out = static_cast<uInt>(kChunk);
+        ret = inflate(&strm, Z_FINISH);
+    } while (ret == Z_OK);
+    outBuf.resize(strm.total_out);
+    inflateEnd(&strm);
+    // Accept complete (Z_STREAM_END) or truncated tail (Z_BUF_ERROR): a
+    // partially decoded thumbnail is still usable.
+    return (ret == Z_STREAM_END || ret == Z_BUF_ERROR) && !outBuf.empty();
+}
+
+// Search an aligned BITMAPINFOHEADER (DIB) inside [start, end).
+bool PreviewExtractor::FindDibInRange(const uint8_t* data, size_t start, size_t end,
+                                      size_t& dibOff, size_t& pixOffInDib, size_t& dibSize) {
+    for (size_t p = start; p + 40 <= end; p += 4) {
+        uint32_t biSize = U32LE(data + p);
+        if (biSize != 40 && biSize != 52 && biSize != 56 &&
+            biSize != 60 && biSize != 108 && biSize != 124)
+            continue;
+        int32_t w = (int32_t)U32LE(data + p + 4);
+        int32_t h = (int32_t)U32LE(data + p + 8);
+        uint16_t planes = U16LE(data + p + 12);
+        uint16_t bpp = U16LE(data + p + 14);
+        if (w <= 0 || h == 0 || planes != 1)
+            continue;
+        if (bpp != 1 && bpp != 4 && bpp != 8 && bpp != 16 &&
+            bpp != 24 && bpp != 32)
+            continue;
+        int absH = h < 0 ? -h : h;
+        if (absH > 4096 || w > 4096)
+            continue;
+        uint32_t comp = U32LE(data + p + 16);
+        uint32_t palBytes = 0;
+        if (bpp <= 8)
+            palBytes = (1u << bpp) * 4;
+        else if ((bpp == 16 || bpp == 32) && comp == 3)
+            palBytes = 12; // BI_BITFIELDS: 3 DWORD masks
+        uint32_t stride = ((uint32_t)w * bpp + 31) / 32 * 4;
+        uint32_t imgSize = U32LE(data + p + 20);
+        uint32_t pixBytes = imgSize != 0 ? imgSize : stride * (uint32_t)absH;
+        uint32_t total = biSize + palBytes + pixBytes;
+        if (p + total > end + 16) // +pad tolerance
+            continue;
+        dibOff = p;
+        pixOffInDib = biSize + palBytes;
+        dibSize = total;
+        return true;
+    }
+    return false;
+}
+
+// Recursively collect preview-chunk data ranges from a RIFF container.
+void PreviewExtractor::WalkRiffCollect(const uint8_t* data, size_t size, size_t off,
+                                       size_t end, bool dispOnly,
+                                       std::vector<std::pair<size_t, size_t>>& ranges) {
+    while (off + 8 <= end && off + 8 <= size) {
+        uint32_t csize = U32LE(data + off + 4);
+        size_t dstart = off + 8;
+        size_t dend = dstart + csize;
+        if (dend > size) dend = size;
+        bool isContainer = (std::memcmp(data + off, "RIFF", 4) == 0 ||
+                            std::memcmp(data + off, "LIST", 4) == 0 ||
+                            std::memcmp(data + off, "FORM", 4) == 0 ||
+                            std::memcmp(data + off, "CAT ", 4) == 0);
+        if (!isContainer) {
+            bool hit = false;
+            if (dispOnly)
+                hit = std::memcmp(data + off, "DISP", 4) == 0;
+            else
+                hit = (std::memcmp(data + off, "DISP", 4) == 0 ||
+                       std::memcmp(data + off, "PRE8", 4) == 0 ||
+                       std::memcmp(data + off, "PRE9", 4) == 0 ||
+                       std::memcmp(data + off, "PRE ", 4) == 0 ||
+                       std::memcmp(data + off, "PRV8", 4) == 0 ||
+                       std::memcmp(data + off, "PRV9", 4) == 0 ||
+                       std::memcmp(data + off, "PRV ", 4) == 0 ||
+                       std::memcmp(data + off, "THMB", 4) == 0 ||
+                       std::memcmp(data + off, "PTI_", 4) == 0);
+            if (hit)
+                ranges.push_back({dstart, dend});
+        }
+        if (isContainer && csize >= 4)
+            WalkRiffCollect(data, size, dstart + 4, dstart + csize, dispOnly, ranges);
+        size_t step = csize + (csize & 1);
+        off = dstart + step;
+        if (csize == 0) break;
+    }
+}
+
+bool PreviewExtractor::ExtractFromCDR(const uint8_t* data, size_t size, ExtractedData& out) {
+    if (!data || size < 16) return false;
+
+    // ---- RIFF (older CorelDRAW) ----
+    if (std::memcmp(data, "RIFF", 4) == 0) {
+        uint32_t formSize = U32LE(data + 4);
+        size_t formEnd = 12 + formSize;
+        if (formEnd > size) formEnd = size;
+        std::vector<std::pair<size_t, size_t>> ranges;
+        WalkRiffCollect(data, size, 12, formEnd, true, ranges); // prefer DISP
+        if (ranges.empty())
+            WalkRiffCollect(data, size, 12, formEnd, false, ranges);
+        for (const auto& r : ranges) {
+            size_t dibOff = 0, pixOff = 0, dibSize = 0;
+            if (FindDibInRange(data, r.first, r.second, dibOff, pixOff, dibSize)) {
+                out.buffer.resize(14 + dibSize);
+                out.buffer[0] = 'B'; out.buffer[1] = 'M';
+                uint32_t bfSize = (uint32_t)(14 + dibSize);
+                uint32_t bfOffBits = (uint32_t)(14 + pixOff);
+                uint32_t zero = 0;
+                std::memcpy(&out.buffer[2], &bfSize, 4);
+                std::memcpy(&out.buffer[6], &zero, 4);
+                std::memcpy(&out.buffer[10], &bfOffBits, 4);
+                std::memcpy(out.buffer.data() + 14, data + dibOff, dibSize);
+                out.pData = out.buffer.data();
+                out.size = out.buffer.size();
+                out.isCopy = true;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // ---- ZIP (CorelDRAW X4+) ----
+    if (std::memcmp(data, "PK\x03\x04", 4) != 0)
+        return false;
+
+    // Find EOCD by scanning backward from the tail.
+    int64_t scanStart = (int64_t)size > 66000 ? (int64_t)size - 66000 : 0;
+    int64_t eocd = -1;
+    for (int64_t p = (int64_t)size - 4; p >= scanStart; --p) {
+        if (U32LE(data + p) == 0x06054b50) {
+            uint32_t cdOff = U32LE(data + p + 16);
+            if (cdOff + 4 <= size && U32LE(data + cdOff) == 0x02014b50) {
+                eocd = p;
+                break;
+            }
+        }
+    }
+    if (eocd < 0) return false;
+
+    uint32_t cdOff = U32LE(data + eocd + 16);
+    uint32_t cdCount = U16LE(data + eocd + 10);
+    if (cdOff + 46 > size) return false;
+
+    // Score-based pick: prefer the smallest dedicated thumbnail over the
+    // full-page preview (page1), and PNG over BMP/JPG. This keeps large CDs
+    // cheap — we never decode the big page1.png just to make a thumbnail.
+    struct Cand { uint32_t localOff; uint32_t compSize; uint32_t uncompSize; uint16_t method; int score; };
+    Cand best{}; best.score = -1;
+
+    size_t j = cdOff;
+    for (uint32_t n = 0; n < cdCount && j + 46 <= size; ++n) {
+        if (U32LE(data + j) != 0x02014b50) break;
+        uint16_t method = U16LE(data + j + 10);
+        uint32_t compSize = U32LE(data + j + 20);
+        uint32_t uncompSize = U32LE(data + j + 24);
+        uint16_t nameLen = U16LE(data + j + 28);
+        uint16_t extraLen = U16LE(data + j + 30);
+        uint16_t commLen = U16LE(data + j + 32);
+        uint32_t localOff = U32LE(data + j + 42);
+
+        if (j + 46 + nameLen > size) break;
+        std::string name((const char*)data + j + 46, nameLen);
+        std::string nl;
+        nl.reserve(name.size());
+        for (char c : name) nl += (char)::tolower((unsigned char)c);
+
+        bool isMatch = false, isPng = false;
+        if (nl.find("thumb") != std::string::npos ||
+            nl.find("preview") != std::string::npos ||
+            nl.find("page") != std::string::npos) {
+            if (nl.size() >= 4 && nl.compare(nl.size() - 4, 4, ".png") == 0) {
+                isMatch = true; isPng = true;
+            } else if ((nl.size() >= 4 &&
+                        (nl.compare(nl.size() - 4, 4, ".bmp") == 0 ||
+                         nl.compare(nl.size() - 4, 4, ".jpg") == 0)) ||
+                       (nl.size() >= 5 && nl.compare(nl.size() - 5, 5, ".jpeg") == 0)) {
+                isMatch = true;
+            }
+        }
+        if (isMatch) {
+            int score = 0;
+            if (isPng) score += 2;                                  // PNG 优先
+            if (nl.find("thumb") != std::string::npos) score += 4;  // 缩略图 > 整页
+            else if (nl.find("page") != std::string::npos) score += 1;
+            if (score > best.score ||
+                (score == best.score && uncompSize < best.uncompSize)) {
+                best = {localOff, compSize, uncompSize, method, score};
+            }
+        }
+        j += 46 + nameLen + extraLen + commLen;
+    }
+
+    const Cand* pick = (best.score >= 0) ? &best : nullptr;
+    if (!pick) return false;
+
+    if (pick->localOff + 30 > size) return false;
+    uint16_t lNameLen = U16LE(data + pick->localOff + 26);
+    uint16_t lExtraLen = U16LE(data + pick->localOff + 28);
+    size_t dataStart = pick->localOff + 30 + lNameLen + lExtraLen;
+    if (dataStart > size || dataStart + pick->compSize > size) return false;
+    const uint8_t* comp = data + dataStart;
+
+    if (pick->method == 0) {
+        out.buffer.assign(comp, comp + pick->compSize);
+    } else if (pick->method == 8) {
+        if (!InflateRaw(comp, pick->compSize, out.buffer,
+                        pick->uncompSize ? pick->uncompSize : pick->compSize * 4))
+            return false;
+    } else {
+        return false;
+    }
+    out.pData = out.buffer.data();
+    out.size = out.buffer.size();
+    out.isCopy = true;
+    return true;
 }
 
 // --- JPEG (EXIF Thumbnail) ---

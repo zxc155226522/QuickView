@@ -3503,6 +3503,85 @@ HRESULT CImageLoader::LoadThumbJPEGFromMemory(const uint8_t *pBuf, size_t size,
   return S_OK;
 }
 
+// Decode PNG/BMP/JPG from an in-memory buffer via WIC to BGRA, scaled to
+// targetSize. Used for embedded previews (e.g. CorelDRAW CDR/CMX). Alpha is
+// forced opaque so document previews never render as invisible thumbnails.
+HRESULT CImageLoader::LoadThumbImageFromMemoryWIC(const uint8_t *pBuf,
+                                                 size_t size, int targetSize,
+                                                 ThumbData *pData) {
+  if (!pData || !pBuf || size == 0)
+    return E_INVALIDARG;
+  if (!m_wicFactory)
+    return E_FAIL;
+
+  ComPtr<IWICStream> stream;
+  HRESULT hr = m_wicFactory->CreateStream(&stream);
+  if (FAILED(hr)) return hr;
+  hr = stream->InitializeFromMemory(const_cast<uint8_t *>(pBuf),
+                                    static_cast<DWORD>(size));
+  if (FAILED(hr)) return hr;
+
+  ComPtr<IWICBitmapDecoder> decoder;
+  hr = m_wicFactory->CreateDecoderFromStream(stream.Get(), nullptr,
+                                             WICDecodeMetadataCacheOnDemand,
+                                             &decoder);
+  if (FAILED(hr)) return hr;
+
+  ComPtr<IWICBitmapFrameDecode> frame;
+  hr = decoder->GetFrame(0, &frame);
+  if (FAILED(hr)) return hr;
+
+  UINT natW = 0, natH = 0;
+  hr = frame->GetSize(&natW, &natH);
+  if (FAILED(hr) || natW == 0 || natH == 0) return E_FAIL;
+
+  // Scale to targetSize (never upscale beyond the source dimensions).
+  double scale = 1.0;
+  if (targetSize > 0) {
+    int maxDim = (int)std::max(natW, natH);
+    if (maxDim > targetSize)
+      scale = (double)targetSize / maxDim;
+  }
+  int outW = std::max(1, (int)(natW * scale));
+  int outH = std::max(1, (int)(natH * scale));
+
+  ComPtr<IWICBitmapScaler> scaler;
+  hr = m_wicFactory->CreateBitmapScaler(&scaler);
+  if (FAILED(hr)) return hr;
+  hr = scaler->Initialize(frame.Get(), (UINT)outW, (UINT)outH,
+                          WICBitmapInterpolationModeFant);
+  if (FAILED(hr)) return hr;
+
+  ComPtr<IWICFormatConverter> converter;
+  hr = m_wicFactory->CreateFormatConverter(&converter);
+  if (FAILED(hr)) return hr;
+  hr = converter->Initialize(scaler.Get(), GUID_WICPixelFormat32bppBGRA,
+                             WICBitmapDitherTypeNone, nullptr, 0.f,
+                             WICBitmapPaletteTypeMedianCut);
+  if (FAILED(hr)) return hr;
+
+  UINT cbStride = (UINT)outW * 4;
+  UINT cbSize = cbStride * (UINT)outH;
+  pData->width = outW;
+  pData->height = outH;
+  pData->stride = (int)cbStride;
+  pData->pixels.resize(cbSize);
+  hr = converter->CopyPixels(nullptr, cbStride, cbSize, pData->pixels.data());
+  if (FAILED(hr)) return hr;
+
+  // Force opaque: embedded document previews are opaque; a transparent
+  // thumbnail (A=0) would render as invisible in the gallery.
+  uint8_t *px = pData->pixels.data();
+  for (UINT i = 0; i < cbSize; i += 4)
+    px[i + 3] = 255;
+
+  pData->origWidth = (int)natW;
+  pData->origHeight = (int)natH;
+  pData->fileSize = (uint64_t)size;
+  pData->isValid = true;
+  return S_OK;
+}
+
 // Helper: Apply EXIF Orientation transform to ThumbData
 static void ApplyOrientationToThumbData(CImageLoader::ThumbData *pData,
                                         int orientation) {
@@ -4680,6 +4759,27 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
       PopulateThumbOriginalInfo(headerInfo, fallbackFileSize, pData);
       return S_OK;
     }
+  }
+
+  // CorelDRAW / CorelDRAW X4+ (CDR/CMX): prefer the embedded preview
+  // (ZIP: PNG/BMP; RIFF: DISP-chunk DIB) over full libcdr/resvg rasterization.
+  // Falls through to the vector path below on any failure.
+  if ((format == L"CDR" || format == L"CMX" || pathLower.ends_with(L".cdr") ||
+       pathLower.ends_with(L".cmx")) &&
+      mappedData && mappedSize > 0) {
+    PreviewExtractor::ExtractedData exData;
+    if (PreviewExtractor::ExtractFromCDR(mappedData, mappedSize, exData) &&
+        exData.IsValid() &&
+        SUCCEEDED(LoadThumbImageFromMemoryWIC(exData.pData, exData.size,
+                                              targetSize, pData)) &&
+        pData->isValid) {
+      pData->loaderName = L"CDR Embed";
+      pData->isBlurry = false;
+      PopulateThumbOriginalInfo(headerInfo, static_cast<uint64_t>(mappedSize),
+                                pData);
+      return S_OK;
+    }
+    // Fall through to vector rasterization path below.
   }
 
   // Vector / Document formats: CDR/CMX/PLT/DXF/DWG (→SVG) and PDF/AI (→raster)

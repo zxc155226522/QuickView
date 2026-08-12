@@ -522,6 +522,10 @@ private:
   HRESULT LoadThumbWebPFromMemory(const uint8_t *pBuf, size_t size,
                                   int targetSize,
                                   ThumbData *pData); // Helper for WebP buffers
+  HRESULT LoadThumbImageFromMemoryWIC(const uint8_t *pBuf, size_t size,
+                                      int targetSize,
+                                      ThumbData *pData); // WIC decode PNG/BMP/JPG
+                                                          // to BGRA (forced opaque)
 
   // LoadPNG REMOVED - replaced by LoadPngWuffs
   HRESULT LoadWebP(LPCWSTR filePath, IWICBitmap **ppBitmap, ImageMetadata* pMetadata = nullptr); // libwebp
