@@ -51,11 +51,11 @@ public:
 };
 #endif
 
-// IInitializeWithStream (propsys.h): Windows 10/11 Explorer calls this
-// INSTEAD of IInitializeWithFile. The provider receives an IStream backed
-// by the file and must read the content itself; the shell never tells us the
-// path. We spill the stream to a temp file (extension inferred from the
-// magic bytes) so the existing worker can reuse the normal render pipeline.
+// IInitializeWithStream (propsys.h): Windows 10/11 Explorer PREFERS this over
+// IInitializeWithFile and hands us only a byte stream (no path). Because we need
+// the real on-disk path for the badge extension, we deliberately do NOT implement
+// this interface — so the shell falls back to IInitializeWithFile and gives us the
+// path directly. (The interface definition is kept below only for completeness.)
 #ifndef __IInitializeWithStream_INTERFACE_DEFINED__
 #define __IInitializeWithStream_INTERFACE_DEFINED__
 MIDL_INTERFACE("b824b49d-22ac-4161-ac8a-9916e8fa3f7f")
@@ -72,9 +72,9 @@ typedef enum __MIDL___MIDL_itf_shobjidl_0000_0000_0002 {
     WTSAT_ARGB = 2,
 } WTS_ALPHATYPE;
 
-// IObjectWithSite (oleidl.h) — Explorer passes the IShellItem site here so
-// the provider can resolve the file path (IThumbnailProvider has no path
-// param; Win10/11 Explorer bypasses IInitializeWithFile in favor of SetSite).
+// IObjectWithSite (oleidl.h) — kept for interface completeness. In practice
+// Explorer does not call SetSite for our provider (verified via debug log), so
+// the real path is obtained via IInitializeWithFile instead. SetSite is a no-op.
 #ifndef __IObjectWithSite_INTERFACE_DEFINED__
 #define __IObjectWithSite_INTERFACE_DEFINED__
 MIDL_INTERFACE("FC4801A3-2BA9-11CF-A229-00AA003D7352")
@@ -530,7 +530,7 @@ namespace {
 // ============================================================================
 // CThumbnailProvider
 // ============================================================================
-class CThumbnailProvider : public IInitializeWithFile, public IInitializeWithStream,
+class CThumbnailProvider : public IInitializeWithFile,
                             public IThumbnailProvider, public IObjectWithSite {
 public:
     CThumbnailProvider() : m_cRef(1) {
@@ -551,8 +551,6 @@ public:
             { *ppv = static_cast<IInitializeWithFile*>(this); hit = L" ->IInitFile"; }
         else if (riid == __uuidof(IThumbnailProvider))
             { *ppv = static_cast<IThumbnailProvider*>(this); hit = L" ->IThumb"; }
-        else if (riid == __uuidof(IInitializeWithStream))
-            { *ppv = static_cast<IInitializeWithStream*>(this); hit = L" ->IInitStream"; }
         else if (riid == __uuidof(IObjectWithSite))
             { *ppv = static_cast<IObjectWithSite*>(this); hit = L" ->IObjSite"; }
         else {
@@ -580,113 +578,10 @@ public:
         return S_OK;
     }
 
-    // IInitializeWithStream — Win10/11 Explorer hands us the file as a
-    // stream (no path). Spill to a temp file so the worker can reuse the
-    // normal render pipeline. The extension is inferred from magic bytes.
-    HRESULT STDMETHODCALLTYPE Initialize(IStream* pstream, DWORD) override {
-        DbgLog(L"IInitStream::Initialize");
-        if (!pstream) return E_POINTER;
-        if (!m_path.empty()) return HRESULT_FROM_WIN32(ERROR_ALREADY_INITIALIZED);
-
-        // 流式 spill：先读前缀用于 magic 判定，后续边读流边写临时文件。
-        // 内存恒定（仅 64KB 缓冲），去掉原先 200MB 内存上限，
-        // 超大 TIF（300MB+）也能顺利交给 worker。仅保留 2GB 上限防异常流。
-        std::vector<uint8_t> head(64);
-        ULONG got = 0;
-        HRESULT shr = pstream->Read(head.data(), (ULONG)head.size(), &got);
-        if (FAILED(shr) || got == 0) { DbgLog(L"  stream read head fail"); return E_FAIL; }
-        head.resize(got);
-
-        // Magic-byte detection. Order matters: PDF/CDR/DWG headers are
-        // unambiguous; DXF is a known ASCII prologue; PLT/HPGL is anything
-        // else that looks like plain ASCII text.
-        // 跳过 UTF-8 BOM（EF BB BF）。带 BOM 的 SVG/XML 在第 0 字节是 0xEF，
-        // 直接比 "<svg"/"<?xml" 会失败，被下方 ASCII 兜底误判为 plt 而渲染失败
-        // （桌面导出的 SVG 常带 BOM）。仅用于 magic 判定；写临时文件用原始 head（未被偏移改动）。
-        const unsigned char* p = head.data();
-        size_t n = head.size();
-        if (n >= 3 && p[0] == 0xEF && p[1] == 0xBB && p[2] == 0xBF) { p += 3; n -= 3; }
-
-        const wchar_t* ext = L"bin";
-        if (n >= 4 && memcmp(p, "%PDF", 4) == 0)           ext = L"pdf";
-        // ZIP-based CorelDRAW (X4+): local/file header PK\x03\x04 or
-        // empty-archive marker PK\x05\x06. Without this, the stream path
-        // (no filename) falls through to ".bin" and the one-shot worker
-        // can't identify the format -> Explorer shows no thumbnail while
-        // the in-app viewer (real .cdr path) works fine.
-        else if (n >= 4 && p[0] == 'P' && p[1] == 'K' &&
-                 ((p[2] == 0x03 && p[3] == 0x04) ||
-                  (p[2] == 0x05 && p[3] == 0x06)))         ext = L"cdr";
-        else if (n >= 4 && memcmp(p, "RIFF", 4) == 0)      ext = L"cdr";
-        else if (n >= 4 &&
-                 (p[0] == 'A' || p[0] == 'a') && p[1] == 'C' &&
-                 p[2] >= '0' && p[2] <= '9')                              ext = L"dwg";
-        else if (n >= 4 && p[0] == ' ' && p[1] == ' ' &&
-                 p[2] == '0' && (p[3] == '\r' || p[3] == '\n'))      ext = L"dxf";
-        // TIFF: little-endian "II*\0" (49 49 2A 00) or big-endian "MM\0*" (4D 4D 00 2A).
-        // 必须在下面的 ASCII 兜底之前显式识别，否则二进制内容（含 0x00）落到
-        // "plt" 分支，worker 拿 .tif 当 HPGL 解析 → 渲染失败、缩略图不生成。
-        else if (n >= 4 &&
-                 ((p[0] == 0x49 && p[1] == 0x49 && p[2] == 0x2A && p[3] == 0x00) ||
-                  (p[0] == 0x4D && p[1] == 0x4D && p[2] == 0x00 && p[3] == 0x2A)))
-            ext = L"tif";
-        // 纯文本格式必须显式识别，否则会被下面的 ASCII 兜底误判为 plt。
-        // 注意：真实 Explorer 仅调用 IInitializeWithStream（不调用 SetSite），
-        // 没有真实扩展名可用，只能靠 magic 字节判定。
-        else if (n >= 5 && memcmp(p, "<?xml", 5) == 0)     ext = L"svg";
-        else if (n >= 4 && p[0] == '<' && p[1] == 's' &&
-                 p[2] == 'v' && p[3] == 'g')                              ext = L"svg";
-        else if (n >= 11 && memcmp(p, "%!PS-Adobe", 11) == 0) ext = L"ai";
-        else {
-            bool asc = true;
-            size_t probe = n < 1024 ? n : 1024;
-            for (size_t i = 0; i < probe; ++i) {
-                if (p[i] == 0) { asc = false; break; }
-            }
-            if (asc) ext = L"plt";
-        }
-        DbgLog((std::wstring(L"  ext=") + ext).c_str());
-
-        wchar_t tempDir[MAX_PATH];
-        if (!GetTempPathW(MAX_PATH, tempDir)) return E_FAIL;
-        wchar_t path[MAX_PATH];
-        StringCchPrintfW(path, MAX_PATH, L"%sqvstream_%lu_%lu_%ld.%s",
-                         tempDir, GetCurrentProcessId(), GetCurrentThreadId(),
-                         InterlockedIncrement(&g_tempCounter), ext);
-        HANDLE h = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
-                               FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (h == INVALID_HANDLE_VALUE) return E_FAIL;
-        // 写前缀（原始字节，魔法判定只用了偏移后的 p，head 本身未改动）
-        DWORD written = 0;
-        if (!WriteFile(h, head.data(), (DWORD)head.size(), &written, nullptr)
-            || written != head.size()) {
-            CloseHandle(h); DeleteFileW(path); return E_FAIL;
-        }
-        // 流式读剩余内容并追加（内存恒定，仅 chunk 缓冲）
-        const ULONGLONG kMaxStream = 2ULL * 1024 * 1024 * 1024; // 2GB 防异常流
-        BYTE chunk[65536];
-        ULONGLONG total = head.size();
-        for (;;) {
-            ULONG r = 0;
-            HRESULT sr = pstream->Read(chunk, sizeof(chunk), &r);
-            if (r == 0) break;
-            if (FAILED(sr)) break;
-            DWORD w = 0;
-            if (!WriteFile(h, chunk, r, &w, nullptr) || w != r) {
-                CloseHandle(h); DeleteFileW(path); return E_FAIL;
-            }
-            total += r;
-            if (total > kMaxStream) {
-                DbgLog(L"  stream too large, abort");
-                CloseHandle(h); DeleteFileW(path); return E_OUTOFMEMORY;
-            }
-        }
-        CloseHandle(h);
-
-        m_path = path;
-        DbgLog((std::wstring(L"  temp=") + m_path).c_str());
-        return S_OK;
-    }
+    // 仅实现 IInitializeWithFile：Explorer 优先用 IInitializeWithStream 时只给字节流、
+    // 拿不到真实路径（日志证实 Explorer 从不调用 SetSite，且 IInitializeWithFile 也未被调用）。
+    // 不暴露 IInitializeWithStream 后，Shell 回退到 IInitializeWithFile::Initialize(pszFilePath)，
+    // 直接拿到真实文件路径 —— 角标扩展名与 worker 解码均用真实文件名，无需 magic 猜测。
 
     // IThumbnailProvider
     HRESULT STDMETHODCALLTYPE GetThumbnail(UINT cx, HBITMAP* phbmp, WTS_ALPHATYPE* pdwAlpha) override {
@@ -701,10 +596,8 @@ public:
         std::wstring exePath;
         if (!GetHostExePath(exePath)) { DbgLog(L"  host exe not found"); return E_FAIL; }
 
-        // 优先使用 SetSite 提供的真实文件路径（扩展名权威），避免临时文件
-        // 仅靠 magic 猜测扩展名时把 SVG/AI 等纯文本格式误判为 plt 而渲染失败。
+        // 解码输入：m_path 即 IInitializeWithFile 传入的真实文件路径，worker 直接解码真文件。
         std::wstring inputPath = m_path;
-        if (!m_realPath.empty()) inputPath = m_realPath;
 
         auto t0 = GetTickCount64();
         HBITMAP hbmp = nullptr;
@@ -743,50 +636,20 @@ public:
 
         auto t1 = GetTickCount64();
         if (!hbmp) { DbgLog(L"  worker failed/timeout"); return E_FAIL; }
-        // 烤入右上角胶囊型分类型角标。扩展名直接取自真实文件名；
-        // 取不到（SetSite 未提供路径）则不画，由 Explorer 显示默认图标。
-        if (!m_realPath.empty())
-            CompositeTypeBadge(hbmp, GetExtUpper(m_realPath));
+        // 烤入右上角胶囊型分类型角标。扩展名取自真实文件名(m_path 即 IInitializeWithFile
+        // 传入的真实路径)，对注册格式(CDR/PDF/SVG/AI/DXF/DWG/PLT/CMX/TIF/TIFF/SVGZ)准确。
+        CompositeTypeBadge(hbmp, GetExtUpper(m_path));
         *phbmp = hbmp;
         *pdwAlpha = WTSAT_ARGB;
         DbgLog((L"  OK (" + std::to_wstring(t1 - t0) + L"ms)").c_str());
         return S_OK;
     }
 
-    // IObjectWithSite — Explorer hands us the IShellItem for the file via
-    // SetSite. Extract the on-disk path so GetThumbnail can launch the
-    // worker. Win10/11 Explorer calls SetSite instead of IInitializeWithFile.
+    // IObjectWithSite。Explorer 走 IInitializeWithStream 初始化本提供器，
+    // SetSite 不会被调用，角标扩展名改由 GetThumbnail 从临时文件名(m_path)取得，
+    // 故此处无需取路径；保留空实现以满足 IObjectWithSite 契约。
     HRESULT STDMETHODCALLTYPE SetSite(IUnknown* pUnkSite) override {
-        DbgLog(L"SetSite called");
-        m_realPath.clear();
-        if (!pUnkSite) return S_OK;
-        // 优先从站点直接取 IShellItem（最可靠地拿到磁盘路径/文件名），
-        // 扩展名直接取自文件名，无需 magic 猜测。
-        IShellItem* psi = nullptr;
-        if (SUCCEEDED(pUnkSite->QueryInterface(IID_PPV_ARGS(&psi)))) {
-            PWSTR name = nullptr;
-            if (SUCCEEDED(psi->GetDisplayName(SIGDN_FILESYSPATH, &name))) {
-                m_realPath = name;
-                DbgLog((std::wstring(L"  site path=") + m_realPath).c_str());
-                CoTaskMemFree(name);
-            } else {
-                DbgLog(L"  IShellItem.GetDisplayName failed");
-            }
-            psi->Release();
-        } else {
-            // 兜底：仍取不到 IShellItem 时退回 IDList 方式。
-            DbgLog(L"  no IShellItem from site, fallback to IDList");
-            PIDLIST_ABSOLUTE pidl = nullptr;
-            if (SUCCEEDED(SHGetIDListFromObject(pUnkSite, &pidl))) {
-                PWSTR name = nullptr;
-                if (SUCCEEDED(SHGetNameFromIDList(pidl, SIGDN_FILESYSPATH, &name))) {
-                    m_realPath = name;
-                    DbgLog((std::wstring(L"  site path=") + m_realPath).c_str());
-                    CoTaskMemFree(name);
-                }
-                ILFree(pidl);
-            }
-        }
+        (void)pUnkSite;
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE GetSite(REFIID, void** ppvSite) override {
@@ -796,8 +659,7 @@ public:
 
 private:
     LONG m_cRef;
-    std::wstring m_path;      // 临时文件路径（Initialize 写入，GetThumbnail 兜底用作 worker 输入）
-    std::wstring m_realPath;  // SetSite 提供的真实文件路径（扩展名权威，优先传给 worker）
+    std::wstring m_path;      // 临时文件路径（Initialize 写入，保留原始扩展名，用作 worker 输入与角标扩展名来源）
 };
 
 // ============================================================================
