@@ -421,9 +421,19 @@ static PipeResult RequestThumbnailViaPipe(const std::wstring& exePath,
 // badge can only travel WITH the thumbnail (baked in), never separately.
 // ============================================================================
 namespace {
-    // 胶囊位图缓存：key=扩展名@字号档，value=预渲染好的独立位图（背景透明、胶囊实色）。
-    static std::mutex s_badgeMtx;
-    static std::map<std::wstring, std::unique_ptr<Gdiplus::Bitmap>> s_badgeCache;
+    // 方块画框缓存：key=扩展名@字号档@cx，value=cx×cx 透明 Bitmap，右上角已烤好角标。
+    // 预渲染一次复用，避免每次 GetThumbnail 重复 MeasureString/FillPath/DrawString。
+    static std::mutex s_frameMtx;
+    static std::map<std::wstring, std::unique_ptr<Gdiplus::Bitmap>> s_frameCache;
+
+    static std::once_flag s_gdiInit;
+    static ULONG_PTR s_gdiToken = 0;
+    static void EnsureGdiplus() {
+        std::call_once(s_gdiInit, []() {
+            Gdiplus::GdiplusStartupInput gsi;
+            Gdiplus::GdiplusStartup(&s_gdiToken, &gsi, nullptr);
+        });
+    }
 
     // 扩展名 -> 基础色（GDI+ Color，胶囊实色用）
     Gdiplus::Color BadgeColorForGdi(const std::wstring& ext) {
@@ -506,67 +516,111 @@ namespace {
         return bmp;
     }
 
-    // 把类型角标烤进缩略图位图（直写 DIB 像素，top-down 32bpp ARGB）。
-    // 胶囊本身实色，从缓存位图 blit（alpha 混合：仅胶囊区覆盖图，背景透明不覆盖）。
-    void CompositeTypeBadge(HBITMAP hbmp, const std::wstring& extUpper) {
-        if (!hbmp || extUpper.empty()) return;
-        BITMAP bm;
-        if (GetObject(hbmp, sizeof(bm), &bm) != sizeof(bm)) return;
-        if (bm.bmBitsPixel != 32 || !bm.bmBits) return;
-        const int w = bm.bmWidth, h = bm.bmHeight;
-        if (w <= 0 || h <= 0) return;
+    // 创建 cx×cx 透明 DIB-section HBITMAP（top-down 32bpp ARGB，像素未清零）。
+    HBITMAP CreateSquareDib(int cx) {
+        BITMAPINFO bi = {};
+        bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+        bi.bmiHeader.biWidth = cx;
+        bi.bmiHeader.biHeight = -cx; // top-down
+        bi.bmiHeader.biPlanes = 1;
+        bi.bmiHeader.biBitCount = 32;
+        bi.bmiHeader.biCompression = BI_RGB;
+        void* bits = nullptr;
+        HDC hdc = GetDC(nullptr);
+        HBITMAP h = CreateDIBSection(hdc, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+        ReleaseDC(nullptr, hdc);
+        return h;
+    }
 
-        static std::once_flag s_init;
-        static ULONG_PTR s_token = 0;
-        std::call_once(s_init, []() {
-            Gdiplus::GdiplusStartupInput gsi;
-            Gdiplus::GdiplusStartup(&s_token, &gsi, nullptr);
-        });
+    // 预渲染一枚方块画框：透明底 + 右上角类型胶囊角标。缓存复用。
+    Gdiplus::Bitmap* CreateSquareFrameBmp(const std::wstring& extUpper, float fontSize, int cx) {
+        Gdiplus::Bitmap* frame = new Gdiplus::Bitmap(cx, cx, PixelFormat32bppARGB);
+        Gdiplus::Graphics g(frame);
+        g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+        g.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
+        g.Clear(Gdiplus::Color(0, 0, 0, 0)); // 透明底
 
-        // 字号随缩略图大小缩放，严格限幅，避免小图上过大。
-        float fontSize = (float)h * 0.05f;
-        if (fontSize < 9.0f)  fontSize = 9.0f;
-        if (fontSize > 16.0f) fontSize = 16.0f;
-
-        // 右上角与图片之间的间隔（空隙，不贴边，避免与图内图标重叠）。
-        const float margin = (std::max)(6.0f, (float)h * 0.06f);
-        const float availW = (float)w - 2.0f * margin;
-        const float availH = (float)h - 2.0f * margin;
-
-        // 取缓存胶囊（key=扩展名@字号档），未命中才生成并缓存（double-check 防重复）。
-        const std::wstring key = extUpper + L"@" + std::to_wstring((int)(fontSize * 100.0f));
-        Gdiplus::Bitmap* badge = nullptr;
-        {
-            std::lock_guard<std::mutex> lk(s_badgeMtx);
-            auto it = s_badgeCache.find(key);
-            if (it != s_badgeCache.end()) badge = it->second.get();
+        float bw = 0, bh = 0;
+        Gdiplus::Bitmap* badge = CreateBadgeBmp(extUpper, fontSize, bw, bh);
+        if (badge) {
+            const float margin = (std::max)(6.0f, (float)cx * 0.06f);
+            const float availW = (float)cx - 2.0f * margin;
+            const float availH = (float)cx - 2.0f * margin;
+            float dw = bw, dh = bh;
+            if (dw > availW || dh > availH) {
+                float s = (std::min)(availW / dw, availH / dh);
+                dw *= s; dh *= s;
+            }
+            const float x = (float)cx - margin - dw;
+            const float y = margin;
+            g.DrawImage(badge, x, y, dw, dh);
+            delete badge;
         }
-        if (!badge) {
-            float cbw = 0, cbh = 0;
-            Gdiplus::Bitmap* created = CreateBadgeBmp(extUpper, fontSize, cbw, cbh);
+        return frame;
+    }
+
+    // 取缓存方块画框（key=扩展名@字号档@cx），未命中才生成并缓存（double-check 防重复）。
+    Gdiplus::Bitmap* GetSquareFrame(const std::wstring& extUpper, float fontSize, int cx) {
+        const std::wstring key = extUpper + L"@" + std::to_wstring((int)(fontSize * 100.0f)) + L"@" + std::to_wstring(cx);
+        Gdiplus::Bitmap* frame = nullptr;
+        {
+            std::lock_guard<std::mutex> lk(s_frameMtx);
+            auto it = s_frameCache.find(key);
+            if (it != s_frameCache.end()) frame = it->second.get();
+        }
+        if (!frame) {
+            Gdiplus::Bitmap* created = CreateSquareFrameBmp(extUpper, fontSize, cx);
             if (created) {
-                std::lock_guard<std::mutex> lk(s_badgeMtx);
-                auto it = s_badgeCache.find(key);
-                if (it != s_badgeCache.end()) { delete created; badge = it->second.get(); }
-                else { s_badgeCache[key].reset(created); badge = created; }
+                std::lock_guard<std::mutex> lk(s_frameMtx);
+                auto it = s_frameCache.find(key);
+                if (it != s_frameCache.end()) { delete created; frame = it->second.get(); }
+                else { s_frameCache[key].reset(created); frame = created; }
             }
         }
-        if (!badge) return;
+        return frame;
+    }
 
-        float bw = (float)badge->GetWidth();
-        float bh = (float)badge->GetHeight();
-        // 边界保护：角标（含圆角）须完整落在图内，越界则等比缩小绘制。
-        if (bw > availW || bh > availH) {
-            float s = (std::min)(availW / bw, availH / bh);
-            bw *= s; bh *= s;
+    // 把解码出的原图（可能非正方形）等比重心缩放进 cx×cx 透明方块，再叠加缓存画框
+    // （角标盖顶，始终可见），返回统一方块 HBITMAP。缓存命中时仅做一次缩放绘制。
+    HBITMAP ComposeSquareThumbnail(HBITMAP hSrc, const std::wstring& extUpper, UINT cx) {
+        if (!hSrc) return nullptr;
+        EnsureGdiplus();
+        BITMAP bms;
+        if (GetObject(hSrc, sizeof(bms), &bms) != sizeof(bms) ||
+            bms.bmBitsPixel != 32 || !bms.bmBits ||
+            bms.bmWidth <= 0 || bms.bmHeight <= 0)
+            return hSrc; // 防御：原图异常则退回原图，避免崩溃
+
+        const int W = (int)cx, H = (int)cx;
+        HBITMAP hCanvas = CreateSquareDib(W);
+        if (!hCanvas) return hSrc;
+
+        {
+            BITMAP bmC;
+            GetObject(hCanvas, sizeof(bmC), &bmC);
+            Gdiplus::Bitmap gCanvas(bmC.bmWidth, bmC.bmHeight, bmC.bmWidthBytes,
+                                    PixelFormat32bppARGB, (BYTE*)bmC.bmBits);
+            Gdiplus::Graphics g(&gCanvas);
+            g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+            g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+            g.Clear(Gdiplus::Color(0, 0, 0, 0));
+
+            const int sw = bms.bmWidth, sh = bms.bmHeight;
+            const float scale = (std::min)((float)W / (float)sw, (float)H / (float)sh);
+            const float dw = sw * scale, dh = sh * scale;
+            const float dx = (W - dw) * 0.5f, dy = (H - dh) * 0.5f;
+
+            Gdiplus::Bitmap gSrc(sw, sh, bms.bmWidthBytes, PixelFormat32bppARGB, (BYTE*)bms.bmBits);
+            g.DrawImage(&gSrc, dx, dy, dw, dh);
+
+            float fontSize = (float)H * 0.05f;
+            if (fontSize < 9.0f)  fontSize = 9.0f;
+            if (fontSize > 16.0f) fontSize = 16.0f;
+            if (Gdiplus::Bitmap* frame = GetSquareFrame(extUpper, fontSize, W))
+                g.DrawImage(frame, 0.0f, 0.0f, (float)W, (float)H);
         }
-        const float x = (float)w - margin - bw;
-        const float y = margin;
-
-        Gdiplus::Bitmap gbm(w, h, w * 4, PixelFormat32bppARGB, (BYTE*)bm.bmBits);
-        Gdiplus::Graphics g(&gbm);
-        g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
-        g.DrawImage(badge, x, y, bw, bh);   // 仅胶囊区(实色)覆盖，背景透明不覆盖
+        DeleteObject(hSrc);
+        return hCanvas;
     }
 }
 
@@ -773,9 +827,9 @@ public:
 
         auto t1 = GetTickCount64();
         if (!hbmp) { DbgLog(L"  worker failed/timeout"); return E_FAIL; }
-        // 烤入右上角胶囊型分类型角标。扩展名优先取真实文件名(m_realPath，来自 Stat/Site/
-        // IInitializeWithFile)，取不到再退回临时文件名的 magic 扩展名。
-        CompositeTypeBadge(hbmp, GetExtUpper(m_realPath.empty() ? m_path : m_realPath));
+        // 把原图等比缩放进统一方块画布（透明底 + 右上角类型胶囊角标，画框已缓存）。
+        // 扩展名优先取真实文件名(m_realPath)，取不到再退回临时文件名的 magic 扩展名。
+        hbmp = ComposeSquareThumbnail(hbmp, GetExtUpper(m_realPath.empty() ? m_path : m_realPath), cx);
         *phbmp = hbmp;
         *pdwAlpha = WTSAT_ARGB;
         DbgLog((L"  OK (" + std::to_wstring(t1 - t0) + L"ms)").c_str());
