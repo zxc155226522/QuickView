@@ -460,25 +460,7 @@ namespace {
         return e;
     }
 
-    // 圆角矩形路径。radius 直接表示圆角半径（弧外接矩形边长 = 2*radius），
-    // 故传 radius = 半高 即得两端半圆胶囊。
-    void AddRoundedRect(Gdiplus::GraphicsPath& path, float x, float y, float w, float h, float radius) {
-        radius = (std::min)(radius, (std::min)(w, h) * 0.5f);
-        const float d = radius * 2.0f;
-        path.StartFigure();
-        path.AddLine(x + radius, y, x + w - radius, y);
-        path.AddArc(x + w - d, y, d, d, 270.0f, 90.0f);
-        path.AddLine(x + w, y + radius, x + w, y + h - radius);
-        path.AddArc(x + w - d, y + h - d, d, d, 0.0f, 90.0f);
-        path.AddLine(x + w - radius, y + h, x + radius, y + h);
-        path.AddArc(x, y + h - d, d, d, 90.0f, 90.0f);
-        path.AddLine(x, y + h - radius, x, y + radius);
-        path.AddArc(x, y, d, d, 180.0f, 90.0f);
-        path.CloseFigure();
-    }
-
-    // 预渲染单枚胶囊位图：背景完全透明，胶囊本身为实色（alpha=255）。
-    // 缓存复用，避免每次 GetThumbnail 重复 MeasureString/FillPath/DrawString。
+    // 预渲染单枚圆形徽章位图：背景透明，实心圆（类型色）+ 白字缩写。缓存复用。
     Gdiplus::Bitmap* CreateBadgeBmp(const std::wstring& extUpper, float fontSize,
                                     float& outW, float& outH) {
         Gdiplus::Font font(L"Segoe UI", fontSize, Gdiplus::FontStyleBold);
@@ -486,33 +468,25 @@ namespace {
         sf.SetAlignment(Gdiplus::StringAlignmentCenter);
         sf.SetLineAlignment(Gdiplus::StringAlignmentCenter);
 
-        // 量文字宽度（临时位图 + Graphics，不实际绘制）
-        Gdiplus::Bitmap dummy(1, 1, PixelFormat32bppARGB);
-        Gdiplus::Graphics gdummy(&dummy);
-        gdummy.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
-        Gdiplus::RectF layout(0, 0, 10000, 10000);
-        Gdiplus::RectF bound;
-        gdummy.MeasureString(extUpper.c_str(), (INT)extUpper.length(), &font, layout, &sf, &bound);
+        // 圆直径按字母数缩放：三字母(0.60)比两字母(0.92)小一圈，保证圆内留白均匀。
+        const int n = (int)extUpper.length();
+        const float textScale = (n <= 2) ? 0.92f : 0.60f;
+        const float R = (fontSize / textScale) * 0.5f;
+        const float d = 2.0f * R;
+        outW = outH = d;
 
-        const float bh = fontSize * 1.6f;
-        const float bw = bound.Width + fontSize * 1.0f;
-        const float radius = bh * 0.5f;
-        outW = bw; outH = bh;
-
-        Gdiplus::Bitmap* bmp = new Gdiplus::Bitmap((INT)std::ceil(bw), (INT)std::ceil(bh), PixelFormat32bppARGB);
+        Gdiplus::Bitmap* bmp = new Gdiplus::Bitmap((INT)std::ceil(d), (INT)std::ceil(d), PixelFormat32bppARGB);
         Gdiplus::Graphics g(bmp);
         g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
         g.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
         g.Clear(Gdiplus::Color(0, 0, 0, 0));   // 背景透明
 
         Gdiplus::Color base = BadgeColorForGdi(extUpper);
-        Gdiplus::SolidBrush brushPill(Gdiplus::Color(255, base.GetR(), base.GetG(), base.GetB()));
-        Gdiplus::GraphicsPath path;
-        AddRoundedRect(path, 0, 0, bw, bh, radius);
-        g.FillPath(&brushPill, &path);
+        Gdiplus::SolidBrush brushCircle(Gdiplus::Color(255, base.GetR(), base.GetG(), base.GetB()));
+        g.FillEllipse(&brushCircle, 0.0f, 0.0f, d, d);
 
         Gdiplus::SolidBrush brushText(Gdiplus::Color(255, 255, 255, 255));
-        g.DrawString(extUpper.c_str(), (INT)extUpper.length(), &font, Gdiplus::RectF(0, 0, bw, bh), &sf, &brushText);
+        g.DrawString(extUpper.c_str(), (INT)extUpper.length(), &font, Gdiplus::RectF(0, 0, d, d), &sf, &brushText);
         return bmp;
     }
 
@@ -532,7 +506,7 @@ namespace {
         return h;
     }
 
-    // 预渲染一枚方块画框：透明底 + 右上角类型胶囊角标。缓存复用。
+    // 预渲染一枚方块画框：透明底 + 右上角完整圆形类型徽章。缓存复用。
     Gdiplus::Bitmap* CreateSquareFrameBmp(const std::wstring& extUpper, int cx) {
         Gdiplus::Bitmap* frame = new Gdiplus::Bitmap(cx, cx, PixelFormat32bppARGB);
         Gdiplus::Graphics g(frame);
@@ -540,22 +514,19 @@ namespace {
         g.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
         g.Clear(Gdiplus::Color(0, 0, 0, 0)); // 透明底
 
-        // 角标字号严格按画布比例，任意尺寸下角标占画布高度 5%，视觉一致（多尺寸各存一份）。
-        const float fontSize = (float)cx * 0.05f;
-        float bw = 0, bh = 0;
-        Gdiplus::Bitmap* badge = CreateBadgeBmp(extUpper, fontSize, bw, bh);
+        // 圆形半径占画布 13%，圆心内移 pad=cx*5% 保证圆完整不裁切；文字按字母数适配。
+        const float kRadius = (float)cx * 0.13f;
+        const float kPad = (float)cx * 0.05f;
+        const int n = (int)extUpper.length();
+        const float textScale = (n <= 2) ? 0.92f : 0.60f;
+        const float fontSize = kRadius * 2.0f * textScale; // 直径 * textScale
+        float d = 0;
+        Gdiplus::Bitmap* badge = CreateBadgeBmp(extUpper, fontSize, d, d);
         if (badge) {
-            const float margin = (float)cx * 0.06f;
-            const float availW = (float)cx - 2.0f * margin;
-            const float availH = (float)cx - 2.0f * margin;
-            float dw = bw, dh = bh;
-            if (dw > availW || dh > availH) {
-                float s = (std::min)(availW / dw, availH / dh);
-                dw *= s; dh *= s;
-            }
-            const float x = (float)cx - margin - dw;
-            const float y = margin;
-            g.DrawImage(badge, x, y, dw, dh);
+            // 圆心 = (cx - R - pad, R + pad)；左上角 = (cx - d - pad, pad)
+            const float x = (float)cx - d - kPad;
+            const float y = kPad;
+            g.DrawImage(badge, x, y, d, d);
             delete badge;
         }
         return frame;
