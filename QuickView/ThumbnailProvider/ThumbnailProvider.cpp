@@ -460,20 +460,30 @@ namespace {
         return e;
     }
 
-    // 预渲染单枚圆形徽章位图：背景透明，实心圆（类型色）+ 白字缩写。缓存复用。
-    Gdiplus::Bitmap* CreateBadgeBmp(const std::wstring& extUpper, float fontSize,
-                                    float& outW, float& outH) {
-        Gdiplus::Font font(L"Segoe UI", fontSize, Gdiplus::FontStyleBold);
+    // 预渲染单枚圆形徽章位图：背景透明，实心圆（类型色）+ 白字完整扩展名。
+    // 始终完整绘制扩展名；若圆内放不下，则按比例自动缩小字号（不截断、不 fallback 首字母）。
+    Gdiplus::Bitmap* CreateBadgeBmp(const std::wstring& extUpper, float d) {
+        const int n = (int)extUpper.length();
+        const float textScale = (n <= 2) ? 0.92f : 0.60f; // 两字母饱满，三字母留更多白
+        float idealSize = d * textScale;
+
         Gdiplus::StringFormat sf;
         sf.SetAlignment(Gdiplus::StringAlignmentCenter);
         sf.SetLineAlignment(Gdiplus::StringAlignmentCenter);
 
-        // 圆直径按字母数缩放：三字母(0.60)比两字母(0.92)小一圈，保证圆内留白均匀。
-        const int n = (int)extUpper.length();
-        const float textScale = (n <= 2) ? 0.92f : 0.60f;
-        const float R = (fontSize / textScale) * 0.5f;
-        const float d = 2.0f * R;
-        outW = outH = d;
+        // 量完整扩展名在理想字号下的字宽，决定是否需要缩小。
+        Gdiplus::Bitmap dummy(1, 1, PixelFormat32bppARGB);
+        Gdiplus::Graphics gdummy(&dummy);
+        gdummy.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
+        Gdiplus::Font idealFont(L"Segoe UI", idealSize, Gdiplus::FontStyleBold);
+        Gdiplus::RectF layout(0, 0, 10000, 10000);
+        Gdiplus::RectF bound;
+        gdummy.MeasureString(extUpper.c_str(), (INT)extUpper.length(), &idealFont, layout, &sf, &bound);
+
+        const float avail = d * 0.78f; // 圆内两侧边距共 22%
+        float finalSize = idealSize;
+        if (bound.Width > avail)
+            finalSize = idealSize * (avail / bound.Width); // 放不下则等比缩小，仍完整显示
 
         Gdiplus::Bitmap* bmp = new Gdiplus::Bitmap((INT)std::ceil(d), (INT)std::ceil(d), PixelFormat32bppARGB);
         Gdiplus::Graphics g(bmp);
@@ -486,6 +496,7 @@ namespace {
         g.FillEllipse(&brushCircle, 0.0f, 0.0f, d, d);
 
         Gdiplus::SolidBrush brushText(Gdiplus::Color(255, 255, 255, 255));
+        Gdiplus::Font font(L"Segoe UI", finalSize, Gdiplus::FontStyleBold);
         g.DrawString(extUpper.c_str(), (INT)extUpper.length(), &font, Gdiplus::RectF(0, 0, d, d), &sf, &brushText);
         return bmp;
     }
@@ -514,14 +525,11 @@ namespace {
         g.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
         g.Clear(Gdiplus::Color(0, 0, 0, 0)); // 透明底
 
-        // 圆形半径占画布 13%，圆心内移 pad=cx*5% 保证圆完整不裁切；文字按字母数适配。
+        // 圆形半径占画布 13%，圆心内移 pad=cx*5% 保证圆完整不裁切；扩展名始终完整显示（放不下自动缩字号）。
         const float kRadius = (float)cx * 0.13f;
         const float kPad = (float)cx * 0.05f;
-        const int n = (int)extUpper.length();
-        const float textScale = (n <= 2) ? 0.92f : 0.60f;
-        const float fontSize = kRadius * 2.0f * textScale; // 直径 * textScale
-        float d = 0;
-        Gdiplus::Bitmap* badge = CreateBadgeBmp(extUpper, fontSize, d, d);
+        const float d = kRadius * 2.0f; // 圆直径
+        Gdiplus::Bitmap* badge = CreateBadgeBmp(extUpper, d);
         if (badge) {
             // 圆心 = (cx - R - pad, R + pad)；左上角 = (cx - d - pad, pad)
             const float x = (float)cx - d - kPad;
