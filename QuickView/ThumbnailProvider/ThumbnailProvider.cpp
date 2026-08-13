@@ -31,6 +31,9 @@
 #include <objidl.h>          // STATSTG, STATFLAG_NONAME
 #include <atomic>            // bounded one-shot worker fallback
 
+// Thumbnail extension coverage (single source of truth, shared with SettingsOverlay).
+#include "ThumbnailExts.h"
+
 // Bound concurrent one-shot worker spawns so extreme server overflow (e.g.
 // >kSlowCap CDR requests at once) cannot re-create the old per-thumbnail
 // process storm.
@@ -104,12 +107,9 @@ public:
 DEFINE_GUID(CLSID_QuickViewThumbnailProvider,
     0x4F8C2A6E, 0x3B5D, 0x4E7F, 0x9A, 0x1C, 0x2D, 0x3E, 0x4F, 0x5A, 0x6B, 0x7C);
 
-// All extensions handled by this provider (registered in DllRegisterServer
-// and mirrored by SettingsOverlay::RegisterAssociations).
-static const wchar_t* kThumbnailExts[] = {
-    L".cdr", L".cmx", L".plt", L".dxf", L".dwg", L".pdf", L".ai", L".svg", L".svgz",
-    L".tif", L".tiff"
-};
+// All extensions handled by this provider are defined once in ThumbnailExts.h
+// (derived from SupportedExtensions) and shared with SettingsOverlay, so the DLL
+// self-register and the app's RegisterAssociations can never drift apart.
 
 // Hard cap for a single thumbnail render. Explorer calls us on a thread pool;
 // a hung worker must not block extraction forever.
@@ -949,8 +949,8 @@ extern "C" HRESULT __stdcall DllRegisterServer() {
         RegSetValueExW(hKey, L"ThreadingModel", 0, REG_SZ, (const BYTE*)L"Apartment", sizeof(L"Apartment"));
         RegCloseKey(hKey);
     }
-    // ShellEx thumbnail handler for every vector/document format QuickView renders
-    for (auto ext : kThumbnailExts) {
+    // ShellEx thumbnail handler for every image format QuickView renders (badge overlay)
+    for (auto ext : QuickView::kThumbnailExts) {
         std::wstring key = L"Software\\Classes\\" + std::wstring(ext) + L"\\ShellEx\\" + thumbIID;
         RegCreateKeyExW(HKEY_CURRENT_USER, key.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr);
         if (hKey) { RegSetValueExW(hKey, nullptr, 0, REG_SZ, (const BYTE*)clsid, (DWORD)((wcslen(clsid)+1)*sizeof(wchar_t))); RegCloseKey(hKey); }
@@ -962,7 +962,7 @@ extern "C" HRESULT __stdcall DllRegisterServer() {
 extern "C" HRESULT __stdcall DllUnregisterServer() {
     RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Classes\\CLSID\\{4F8C2A6E-3B5D-4E7F-9A1C-2D3E4F5A6B7C}");
     const wchar_t* thumbIID = L"{E357FCCD-A995-4576-B01F-234630154E96}";
-    for (auto ext : kThumbnailExts) {
+    for (auto ext : QuickView::kThumbnailExts) {
         std::wstring key = L"Software\\Classes\\" + std::wstring(ext) + L"\\ShellEx\\" + thumbIID;
         RegDeleteTreeW(HKEY_CURRENT_USER, key.c_str());
     }

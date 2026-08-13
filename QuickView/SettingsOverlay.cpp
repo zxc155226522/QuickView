@@ -24,6 +24,7 @@
 #include "ImageLoaderSimd.h"
 #include "GeekGlass.h"
 #include "GeekIconRenderer.h"
+#include "ThumbnailExts.h"  // 缩略图扩展名单一真相源（与 DLL 共享）
 
 // Windows headers
 #pragma comment(lib, "version.lib")
@@ -367,14 +368,9 @@ bool SettingsOverlay::RegisterAssociations() {
     GetModuleFileNameW(nullptr, exePath, MAX_PATH);
     std::wstring exePathStr = exePath;
 
-    // Vector/document formats that take over the shell thumbnail
-    // (IThumbnailProvider). These get a DEDICATED ProgID (QuickView.Vector)
-    // carrying the thumbnail handler. Raster formats keep the shared
-    // QuickView.Image ProgID, so their fast in-process/system thumbnails are
-    // untouched (registering a handler on the shared ProgID would hijack jpg/png).
-    static const wchar_t* kVectorThumbExts[] = {
-        L".cdr", L".cmx", L".plt", L".dxf", L".dwg", L".pdf", L".ai", L".svg", L".svgz"
-    };
+    // 矢量/文档格式：为「打开关联」映射专用 ProgID QuickView.Vector（见共享清单
+    // QuickView::kVectorExts）。缩略图覆盖与此无关——所有图像格式统一在 .ext 级
+    // 注册 handler（QuickView::kThumbnailExts），含 raster，以便角标稳定显示。
 
     HKEY hKey;
 
@@ -418,7 +414,7 @@ bool SettingsOverlay::RegisterAssociations() {
     // - Thumbnail provider: ALWAYS active for all 9 vector formats
     // - Double-click open: only for formats user actually selected
     // ========================================================================
-    for (const wchar_t* vExt : kVectorThumbExts) {
+    for (auto vExt : QuickView::kVectorExts) {
         SafeRegSetString(HKEY_CURRENT_USER, (L"Software\\Classes\\" + std::wstring(vExt)).c_str(), NULL,
                          L"QuickView.Vector");
     }
@@ -444,7 +440,7 @@ bool SettingsOverlay::RegisterAssociations() {
         // Set .ext default value. Vector/document formats already set to
         // QuickView.Vector above; raster formats get QuickView.Image here.
         bool isVectorThumb = false;
-        for (const wchar_t* t : kVectorThumbExts)
+        for (auto t : QuickView::kVectorExts)
             if (QuickView::ExtEqualsIgnoreCase(extStr, t)) { isVectorThumb = true; break; }
         // Only write raster formats (vector ones are unconditionally set above)
         if (!isVectorThumb) {
@@ -494,7 +490,7 @@ bool SettingsOverlay::RegisterAssociations() {
             // default app via Windows Settings — the ProgID chosen here becomes the
             // UserChoice target and thus decides which ShellEx serves the thumbnail.
             bool isVector = false;
-            for (const wchar_t* t : kVectorThumbExts)
+            for (auto t : QuickView::kVectorExts)
                 if (QuickView::ExtEqualsIgnoreCase(extStr, t)) { isVector = true; break; }
             const wchar_t* pid = isVector ? L"QuickView.Vector" : L"QuickView.Image";
             RegSetValueExW(hKey, extStr.c_str(), 0, REG_SZ, (const BYTE*)pid,
@@ -513,20 +509,20 @@ bool SettingsOverlay::RegisterAssociations() {
     // system API (same path as Windows Settings). This writes a VALID UserChoice hash,
     // so WPS/Edge can no longer hijack .svg/.ai/.pdf etc. Respects the user's open-with
     // selection: only formats they actually chose (or all when none selected).
-    for (const wchar_t* vExt : kVectorThumbExts) {
+    for (auto vExt : QuickView::kVectorExts) {
         bool selected = g_config.FileAssocExts.empty();
         if (!selected) {
             for (const auto& s : selectedExts)
                 if (QuickView::ExtEqualsIgnoreCase(s, vExt)) { selected = true; break; }
         }
         if (selected) {
-            SetQuickViewAsDefaultForExt(vExt);
+            SetQuickViewAsDefaultForExt(std::wstring(vExt).c_str());
         }
     }
 
-    // [Fix] Register Thumbnail Provider COM DLL for vector/document formats
-    // (.cdr .cmx .plt .dxf .dwg .pdf .ai). The DLL is a thin shim that
-    // delegates rendering to "QuickView.exe --thumbnail".
+    // [Fix] Register Thumbnail Provider COM DLL for ALL image formats QuickView
+    // renders. The DLL is a thin shim that delegates rendering to
+    // "QuickView.exe --thumbnail" (which draws the type badge on top).
     {
         std::wstring dllDir = exePathStr;
         size_t lastSlash = dllDir.find_last_of(L"\\/");
@@ -557,11 +553,11 @@ bool SettingsOverlay::RegisterAssociations() {
 
             // [Fix] Extension-level ShellEx: highest-priority override.
             // Shell resolves the thumbnail handler at the .ext level BEFORE
-            // the ProgID/UserChoice chain, so writing it here forces every
-            // svg/ai/pdf/... file through our provider regardless of which
-            // app (WPS/Edge) holds the default-app UserChoice hash. WPS/Edge
-            // do NOT register any .ext-level ShellEx, so this is safe and wins.
-            for (const wchar_t* vExt : kVectorThumbExts) {
+            // the ProgID/UserChoice chain, so writing it here forces EVERY
+            // image format QuickView supports through our provider regardless
+            // of which app (WPS/Edge) holds the default-app UserChoice hash.
+            // WPS/Edge do NOT register any .ext-level ShellEx, so this is safe and wins.
+            for (auto vExt : QuickView::kThumbnailExts) {
                 std::wstring shellexKeyExt = L"Software\\Classes\\" + std::wstring(vExt) +
                                               L"\\ShellEx\\" + std::wstring(thumbnailIID);
                 SafeRegSetString(HKEY_CURRENT_USER, shellexKeyExt.c_str(), NULL, clsid);
@@ -652,18 +648,11 @@ void SettingsOverlay::UnregisterAssociations() {
                    L"Software\\Classes\\CLSID\\{4F8C2A6E-3B5D-4E7F-9A1C-2D3E4F5A6B7C}");
     {
         const wchar_t* thumbnailIID = L"{E357FCCD-A995-4576-B01F-234630154E96}";
-        static const wchar_t* kThumbExts[] = {
-            L".cdr", L".cmx", L".plt", L".dxf", L".dwg", L".pdf", L".ai", L".svg", L".svgz"
-        };
-        for (const auto& ext : QuickView::SUPPORTED_EXTENSIONS) {
-            for (const wchar_t* thumbExt : kThumbExts) {
-                if (QuickView::ExtEqualsIgnoreCase(ext, thumbExt)) {
-                    std::wstring extStr(ext);
-                    std::wstring shellexKey = L"Software\\Classes\\" + extStr + L"\\ShellEx\\" + thumbnailIID;
-                    RegDeleteTreeW(HKEY_CURRENT_USER, shellexKey.c_str());
-                    break;
-                }
-            }
+        // Clean .ext-level ShellEx for every image format (mirror of RegisterAssociations).
+        for (const auto& ext : QuickView::kThumbnailExts) {
+            std::wstring extStr(ext);
+            std::wstring shellexKey = L"Software\\Classes\\" + extStr + L"\\ShellEx\\" + thumbnailIID;
+            RegDeleteTreeW(HKEY_CURRENT_USER, shellexKey.c_str());
         }
     }
 
