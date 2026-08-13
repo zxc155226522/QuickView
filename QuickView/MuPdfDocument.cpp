@@ -29,6 +29,24 @@ bool HasPdfHeader(const MappedFile& file) noexcept {
            std::memcmp(file.data(), kPdfHeader, sizeof(kPdfHeader)) == 0;
 }
 
+// [Timing] Best-effort timing log for PDF/AI renders, written to the same file
+// the shell provider uses, so _ai_thumb_analyze.py / manual inspection can see
+// where the seconds go (display-list build vs raster). Append-only; a dropped
+// line under concurrent writers is harmless.
+static void MupdfLog(const std::wstring& msg) {
+    HANDLE h = CreateFileW(L"C:\\Windows\\Temp\\qvthumb_provider.log",
+                           FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                           nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return;
+    std::wstring line = L"[" + std::to_wstring(GetCurrentProcessId()) + L" tid=" +
+                        std::to_wstring(GetCurrentThreadId()) + L"] " + msg +
+                        L"\r\n";
+    DWORD written = 0;
+    WriteFile(h, line.c_str(), static_cast<DWORD>(line.size() * sizeof(wchar_t)),
+              &written, nullptr);
+    CloseHandle(h);
+}
+
 } // namespace
 
 MuPdfDocument::MuPdfDocument(fz_context* context) noexcept : m_context(context) {}
@@ -149,7 +167,9 @@ HRESULT MuPdfDocument::RenderPage(uint32_t pageIndex,
     std::wstring errorMessage;
     float pageWidthPoints = 0.0f;
     float pageHeightPoints = 0.0f;
+    const ULONGLONG dlT0 = GetTickCount64();
     HRESULT hr = EnsureDisplayList(pageIndex, pageWidthPoints, pageHeightPoints, errorMessage);
+    const ULONGLONG dlT1 = GetTickCount64();
     if (FAILED(hr)) {
         result.status = hr;
         result.errorMessage = std::move(errorMessage);
@@ -166,6 +186,8 @@ HRESULT MuPdfDocument::RenderPage(uint32_t pageIndex,
 
     fz_pixmap* pixmap = nullptr;
     fz_device* device = nullptr;
+    const ULONGLONG rT0 = GetTickCount64();
+    ULONGLONG rT1 = 0;
     fz_try(m_context) {
         // [Fix] Split pixmap creation and rendering so that the white
         // background fill happens BEFORE rendering (not after).
@@ -187,6 +209,7 @@ HRESULT MuPdfDocument::RenderPage(uint32_t pageIndex,
         fz_run_display_list(m_context, m_displayList, device,
                             fz_identity, fz_infinite_rect, nullptr);
         fz_close_device(m_context, device);
+        rT1 = GetTickCount64();
     }
     fz_always(m_context) {
         if (device) fz_drop_device(m_context, device);
@@ -247,6 +270,10 @@ HRESULT MuPdfDocument::RenderPage(uint32_t pageIndex,
     result.renderScale = renderScale;
     result.frame = std::move(frame);
     result.status = S_OK;
+    MupdfLog(L"MUPDF render page=" + std::to_wstring(pageIndex) +
+             L" displaylist=" + std::to_wstring(dlT1 - dlT0) +
+             L"ms raster=" + std::to_wstring(rT1 - rT0) +
+             L"ms path=" + m_path);
     return S_OK;
 }
 

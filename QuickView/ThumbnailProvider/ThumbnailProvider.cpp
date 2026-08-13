@@ -115,6 +115,13 @@ DEFINE_GUID(CLSID_QuickViewThumbnailProvider,
 // a hung worker must not block extraction forever.
 static constexpr DWORD kPipeTimeoutMs = 60000; // raised from 15s: large/CDR thumbs need more time
 
+// [Watchdog] Soft timeout for a single thumbnail render. If the persistent
+// server hasn't returned within this window, GetThumbnail returns a placeholder
+// immediately so Explorer never blocks on a slow document (e.g. complex .ai/.cdr).
+// The background request keeps running; once the server caches the result (its
+// own in-memory L1/L2), subsequent requests return instantly. Tune freely.
+static constexpr DWORD kWatchdogMs = 4000;
+
 static LONG g_cRefModule = 0;
 static LONG g_cRefServer = 0;
 static HMODULE g_hModule = nullptr;
@@ -137,6 +144,82 @@ static void DbgLog(const wchar_t* msg) {
 // ============================================================================
 // Helpers
 // ============================================================================
+
+// [Watchdog] Shared state for a background thumbnail request. The main thread
+// waits up to kWatchdogMs for a result; on timeout it returns a placeholder and
+// marks `detached`, so the worker keeps rendering and self-cleans on completion
+// (the persistent server caches the result for next time). The CS serializes the
+// `detached` flag so there is no data race between caller and worker.
+struct WatchdogState {
+    std::wstring exePath;
+    std::wstring inputPath;
+    UINT cx = 0;
+    HBITMAP hbmp = nullptr;
+    bool done = false;
+    bool detached = false;
+    HANDLE hEvent = nullptr;
+    CRITICAL_SECTION cs;
+    WatchdogState() { InitializeCriticalSection(&cs); }
+    ~WatchdogState() { DeleteCriticalSection(&cs); }
+};
+
+// [Watchdog] Forward declarations so WatchdogWorker (above) can call the pipe
+// helpers defined later in this file. The enum is hoisted here from its
+// original location so PipeResult::Ok is visible at the call site.
+enum class PipeResult { Ok, Stale, Error };
+static HBITMAP BmpBytesToHBITMAP(const BYTE* data, size_t len);
+static PipeResult RequestThumbnailViaPipe(const std::wstring& exePath,
+                                          const std::wstring& inputPath, UINT size,
+                                          std::vector<BYTE>& outBmp);
+
+static DWORD WINAPI WatchdogWorker(LPVOID lp) {
+    auto* st = static_cast<WatchdogState*>(lp);
+    std::vector<BYTE> bmp;
+    PipeResult r = RequestThumbnailViaPipe(st->exePath, st->inputPath, st->cx, bmp);
+    HBITMAP h = (r == PipeResult::Ok) ? BmpBytesToHBITMAP(bmp.data(), bmp.size()) : nullptr;
+    bool detached = false;
+    {
+        EnterCriticalSection(&st->cs);
+        st->hbmp = h;
+        st->done = true;
+        detached = st->detached;
+        LeaveCriticalSection(&st->cs);
+    }
+    SetEvent(st->hEvent);
+    // Caller timed out and detached: it will never read hbmp, so free it and the
+    // state ourselves to avoid leaks. Otherwise the caller owns st and hbmp.
+    if (detached) {
+        if (st->hbmp) DeleteObject(st->hbmp);
+        CloseHandle(st->hEvent);
+        delete st;
+    }
+    return 0;
+}
+
+// Build a solid-color square DIB used as the placeholder thumbnail source.
+static HBITMAP MakeSolidDib(int w, int h, COLORREF c) {
+    BITMAPINFO bi = {};
+    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bi.bmiHeader.biWidth = w;
+    bi.bmiHeader.biHeight = -h;
+    bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
+    void* bits = nullptr;
+    HDC hdc = GetDC(nullptr);
+    HBITMAP hbmp = CreateDIBSection(hdc, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    ReleaseDC(nullptr, hdc);
+    if (hbmp && bits) {
+        BYTE* p = static_cast<BYTE*>(bits);
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                *p++ = GetBValue(c); *p++ = GetGValue(c);
+                *p++ = GetRValue(c); *p++ = 0xFF;
+            }
+        }
+    }
+    return hbmp;
+}
 
 // QuickView.exe lives next to this DLL (same install/build directory).
 static bool GetHostExePath(std::wstring& outExe) {
@@ -349,7 +432,7 @@ static void LaunchServer(const std::wstring& exePath) {
 // (its queue was overwhelmed by newer requests, e.g. the user switched
 // folders); the provider must NOT fall back to a one-shot worker then, or we
 // would re-introduce the per-thumbnail process storm we removed.
-enum class PipeResult { Ok, Stale, Error };
+// (PipeResult is defined earlier, near WatchdogState.)
 
 // One full request/response over the pipe, bounded by a 15s timeout so a
 // wedged server can never block Explorer forever.
@@ -775,17 +858,54 @@ public:
         // Fast path: persistent server over named pipe (no per-call process
         // spawn). Falls back to the one-shot worker if the pipe path is
         // unavailable, so we never regress to "no thumbnail".
-        std::vector<BYTE> bmp;
-        PipeResult r = RequestThumbnailViaPipe(exePath, inputPath, cx, bmp);
-        if (r == PipeResult::Ok)
-            hbmp = BmpBytesToHBITMAP(bmp.data(), bmp.size());
-        else
-            DbgLog(L"  pipe not Ok (stale/error) -> fallback one-shot worker");
+        // [Watchdog] Run the pipe request on a background thread and wait up to
+        // kWatchdogMs. A slow document never blocks Explorer beyond that window;
+        // we return a placeholder and the worker keeps running so the persistent
+        // server caches the result for subsequent requests.
+        auto* watch = new WatchdogState();
+        watch->exePath = exePath;
+        watch->inputPath = inputPath;
+        watch->cx = cx;
+        watch->hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        HANDLE hThread = watch->hEvent ? CreateThread(nullptr, 0, WatchdogWorker, watch, 0, nullptr) : nullptr;
 
-        // Any non-Ok result (server stale-drop or pipe error) falls back to the
-        // one-shot worker. The slow channels now queue (kSlowCap=16) so stale
-        // drops are rare; the fallback only covers overflow, so it cannot
-        // re-create the old per-thumbnail process storm.
+        if (!hThread) {
+            // Thread/event creation failed: degrade to the original synchronous path.
+            if (watch->hEvent) CloseHandle(watch->hEvent);
+            delete watch;
+            watch = nullptr;
+            std::vector<BYTE> bmp;
+            PipeResult r = RequestThumbnailViaPipe(exePath, inputPath, cx, bmp);
+            if (r == PipeResult::Ok)
+                hbmp = BmpBytesToHBITMAP(bmp.data(), bmp.size());
+            else
+                DbgLog(L"  pipe not Ok (stale/error) -> fallback one-shot worker");
+        } else {
+            DWORD wait = WaitForSingleObject(watch->hEvent, kWatchdogMs);
+            if (wait == WAIT_OBJECT_0) {
+                hbmp = watch->hbmp; // worker finished; we own st and hbmp now
+                CloseHandle(hThread);
+                CloseHandle(watch->hEvent);
+                delete watch;
+                watch = nullptr;
+            } else {
+                // Soft timeout: detach the worker (it keeps rendering; the server
+                // caches the result) and return a placeholder immediately.
+                EnterCriticalSection(&watch->cs);
+                watch->detached = true;
+                LeaveCriticalSection(&watch->cs);
+                CloseHandle(hThread);
+                DbgLog(L"  watchdog timeout -> placeholder");
+                hbmp = ComposeSquareThumbnail(
+                    MakeSolidDib(static_cast<int>(cx), static_cast<int>(cx), RGB(232, 232, 232)),
+                    GetExtUpper(m_realPath.empty() ? m_path : m_realPath), cx);
+            }
+        }
+
+        // Any non-Ok result (server stale-drop, pipe error, or sync fallback) takes
+        // the one-shot worker. The slow channels queue (kSlowCap=16) so stale drops
+        // are rare; the fallback only covers overflow and cannot re-create the old
+        // per-thumbnail process storm.
         if (!hbmp) {
             int cur = g_oneShotActive.load(std::memory_order_relaxed);
             if (cur < kOneShotMax &&

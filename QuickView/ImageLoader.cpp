@@ -60,6 +60,33 @@ using namespace QuickView;
 #include <thread>
 #include "MiniTiff.h"
 
+// [Opt] MuPDF context reuse: fz_context is NOT thread-safe and must not be
+// shared across threads. Reuse one context per thread so the persistent
+// thumbnail server (and the main app) don't rebuild it on every PDF/AI decode.
+namespace {
+struct FzContextHolder {
+    fz_context* ctx = nullptr;
+    ~FzContextHolder() { if (ctx) fz_drop_context(ctx); }
+};
+thread_local FzContextHolder tlsFzContext;
+
+fz_context* AcquireThreadFzContext() {
+    if (tlsFzContext.ctx) return tlsFzContext.ctx;
+    fz_context* ctx = fz_new_context(nullptr, nullptr, FZ_STORE_DEFAULT);
+    if (!ctx) return nullptr;
+    fz_try(ctx) {
+        fz_register_document_handlers(ctx);
+    }
+    fz_catch(ctx) {
+        fz_drop_context(ctx);
+        tlsFzContext.ctx = nullptr;
+        return nullptr;
+    }
+    tlsFzContext.ctx = ctx;
+    return ctx;
+}
+}
+
 extern FileNavigator& g_navigator;
 
 // [CDR/CMX Multi-page] Global page cache
@@ -14988,19 +15015,13 @@ HRESULT CImageLoader::LoadToFrame(
     if (QuickView::ExtEqualsIgnoreCase(ext, L".pdf") ||
         QuickView::ExtEqualsIgnoreCase(ext, L".ai") ||
         format == L"PDF") {
-      // Create a temporary fz_context for synchronous first-page render
-      fz_context* ctx = fz_new_context(nullptr, nullptr, FZ_STORE_DEFAULT);
+      // Reuse one fz_context per thread (MuPDF contexts are not thread-safe).
+      // AcquireThreadFzContext creates + registers once; drops on thread exit.
+      fz_context* ctx = AcquireThreadFzContext();
       if (!ctx) return E_OUTOFMEMORY;
-      fz_try(ctx) {
-        fz_register_document_handlers(ctx);
-      }
-      fz_catch(ctx) {
-        fz_drop_context(ctx);
-        return E_FAIL;
-      }
 
-      // Scope doc so its destructor (which uses ctx) runs BEFORE fz_drop_context.
-      // If fz_drop_context runs first, doc's destructor uses freed memory → crash.
+      // Scope doc so its destructor (which uses ctx) runs while ctx is valid.
+      // ctx is thread-local and reused across calls; it is dropped on thread exit.
       HRESULT pdfHr;
       {
         MuPdfDocument doc(ctx);
@@ -15049,9 +15070,8 @@ HRESULT CImageLoader::LoadToFrame(
             pdfHr = S_OK;
           }
         }
-      } // doc destructor runs here (while ctx is still valid)
+      } // doc destructor runs here (ctx still valid; thread-local, reused)
 
-      fz_drop_context(ctx);
       return pdfHr;
     }
   }
