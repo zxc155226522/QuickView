@@ -60,3 +60,16 @@
 - 本沙箱跑 `看图软件编译并启动.ps1` 会在 `cmake --preset`(configure) 阶段因 vcpkg install 卡死（脚本写死代理 `127.0.0.1:7890` 不可达）；绕过 configure 直接 `cmake --build out/build/Release-LTO`（CMakeCache 已固化 e:/qv_build_tmp，junction 在则有效）。configure 仅在 CMakeCache 缺失时需要。
 - 绕开技巧：`--clean-first` 清理阶段会因 DLL 被锁报 Access denied 中断；可改为删 `CMakeFiles/QuickView.dir` 触发增量全重编，但会丢 PCH 源 `cmake_pch.cxx`，需先 `cmake -S $JP -B out/build/Release-LTO` 重新 configure 再生；单纯验证主程序可 `cmake --build ... --target QuickView` 单独链主 exe（绕开被锁的 provider DLL）。
 - `看图软件编译并启动.ps1` 在编译后(含失败)会**清理 ASCII junction `E:\qv_build_tmp`**；手动验证时需先 `New-Item -ItemType Junction -Path E:\qv_build_tmp -Target E:\项目\看图软件`（注意：删 reparse 后目录变空普通目录，须重建 junction 而非普通文件夹）。
+
+## 方块画布部署验证（2026-08-13）
+
+- provider DLL 须与 `QuickView.exe` 同目录；注册用 PowerShell 写 HKCU CLSID + `.ext\ShellEx` 等价 regsvr32；清 `thumbcache_*.db` + 重启 Explorer 生效。
+- 直接调用 `IThumbnailProvider::GetThumbnail(256,...)` 验证：返回 `256×256` `WTSAT_ARGB` 位图；原图等比居中、透明底、右上角类型胶囊角标。
+- 沙箱 `regsvr32` 被安全策略当 LOLBin 拦截，用注册表 cmdlet 可等价完成。
+
+## 缩略图角标风格约定（2026-08-13）
+
+- 风格选型：**Adobe 系风**——右上角彩色实心圆徽章 + 白字类型缩写。
+- 形状与位置：圆形徽章，贴在原图右上角；底色按 `BadgeColorForGdi` 类型色实色填充（矢量蓝/图像绿/绘图青/文档红/Raw 紫）。
+- 字号与比例：圆形半径约占画布 **17%**；三字母（TIF/PDF/SVG/DXF/DWG/PLT/CMX）字号比两字母（AI/CDR）小一圈，保证圆内留白。
+- 多尺寸缓存：请求不同 `cx` 时按画布比例生成，各尺寸独立缓存。
