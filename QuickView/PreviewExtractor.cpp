@@ -438,6 +438,7 @@ bool PreviewExtractor::ExtractFromCDR(const uint8_t* data, size_t size, Extracte
     // cheap — we never decode the big page1.png just to make a thumbnail.
     struct Cand { uint32_t localOff; uint32_t compSize; uint32_t uncompSize; uint16_t method; int score; };
     Cand best{}; best.score = -1;
+    Cand thumbCand{}; thumbCand.score = -1;   // [Fix] 显式记录首个 thumbnail 候选，确保优先
 
     size_t j = cdOff;
     for (uint32_t n = 0; n < cdCount && j + 46 <= size; ++n) {
@@ -474,15 +475,22 @@ bool PreviewExtractor::ExtractFromCDR(const uint8_t* data, size_t size, Extracte
             if (isPng) score += 2;                                  // PNG 优先
             if (nl.find("thumb") != std::string::npos) score += 4;  // 缩略图 > 整页
             else if (nl.find("page") != std::string::npos) score += 1;
-        if (score > best.score ||
-            (score == best.score && uncompSize < best.uncompSize)) {
-            best = {localOff, compSize, uncompSize, method, score};
-        }
+            // [Fix] thumbnail 显式候选：名称含 "thumbnail" 即记录（取体积最小者）
+            if (nl.find("thumb") != std::string::npos &&
+                (thumbCand.score < 0 || uncompSize < thumbCand.uncompSize)) {
+                thumbCand = {localOff, compSize, uncompSize, method, score};
+            }
+            if (score > best.score ||
+                (score == best.score && uncompSize < best.uncompSize)) {
+                best = {localOff, compSize, uncompSize, method, score};
+            }
         }
         j += 46 + nameLen + extraLen + commLen;
     }
 
-    const Cand* pick = (best.score >= 0) ? &best : nullptr;
+    // [Fix] thumbnail 优先：命中则直接抽整图预览，跳过 page1 单页切片
+    const Cand* pick = (thumbCand.score >= 0) ? &thumbCand
+                      : ((best.score >= 0) ? &best : nullptr);
     if (!pick) return false;
 
     if (pick->localOff + 30 > size) return false;
