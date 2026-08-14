@@ -219,7 +219,7 @@ static std::atomic<bool> g_shutdown{false};
 
 // Hot-reloadable small-file threshold (atomic so the accept thread can update
 // it while worker threads read it without locking).
-static std::atomic<uint64_t> g_smallFileBytes{5ULL * 1024 * 1024};
+static std::atomic<uint64_t> g_smallFileBytes{8ULL * 1024 * 1024};
 // Named event letting the settings UI gracefully stop a running server so it
 // respawns with updated settings (e.g. thread count).
 static const wchar_t* kStopEventName = L"Local\\QuickViewThumbStop";
@@ -231,16 +231,10 @@ static std::mutex g_parallelMtx;
 static std::condition_variable g_parallelCv;
 static const size_t kParallelCap = 32;
 
-// CDR/CMX dedicated channel: a single worker. Only this thread ever touches
-// g_cdrPageCache (ImageLoader.cpp:62), so the shared global stays race-free
-// without locking. Splitting it from the large-file channel means CDR
-// thumbnails are never starved by (or block) large-file rendering.
-static std::queue<PipeTask> g_cdrQ;
-static std::mutex g_cdrMtx;
-static std::condition_variable g_cdrCv;
-
-// Large-file (non-CDR/CMX) dedicated channel: a single worker. Decoupled from
-// CDR so heavy large-file work doesn't serialize behind CDR parsing.
+// Large-file (non-CDR/CMX) dedicated channel: a pool of workers. CDR/CMX are
+// no longer isolated here -- they now share the parallel pool (IsSmallAndParallelSafe
+// returns true for them regardless of size), so this channel only handles
+// large non-CDR/CMX files.
 static std::queue<PipeTask> g_largeQ;
 static std::mutex g_largeMtx;
 static std::condition_variable g_largeCv;
@@ -251,19 +245,13 @@ static std::condition_variable g_largeCv;
 // bounded one-shot fallback in the provider.
 static const size_t kSlowCap = 64;
 
-// Number of CDR/CMX worker threads. Each owns its own CImageLoader with
-// m_bPopulateCdrCache=false (so it never touches the shared g_cdrPageCache),
-// letting CDR render in parallel. The original single-thread limit existed
-// only because of that shared global; isolating it makes N threads safe.
-static const int kCdrThreads = 2;
-
 // Number of large-file (non-CDR/CMX) worker threads. The large channel was
 // single-threaded only to bound resource use, not for correctness: each
 // worker owns its own CImageLoader and MuPDF now uses a thread-local
 // fz_context, so there is no shared mutable state to race on. A small pool
 // stops one slow large file (e.g. a 5s .ai) from serializing every other
 // large file behind it.
-static const int kLargeThreads = 2;
+static const int kLargeThreads = 3;
 
 // Decode-target cap for large-file thumbnails: render at a smaller size to cut
 // decode cost / timeout risk (the on-screen thumbnail is tiny anyway).
@@ -294,7 +282,7 @@ static ServerConfig ReadServerConfig() {
     int t = wcstol(buf, nullptr, 10);
     if (t >= 1 && t <= 64) cfg.threads = t;
   }
-  if (GetPrivateProfileStringW(L"Thumbnail", L"ThumbnailSmallFileThresholdMB", L"5", buf, 32, ini.c_str())) {
+  if (GetPrivateProfileStringW(L"Thumbnail", L"ThumbnailSmallFileThresholdMB", L"8", buf, 32, ini.c_str())) {
     long mb = wcstol(buf, nullptr, 10);
     if (mb >= 1 && mb <= 1024) cfg.smallFileBytes = (uint64_t)mb * 1024 * 1024;
   }
@@ -306,7 +294,7 @@ static ServerConfig ReadServerConfig() {
 static void ReloadThreshold() {
   std::wstring ini = ResolveIniPath();
   wchar_t buf[32] = {};
-  if (GetPrivateProfileStringW(L"Thumbnail", L"ThumbnailSmallFileThresholdMB", L"5", buf, 32, ini.c_str())) {
+  if (GetPrivateProfileStringW(L"Thumbnail", L"ThumbnailSmallFileThresholdMB", L"8", buf, 32, ini.c_str())) {
     long mb = wcstol(buf, nullptr, 10);
     if (mb >= 1 && mb <= 1024) g_smallFileBytes.store((uint64_t)mb * 1024 * 1024);
   }
@@ -322,23 +310,17 @@ static uint64_t GetFileSizeSafe(const std::wstring& path) {
   return ok ? static_cast<uint64_t>(sz.QuadPart) : 0;
 }
 
-// Small AND parallel-safe format => parallel channel. CDR/CMX are excluded
-// because they rewrite the shared global g_cdrPageCache (ImageLoader.cpp:62),
-// which has no lock. Large files go to their own channel (one at a time).
+// Parallel channel accepts: (1) CDR/CMX -- always, regardless of size, because
+// they fetch their internal thumbnail and each parallel worker runs with
+// m_bPopulateCdrCache=false (never touches the shared global g_cdrPageCache,
+// ImageLoader.cpp:62), so race-free; (2) every other format below the small
+// file threshold. Large non-CDR/CMX files fall through to the large channel.
 static bool IsSmallAndParallelSafe(const std::wstring& path) {
-  if (GetFileSizeSafe(path) >= g_smallFileBytes.load()) return false;
   std::wstring_view ext = QuickView::ExtensionOf(path);
   if (QuickView::ExtEqualsIgnoreCase(ext, L".cdr") ||
-      QuickView::ExtEqualsIgnoreCase(ext, L".cmx")) return false;
+      QuickView::ExtEqualsIgnoreCase(ext, L".cmx")) return true;
+  if (GetFileSizeSafe(path) >= g_smallFileBytes.load()) return false;
   return true;
-}
-
-// CDR/CMX are routed to their own dedicated single-threaded channel so they
-// never contend with large-file rendering.
-static bool IsCdr(const std::wstring& path) {
-  std::wstring_view ext = QuickView::ExtensionOf(path);
-  return QuickView::ExtEqualsIgnoreCase(ext, L".cdr") ||
-         QuickView::ExtEqualsIgnoreCase(ext, L".cmx");
 }
 
 // Reply STALE(3) to a dropped request so the provider returns immediately
@@ -369,17 +351,6 @@ static void Enqueue(PipeTask t) {
     }
     g_parallelQ.push(std::move(t));
     g_parallelCv.notify_one();
-  } else if (IsCdr(t.path)) {
-    std::unique_lock<std::mutex> lk(g_cdrMtx);
-    while (g_cdrQ.size() >= kSlowCap) {
-      PipeTask old = std::move(g_cdrQ.front());
-      g_cdrQ.pop();
-      lk.unlock();
-      StaleAndClose(old);
-      lk.lock();
-    }
-    g_cdrQ.push(std::move(t));
-    g_cdrCv.notify_one();
   } else {
     std::unique_lock<std::mutex> lk(g_largeMtx);
     while (g_largeQ.size() >= kSlowCap) {
@@ -397,7 +368,8 @@ static void Enqueue(PipeTask t) {
 // Render one request and write the response on its pipe. Each worker owns its
 // own CImageLoader instance, so there is no shared per-instance mutable state
 // across threads. The only process-global mutable state (g_cdrPageCache) is
-// reached solely via the serial worker (CDR/CMX), hence race-free.
+// reached by CDR/CMX, but every parallel worker runs with
+// m_bPopulateCdrCache=false, so it is never touched -- hence race-free.
 static void RenderAndRespond(PipeTask& t, CImageLoader& loader, bool degrade) {
   auto t0 = std::chrono::steady_clock::now();
   CImageLoader::ThumbData thumb;
@@ -450,6 +422,10 @@ static void ParallelWorker() {
     // [Fix] loader (and its m_wicFactory ComPtr) is scoped so it is destroyed
     // BEFORE CoUninitialize: releasing a COM object on a torn-down apartment AVs.
     CImageLoader loader;
+    // CDR/CMX now share this parallel pool; disable the shared page-cache so
+    // they never race on g_cdrPageCache (ImageLoader.cpp:62). No-op for other
+    // formats.
+    loader.m_bPopulateCdrCache = false;
     {
       IWICImagingFactory* wf = nullptr;
       if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr,
@@ -468,38 +444,6 @@ static void ParallelWorker() {
       if (g_parallelQ.empty()) continue;
       t = std::move(g_parallelQ.front());
       g_parallelQ.pop();
-    }
-    RenderAndRespond(t, loader, false);
-  }
-  }  // loader destroyed here, before CoUninitialize
-  CoUninitialize();
-}
-
-static void CdrWorker() {
-  CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-  {
-    // [Fix] loader (and its m_wicFactory ComPtr) is scoped so it is destroyed
-    // BEFORE CoUninitialize: releasing a COM object on a torn-down apartment AVs.
-    CImageLoader loader;
-    loader.m_bPopulateCdrCache = false; // server never uses the page-nav cache
-  {
-    IWICImagingFactory* wf = nullptr;
-    if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr,
-                                   CLSCTX_INPROC_SERVER, IID_IWICImagingFactory,
-                                   reinterpret_cast<void**>(&wf)))) {
-      loader.Initialize(wf);
-      wf->Release();
-    }
-  }
-  while (true) {
-    PipeTask t;
-    {
-      std::unique_lock<std::mutex> lk(g_cdrMtx);
-      g_cdrCv.wait(lk, [] { return g_shutdown.load() || !g_cdrQ.empty(); });
-      if (g_shutdown.load() && g_cdrQ.empty()) break;
-      if (g_cdrQ.empty()) continue;
-      t = std::move(g_cdrQ.front());
-      g_cdrQ.pop();
     }
     RenderAndRespond(t, loader, false);
   }
@@ -640,13 +584,12 @@ int QuickView::RunThumbnailServer(int argc, LPWSTR* argv) {
             L" smallMB=" + std::to_wstring(g_cfg.smallFileBytes / (1024 * 1024)) +
             L" idle=" + std::to_wstring(idleSec) + L"s");
 
-  // Worker pool: N parallel threads + 1 serial thread. Each owns its own
-  // CImageLoader instance so there is no shared per-instance mutable state.
+  // Worker pool: N parallel threads (incl. CDR/CMX) + kLargeThreads large-file
+  // threads. Each owns its own CImageLoader instance so there is no shared
+  // per-instance mutable state.
   std::vector<std::thread> workers;
   for (int i = 0; i < g_cfg.threads; ++i)
     workers.emplace_back(ParallelWorker);
-  for (int i = 0; i < kCdrThreads; ++i)
-    workers.emplace_back(CdrWorker);
   for (int i = 0; i < kLargeThreads; ++i)
     workers.emplace_back(LargeWorker);
 
@@ -741,7 +684,6 @@ int QuickView::RunThumbnailServer(int argc, LPWSTR* argv) {
   // Shutdown: stop accepting, let queued/in-flight tasks drain, then join.
   g_shutdown = true;
   g_parallelCv.notify_all();
-  g_cdrCv.notify_all();
   g_largeCv.notify_all();
   for (auto& t : workers) {
     if (t.joinable()) t.join();

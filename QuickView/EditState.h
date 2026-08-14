@@ -599,7 +599,7 @@ bool SwatchIsCheckerboard[9] = {true, true, true, false, false, false, false, fa
 
     // --- Thumbnail Server (Shell 缩略图常驻服务) ---
     float ThumbnailThreads = 4.0f;               // 缩略图并行渲染线程数 (1-64)
-    float ThumbnailSmallFileThresholdMB = 5.0f;  // 小于此值(MB)且非CDR/CMX走并行通道 (1-1024)
+    float ThumbnailSmallFileThresholdMB = 8.0f;  // 小于此值(MB)走并行通道(CDR/CMX 始终并行,不降级) (1-1024)
 
     // --- Info Panel Position ---
     float InfoPanelX = 16.0f;
