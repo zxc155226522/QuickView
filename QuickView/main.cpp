@@ -6978,6 +6978,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
         return 0;
     }
 
+    /* [停用-自动更新] WM_UPDATE_FOUND 处理整体停用：后台检测 StartBackgroundCheck 已注释，该消息永不发出，弹窗与刷新分支均不再需要（保留源码）
     case WM_UPDATE_FOUND: {
         bool found = (wParam != 0);
         if (found) {
@@ -6989,7 +6990,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
                 MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), &wstrTo[0], size_needed);
                 return wstrTo;
             };
-            /* g_settingsOverlay.ShowUpdateToast(ToWide(info.version), ToWide(info.changelog)); // [停用-自动更新] 检测新版弹窗提示已关闭（WM_UPDATE_FOUND 本身因 StartBackgroundCheck 停用而永不发出，此注释为双保险） */
+            g_settingsOverlay.ShowUpdateToast(ToWide(info.version), ToWide(info.changelog));
             RequestRepaint(PaintLayer::Static);  // Settings overlay is on Static layer
         } else {
             // Just refresh UI (e.g. stop spinner)
@@ -6998,6 +6999,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
         }
         return 0;
     }
+    */
     case WM_ENGINE_EVENT:
         ProcessEngineEvents(hwnd);
         return 0;
