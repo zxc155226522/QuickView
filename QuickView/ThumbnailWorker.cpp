@@ -219,7 +219,7 @@ static std::atomic<bool> g_shutdown{false};
 
 // Hot-reloadable small-file threshold (atomic so the accept thread can update
 // it while worker threads read it without locking).
-static std::atomic<uint64_t> g_smallFileBytes{8ULL * 1024 * 1024};
+static std::atomic<uint64_t> g_smallFileBytes{50ULL * 1024 * 1024};
 // Named event letting the settings UI gracefully stop a running server so it
 // respawns with updated settings (e.g. thread count).
 static const wchar_t* kStopEventName = L"Local\\QuickViewThumbStop";
@@ -278,11 +278,11 @@ static ServerConfig ReadServerConfig() {
   ServerConfig cfg;
   std::wstring ini = ResolveIniPath();
   wchar_t buf[32] = {};
-  if (GetPrivateProfileStringW(L"Thumbnail", L"ThumbnailThreads", L"4", buf, 32, ini.c_str())) {
+  if (GetPrivateProfileStringW(L"Thumbnail", L"ThumbnailThreads", L"8", buf, 32, ini.c_str())) {
     int t = wcstol(buf, nullptr, 10);
     if (t >= 1 && t <= 64) cfg.threads = t;
   }
-  if (GetPrivateProfileStringW(L"Thumbnail", L"ThumbnailSmallFileThresholdMB", L"8", buf, 32, ini.c_str())) {
+  if (GetPrivateProfileStringW(L"Thumbnail", L"ThumbnailSmallFileThresholdMB", L"50", buf, 32, ini.c_str())) {
     long mb = wcstol(buf, nullptr, 10);
     if (mb >= 1 && mb <= 1024) cfg.smallFileBytes = (uint64_t)mb * 1024 * 1024;
   }
@@ -294,7 +294,7 @@ static ServerConfig ReadServerConfig() {
 static void ReloadThreshold() {
   std::wstring ini = ResolveIniPath();
   wchar_t buf[32] = {};
-  if (GetPrivateProfileStringW(L"Thumbnail", L"ThumbnailSmallFileThresholdMB", L"8", buf, 32, ini.c_str())) {
+  if (GetPrivateProfileStringW(L"Thumbnail", L"ThumbnailSmallFileThresholdMB", L"50", buf, 32, ini.c_str())) {
     long mb = wcstol(buf, nullptr, 10);
     if (mb >= 1 && mb <= 1024) g_smallFileBytes.store((uint64_t)mb * 1024 * 1024);
   }

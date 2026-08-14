@@ -598,8 +598,8 @@ bool SwatchIsCheckerboard[9] = {true, true, true, false, false, false, false, fa
     int NavigatorH = 150; // 鸟瞰图高（逻辑px，固定记忆尺寸，切换图片不变化）
 
     // --- Thumbnail Server (Shell 缩略图常驻服务) ---
-    float ThumbnailThreads = 4.0f;               // 缩略图并行渲染线程数 (1-64)
-    float ThumbnailSmallFileThresholdMB = 8.0f;  // 小于此值(MB)走并行通道(CDR/CMX 始终并行,不降级) (1-1024)
+    float ThumbnailThreads = 8.0f;               // 缩略图并行渲染线程数 (1-64)
+    float ThumbnailSmallFileThresholdMB = 50.0f;  // 小于此值(MB)走并行通道(CDR/CMX 始终并行,不降级) (1-1024)
 
     // --- Info Panel Position ---
     float InfoPanelX = 16.0f;

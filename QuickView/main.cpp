@@ -4511,8 +4511,8 @@ g_config.AlwaysOnTop = GetPrivateProfileIntW(L"View", L"AlwaysOnTop", 0, iniPath
     g_config.GalleryExitDelay = std::clamp((float)_wtof(buf), 0.10f, 3.00f);
     g_config.GalleryThumbnailSize = std::clamp((int)GetPrivateProfileIntW(L"Controls", L"GalleryThumbnailSize", 0, iniPath.c_str()), 0, 300);
     // Thumbnail server (Shell 缩略图常驻服务)
-    g_config.ThumbnailThreads = (float)std::clamp((int)GetPrivateProfileIntW(L"Thumbnail", L"ThumbnailThreads", 4, iniPath.c_str()), 1, 64);
-    g_config.ThumbnailSmallFileThresholdMB = (float)std::clamp((int)GetPrivateProfileIntW(L"Thumbnail", L"ThumbnailSmallFileThresholdMB", 8, iniPath.c_str()), 1, 1024);
+    g_config.ThumbnailThreads = (float)std::clamp((int)GetPrivateProfileIntW(L"Thumbnail", L"ThumbnailThreads", 8, iniPath.c_str()), 1, 64);
+    g_config.ThumbnailSmallFileThresholdMB = (float)std::clamp((int)GetPrivateProfileIntW(L"Thumbnail", L"ThumbnailSmallFileThresholdMB", 50, iniPath.c_str()), 1, 1024);
     GetPrivateProfileStringW(L"Controls", L"GalleryFilmstripHeight", L"-1.0", buf, 64, iniPath.c_str());
     {
         float loadedH = (float)_wtof(buf);
