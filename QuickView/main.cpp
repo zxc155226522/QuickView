@@ -6989,7 +6989,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
                 MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), &wstrTo[0], size_needed);
                 return wstrTo;
             };
-            g_settingsOverlay.ShowUpdateToast(ToWide(info.version), ToWide(info.changelog));
+            /* g_settingsOverlay.ShowUpdateToast(ToWide(info.version), ToWide(info.changelog)); // [停用-自动更新] 检测新版弹窗提示已关闭（WM_UPDATE_FOUND 本身因 StartBackgroundCheck 停用而永不发出，此注释为双保险） */
             RequestRepaint(PaintLayer::Static);  // Settings overlay is on Static layer
         } else {
             // Just refresh UI (e.g. stop spinner)
