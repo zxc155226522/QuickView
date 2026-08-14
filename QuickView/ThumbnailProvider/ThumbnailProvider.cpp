@@ -33,6 +33,8 @@
 
 // Thumbnail extension coverage (single source of truth, shared with SettingsOverlay).
 #include "ThumbnailExts.h"
+// Persistent on-disk thumbnail cache (key = path + mtime + size + cx).
+#include "ThumbDiskCache.h"
 
 // Bound concurrent one-shot worker spawns so extreme server overflow (e.g.
 // >kSlowCap CDR requests at once) cannot re-create the old per-thumbnail
@@ -113,7 +115,10 @@ DEFINE_GUID(CLSID_QuickViewThumbnailProvider,
 
 // Hard cap for a single thumbnail render. Explorer calls us on a thread pool;
 // a hung worker must not block extraction forever.
-static constexpr DWORD kPipeTimeoutMs = 60000; // raised from 15s: large/CDR thumbs need more time
+static constexpr DWORD kPipeTimeoutMs = 10000; // hard cap: a slow request is abandoned after 10s
+                                           // (closes its pipe + worker thread) so it can never
+                                           // wedge Explorer; the soft 4s watchdog still returns a
+                                           // placeholder earlier to stay responsive.
 
 // [Watchdog] Soft timeout for a single thumbnail render. If the persistent
 // server hasn't returned within this window, GetThumbnail returns a placeholder
@@ -177,6 +182,12 @@ static DWORD WINAPI WatchdogWorker(LPVOID lp) {
     std::vector<BYTE> bmp;
     PipeResult r = RequestThumbnailViaPipe(st->exePath, st->inputPath, st->cx, bmp);
     HBITMAP h = (r == PipeResult::Ok) ? BmpBytesToHBITMAP(bmp.data(), bmp.size()) : nullptr;
+    // [Disk cache] Persist the raw server bitmap so a later view (after a
+    // server restart / cleared Explorer cache) is instant. This also fixes the
+    // old behavior where a timed-out render discarded its result, forcing a
+    // re-scroll to see the real thumbnail.
+    if (r == PipeResult::Ok)
+        QuickView::ThumbDiskCache::Instance().Put(st->inputPath, st->cx, bmp.data(), bmp.size());
     bool detached = false;
     {
         EnterCriticalSection(&st->cs);
@@ -852,6 +863,27 @@ public:
         // 解码输入：m_path 即 IInitializeWithFile 传入的真实文件路径，worker 直接解码真文件。
         std::wstring inputPath = m_path;
 
+        // [Disk cache] Hit first: a previously rendered thumbnail is returned
+        // instantly without touching the pipe server at all. Key includes mtime
+        // + size, so an edited file automatically misses and re-renders.
+        {
+            std::vector<BYTE> cached;
+            if (QuickView::ThumbDiskCache::Instance().Get(inputPath, cx, cached)) {
+                HBITMAP raw = BmpBytesToHBITMAP(cached.data(), cached.size());
+                if (raw) {
+                    std::wstring ext = GetExtUpper(m_realPath.empty() ? m_path : m_realPath);
+                    HBITMAP final = ComposeSquareThumbnail(raw, ext, cx);
+                    DeleteObject(raw);
+                    if (final) {
+                        *phbmp = final;
+                        *pdwAlpha = WTSAT_RGB;
+                        DbgLog((L"  disk cache hit cx=" + std::to_wstring(cx)).c_str());
+                        return S_OK;
+                    }
+                }
+            }
+        }
+
         auto t0 = GetTickCount64();
         HBITMAP hbmp = nullptr;
 
@@ -876,9 +908,10 @@ public:
             watch = nullptr;
             std::vector<BYTE> bmp;
             PipeResult r = RequestThumbnailViaPipe(exePath, inputPath, cx, bmp);
-            if (r == PipeResult::Ok)
+            if (r == PipeResult::Ok) {
                 hbmp = BmpBytesToHBITMAP(bmp.data(), bmp.size());
-            else
+                QuickView::ThumbDiskCache::Instance().Put(inputPath, cx, bmp.data(), bmp.size());
+            } else
                 DbgLog(L"  pipe not Ok (stale/error) -> fallback one-shot worker");
         } else {
             DWORD wait = WaitForSingleObject(watch->hEvent, kWatchdogMs);

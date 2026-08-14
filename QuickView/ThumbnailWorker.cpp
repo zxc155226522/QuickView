@@ -257,6 +257,14 @@ static const size_t kSlowCap = 64;
 // only because of that shared global; isolating it makes N threads safe.
 static const int kCdrThreads = 2;
 
+// Number of large-file (non-CDR/CMX) worker threads. The large channel was
+// single-threaded only to bound resource use, not for correctness: each
+// worker owns its own CImageLoader and MuPDF now uses a thread-local
+// fz_context, so there is no shared mutable state to race on. A small pool
+// stops one slow large file (e.g. a 5s .ai) from serializing every other
+// large file behind it.
+static const int kLargeThreads = 2;
+
 // Decode-target cap for large-file thumbnails: render at a smaller size to cut
 // decode cost / timeout risk (the on-screen thumbnail is tiny anyway).
 static const uint32_t kLargeThumbMax = 128;
@@ -639,7 +647,8 @@ int QuickView::RunThumbnailServer(int argc, LPWSTR* argv) {
     workers.emplace_back(ParallelWorker);
   for (int i = 0; i < kCdrThreads; ++i)
     workers.emplace_back(CdrWorker);
-  workers.emplace_back(LargeWorker);
+  for (int i = 0; i < kLargeThreads; ++i)
+    workers.emplace_back(LargeWorker);
 
   OVERLAPPED ol = {};
   ol.hEvent = hEvent;

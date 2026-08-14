@@ -113,7 +113,10 @@ set(QUICKVIEW_SOURCES
     QuickView/MuPdfDocument.cpp
     QuickView/DocumentRenderController.cpp
     QuickView/VectorLoader.cpp
+    QuickView/ThumbDiskCache.cpp
+    QuickView/ThumbDiskCache.h
     
+
     # Third party manually included
     third_party/yyjson/yyjson.c
     
@@ -424,6 +427,7 @@ endif()
 # ============================================================================
 add_library(QuickViewThumbnailProvider SHARED
     QuickView/ThumbnailProvider/ThumbnailProvider.cpp
+    QuickView/ThumbDiskCache.cpp
     QuickView/ThumbnailProvider/ThumbnailProvider.def
 )
 set_target_properties(QuickViewThumbnailProvider PROPERTIES
