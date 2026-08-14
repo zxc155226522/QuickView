@@ -2070,7 +2070,8 @@ static bool UpgradeSvgSurface(HWND hwnd, ImageResource& res) {
 }
 
 static void RefreshSvgSurfaceAfterZoom(HWND hwnd) {
-    if (!GetPaneContext(PaneSlot::Primary).resource.isSvg || !g_compEngine || !g_compEngine->IsInitialized()) {
+    const auto& zoomRes = GetPaneContext(PaneSlot::Primary).resource;
+    if ((!zoomRes.isSvg && !zoomRes.isResvg) || !g_compEngine || !g_compEngine->IsInitialized()) {
         return;
     }
     KillTimer(hwnd, IDT_SVG_RERENDER);
@@ -2160,6 +2161,25 @@ static bool ShouldUpgradeBitmapSurface(const D2D1_SIZE_U& desired) {
 
 static void TryUpgradeBitmapSurface(HWND hwnd) {
     if (!GetPaneContext(PaneSlot::Primary).resource || GetPaneContext(PaneSlot::Primary).resource.isSvg) return;
+
+    // [resvg] When the zoom changes the whole-image surface size, re-rasterize
+    // the resvg bitmap at the new resolution (mirrors the SVG vector path's
+    // re-render on zoom). Threshold avoids re-raster on tiny interaction steps.
+    if (GetPaneContext(PaneSlot::Primary).resource.isResvg) {
+        RECT rc; GetClientRect(hwnd, &rc);
+        if (rc.right <= 0 || rc.bottom <= 0) return;
+        float sW = 0.0f, sH = 0.0f, ds = 1.0f;
+        ComputeSvgSurfaceSize((float)rc.right, (float)rc.bottom, sW, sH, ds);
+        UINT tw = (UINT)std::max(1L, (long)std::round(sW));
+        UINT th = (UINT)std::max(1L, (long)std::round(sH));
+        auto& rres = GetPaneContext(PaneSlot::Primary).resource;
+        if (std::abs((int)rres.resvgRasterW - (int)tw) > 64 ||
+            std::abs((int)rres.resvgRasterH - (int)th) > 64) {
+            RenderImageToDComp(hwnd, rres, true);
+        }
+        return;
+    }
+
     if (IsCompareModeActive()) return;
     if (g_isLoading) return;
     if (GetPaneContext(PaneSlot::Primary).metadata.Width > 8192 || GetPaneContext(PaneSlot::Primary).metadata.Height > 8192) return;
@@ -2211,8 +2231,15 @@ bool RenderImageToDComp(HWND hwnd, ImageResource& res, bool isFastUpgrade) {
             float maxW = screenW * maxSizePercent;
             float maxH = screenH * maxSizePercent;
             
-            float contentW = res.isSvg ? res.svgW : (res.bitmap ? res.bitmap->GetSize().width : 800.0f);
-            float contentH = res.isSvg ? res.svgH : (res.bitmap ? res.bitmap->GetSize().height : 600.0f);
+            const auto& meta = GetPaneContext(PaneSlot::Primary).metadata;
+            float contentW = res.isSvg ? res.svgW
+                            : (res.isResvg ? (meta.Width > 0 ? (float)meta.Width
+                                                           : (res.bitmap ? res.bitmap->GetSize().width : 800.0f))
+                                           : (res.bitmap ? res.bitmap->GetSize().width : 800.0f));
+            float contentH = res.isSvg ? res.svgH
+                            : (res.isResvg ? (meta.Height > 0 ? (float)meta.Height
+                                                           : (res.bitmap ? res.bitmap->GetSize().height : 600.0f))
+                                           : (res.bitmap ? res.bitmap->GetSize().height : 600.0f));
 
             // [v9.9 Fix] Must Swap Dimensions for Portrait Orientation when calculating target surface size!
             // Otherwise we create a Landscape surface for a Portrait window -> Huge Margins.
@@ -2240,6 +2267,14 @@ bool RenderImageToDComp(HWND hwnd, ImageResource& res, bool isFastUpgrade) {
     UINT surfW = targetWinW;
     UINT surfH = targetWinH;
     if (UseSvgViewportRendering(res)) {
+        float sW = 0.0f, sH = 0.0f, ds = 1.0f;
+        ComputeSvgSurfaceSize((float)winW, (float)winH, sW, sH, ds);
+        surfW = (UINT)std::max(1L, (long)std::round(sW));
+        surfH = (UINT)std::max(1L, (long)std::round(sH));
+    } else if (!res.isSvg && res.isResvg) {
+        // [resvg] Use the same whole-image-at-zoom surface sizing as the SVG
+        // vector path, so the rasterized bitmap matches display resolution at
+        // any zoom level. The bitmap is re-rasterized below when the size moves.
         float sW = 0.0f, sH = 0.0f, ds = 1.0f;
         ComputeSvgSurfaceSize((float)winW, (float)winH, sW, sH, ds);
         surfW = (UINT)std::max(1L, (long)std::round(sW));
@@ -2275,7 +2310,7 @@ bool RenderImageToDComp(HWND hwnd, ImageResource& res, bool isFastUpgrade) {
          }
     }
 
-    if (!res.isSvg && !isTitan) {
+    if (!res.isSvg && !isTitan && !res.isResvg) {
         D2D1_SIZE_U desired = ComputeDesiredBitmapSurfaceSize(targetWinW, targetWinH, res);
         if (desired.width > 0 && desired.height > 0) {
             surfW = desired.width;
@@ -2322,7 +2357,34 @@ bool RenderImageToDComp(HWND hwnd, ImageResource& res, bool isFastUpgrade) {
     } else {
         // === Bitmap Path (Legacy) ===
         if (!res.bitmap) return false;
-        
+
+        // [resvg] Re-rasterize at the new surface size when the zoom changes
+        // the whole-image surface by more than a threshold, so the preview
+        // stays sharp (no stretched low-res bitmap). Threshold avoids
+        // re-rasterizing on every tiny interaction step.
+        if (res.isResvg && res.resvgSrc) {
+            if (std::abs((int)res.resvgRasterW - (int)surfW) > 64 ||
+                std::abs((int)res.resvgRasterH - (int)surfH) > 64) {
+                std::vector<uint8_t> bgra;
+                uint32_t rW = 0, rH = 0;
+                if (SUCCEEDED(QuickView::QvRasterizeSvgFrameToBgra(
+                        *res.resvgSrc, bgra, rW, rH, true, true, 16384, (int)surfW, (int)surfH))) {
+                    QuickView::RawImageFrame frame;
+                    frame.pixels = bgra.data();
+                    frame.width = (int)rW;
+                    frame.height = (int)rH;
+                    frame.stride = (int)(rW * 4);
+                    frame.format = QuickView::PixelFormat::BGRA8888;
+                    ComPtr<ID2D1Bitmap> bmp;
+                    if (SUCCEEDED(g_renderEngine->UploadRawFrameToGPU(frame, &bmp)) && bmp) {
+                        res.bitmap = bmp;
+                        res.resvgRasterW = rW;
+                        res.resvgRasterH = rH;
+                    }
+                }
+            }
+        }
+
         D2D1_SIZE_F bmpSize = res.bitmap->GetSize();
         
         // Handle EXIF Orientation (GPU Pre-Rotation)
@@ -11493,14 +11555,21 @@ void ProcessEngineEvents(HWND hwnd) {
                             if (!g_renderEngine || !evt.rawFrame || !evt.rawFrame->svg) {
                                 return false;
                             }
+                            // [resvg] Rasterize at the current view's surface size
+                            // (whole image at current zoom) so the preview is as
+                            // sharp as an exported high-res PNG, instead of a
+                            // fixed 4096px bitmap that gets stretched when zoomed.
+                            RECT rcClient{};
+                            GetClientRect(hwnd, &rcClient);
+                            float sW = 0.0f, sH = 0.0f, ds = 1.0f;
+                            ComputeSvgSurfaceSize((float)rcClient.right, (float)rcClient.bottom, sW, sH, ds);
+                            int tW = (int)std::max(1L, (long)std::round(sW));
+                            int tH = (int)std::max(1L, (long)std::round(sH));
+
                             std::vector<uint8_t> bgra;
                             uint32_t rW = 0, rH = 0;
-                            // [resvg] Use the shared SVG renderer so huge Corel
-                            // coordinate spaces are fit to a sensible bitmap
-                            // (4096 cap) instead of hardcoded 3x zoom that tries
-                            // to allocate tens of thousands of pixels.
                             HRESULT hr = QuickView::QvRasterizeSvgFrameToBgra(
-                                *evt.rawFrame->svg, bgra, rW, rH, true, true, 4096);
+                                *evt.rawFrame->svg, bgra, rW, rH, true, true, 16384, tW, tH);
                             if (FAILED(hr) || rW == 0 || rH == 0) return false;
                             QuickView::RawImageFrame frame;
                             frame.pixels = bgra.data();
@@ -11512,8 +11581,13 @@ void ProcessEngineEvents(HWND hwnd) {
                             hr = g_renderEngine->UploadRawFrameToGPU(frame, &bmp);
                             if (FAILED(hr) || !bmp)
                                 return false;
-                            GetPaneContext(PaneSlot::Primary).resource.Reset();
-                            GetPaneContext(PaneSlot::Primary).resource.bitmap = bmp;
+                            auto& resvgRes = GetPaneContext(PaneSlot::Primary).resource;
+                            resvgRes.Reset();
+                            resvgRes.bitmap = bmp;
+                            resvgRes.isResvg = true;
+                            resvgRes.resvgSrc = std::make_shared<QuickView::RawImageFrame::SvgData>(*evt.rawFrame->svg);
+                            resvgRes.resvgRasterW = rW;
+                            resvgRes.resvgRasterH = rH;
                             return true;
                         };
 

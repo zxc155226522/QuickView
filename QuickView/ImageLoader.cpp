@@ -4227,8 +4227,9 @@ HRESULT QvRasterizeSvgResvg(const std::vector<uint8_t> &xml, float zoom,
   if (rW == 0) rW = 1;
   if (rH == 0) rH = 1;
   // [resvg] Cap the rendered bitmap so a huge viewBox (e.g. CDR at 0 0 50000)
-  // doesn't allocate gigabytes. Preserve aspect ratio.
-  const uint32_t kMaxResvgDim = 8192;
+  // doesn't allocate gigabytes. Matches GetSvgSurfaceSizeLimit() (up to 16384)
+  // so the preview can render at the same resolution as the D2D vector path.
+  const uint32_t kMaxResvgDim = 16384;
   if (rW > kMaxResvgDim || rH > kMaxResvgDim) {
     float k = (float)kMaxResvgDim / (float)std::max(rW, rH);
     rW = (uint32_t)std::lround(rW * k);
@@ -4397,7 +4398,7 @@ HRESULT QvRasterizeSvgFrameToBgra(const RawImageFrame::SvgData& svgData,
                                     std::vector<uint8_t>& outBgra,
                                     uint32_t& outW, uint32_t& outH,
                                     bool whiteBg, bool includeOutsidePage,
-                                    int maxDim) {
+                                    int maxDim, int targetW, int targetH) {
   const std::vector<uint8_t>& xml = svgData.xmlData;
   if (xml.empty()) return E_INVALIDARG;
 
@@ -4455,7 +4456,15 @@ HRESULT QvRasterizeSvgFrameToBgra(const RawImageFrame::SvgData& svgData,
 
   float zoom = 1.0f;
   int cap = (maxDim > 0) ? maxDim : 8192;
-  if (rw > cap || rh > cap) {
+  if (targetW > 0 && targetH > 0 && rw > 0.0 && rh > 0.0) {
+    // [resvg preview] Render at the requested display resolution so the
+    // preview matches an exported high-res PNG. Upscaling (zoom > 1) is
+    // allowed; clamp the output to `cap` to bound memory.
+    zoom = (float)std::min((double)targetW / rw, (double)targetH / rh);
+    if (rw * zoom > cap || rh * zoom > cap) {
+      zoom = (float)(cap / (double)std::max(rw * zoom, rh * zoom));
+    }
+  } else if (rw > cap || rh > cap) {
     zoom = (float)(cap / std::max(rw, rh));
   }
   uint32_t nW = 0, nH = 0, rW = 0, rH = 0;

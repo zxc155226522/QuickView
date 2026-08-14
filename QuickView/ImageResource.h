@@ -37,6 +37,15 @@ struct ImageResource {
     float svgW = 0.0f;
     float svgH = 0.0f;
 
+    // [resvg] CDR/AI/SVG that render through the resvg rasterizer (embedded
+    // bitmaps or D2D SVG subset fallback) keep their SVG source here so the
+    // preview can re-rasterize at display resolution on open and on zoom,
+    // instead of stretching one fixed low-res bitmap (which caused blur).
+    bool isResvg = false;
+    std::shared_ptr<QuickView::RawImageFrame::SvgData> resvgSrc;
+    UINT resvgRasterW = 0;
+    UINT resvgRasterH = 0;
+
     QuickView::GpuBlendOp blendOp = QuickView::GpuBlendOp::None;
     QuickView::GpuShaderPayload shaderPayload = {};
     std::unique_ptr<QuickView::AuxLayer> auxLayer;
@@ -50,6 +59,10 @@ struct ImageResource {
         isSvg = false;
         svgW = 0.0f;
         svgH = 0.0f;
+        isResvg = false;
+        resvgSrc.reset();
+        resvgRasterW = 0;
+        resvgRasterH = 0;
         blendOp = QuickView::GpuBlendOp::None;
         shaderPayload = {};
         auxLayer.reset();
@@ -70,6 +83,10 @@ struct ImageResource {
         cloned.isSvg = isSvg;
         cloned.svgW = svgW;
         cloned.svgH = svgH;
+        cloned.isResvg = isResvg;
+        cloned.resvgSrc = resvgSrc;
+        cloned.resvgRasterW = resvgRasterW;
+        cloned.resvgRasterH = resvgRasterH;
         cloned.blendOp = blendOp;
         cloned.shaderPayload = shaderPayload;
         if (auxLayer) {
