@@ -123,7 +123,7 @@ using namespace Microsoft::WRL;
 #include "UpdateManager.h"
 #pragma comment(lib, "version.lib")
 
-static std::string GetAppVersionUTF8() {
+[[maybe_unused]] static std::string GetAppVersionUTF8() {
     wchar_t fileName[MAX_PATH];
     GetModuleFileNameW(NULL, fileName, MAX_PATH);
     DWORD dummy;
@@ -6466,6 +6466,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, [[maybe_unused]] LPWSTR lpCm
         RequestRepaint(PaintLayer::All);
     }
     
+    /* [停用-自动更新] 不再初始化/启动后台更新检查；UpdateManager 源文件保留但未启用
     // --- Auto Update Integration ---
     UpdateManager::Get().Init(GetAppVersionUTF8());
     UpdateManager::Get().SetCallback([](bool found, [[maybe_unused]] const VersionInfo& info, void* context) {
@@ -6476,6 +6477,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, [[maybe_unused]] LPWSTR lpCm
     if (g_config.CheckUpdates) {
         UpdateManager::Get().StartBackgroundCheck();
     }
+    */
 
     MSG msg;
     while (GetMessageW(&msg, NULL, 0, 0)) { TranslateMessage(&msg); DispatchMessageW(&msg); }
@@ -6486,7 +6488,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, [[maybe_unused]] LPWSTR lpCm
         QuickView::ProcessRouter::ShutdownMaster();
     }
     
-    UpdateManager::Get().HandleExit();
+    /* UpdateManager::Get().HandleExit(); // [停用-自动更新] 与上方停用的 Init 配对，一并停用 */
     
     SaveConfig();
     

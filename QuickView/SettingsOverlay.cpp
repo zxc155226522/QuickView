@@ -1114,8 +1114,9 @@ void SettingsOverlay::BuildMenu() {
     };
     tabGeneral.items.push_back(itemSI);
     
+    /* [停用-自动更新] 常规页不再显示"检查更新"开关与"更新通道"下拉（UpdateManager 后台检查已停用）
     tabGeneral.items.push_back({ AppStrings::Settings_Label_CheckUpdates, OptionType::Toggle, &g_config.CheckUpdates });
-    
+
     SettingsItem itemUpdateChannel;
     itemUpdateChannel.label = AppStrings::Settings_Label_UpdateChannel;
     itemUpdateChannel.type = OptionType::ComboBox;
@@ -1123,6 +1124,7 @@ void SettingsOverlay::BuildMenu() {
     itemUpdateChannel.options = { AppStrings::Settings_Option_UpdateStable, AppStrings::Settings_Option_UpdatePreRelease };
     itemUpdateChannel.tooltipText = AppStrings::Settings_Tooltip_PreRelease;
     tabGeneral.items.push_back(itemUpdateChannel);
+    */
     
     // Pro Habits
     tabGeneral.items.push_back({ AppStrings::Settings_Group_Habits, OptionType::Header });
@@ -2620,9 +2622,10 @@ void SettingsOverlay::BuildMenu() {
     itemHeader.disabledText = std::wstring(AppStrings::Settings_Label_Version) + L" " + GetAppVersion() + L" (" + AppStrings::Settings_Label_Build + L" " + GetBuildDate() + L")";
     tabAbout.items.push_back(itemHeader);
 
+    /* [停用-自动更新] 关于页不再显示"检查更新"按钮（版本号仍由上方 itemHeader.disabledText 展示）
     // 2. Action Button (Check for Updates)
     SettingsItem itemUpdate = { AppStrings::Settings_Action_CheckUpdates, OptionType::AboutVersionCard }; 
-    
+
     // Check Status
     UpdateStatus status = UpdateManager::Get().GetStatus();
     if (status == UpdateStatus::NewVersionFound) {
@@ -2661,6 +2664,7 @@ void SettingsOverlay::BuildMenu() {
          }
     };
     tabAbout.items.push_back(itemUpdate);
+    */
 
     // 2.1 Release Logs REMOVED (Unified with Toast)
     
