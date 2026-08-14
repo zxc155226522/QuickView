@@ -73,3 +73,10 @@
 - 形状与位置：圆形徽章，贴在原图右上角；底色按 `BadgeColorForGdi` 类型色实色填充（矢量蓝/图像绿/绘图青/文档红/Raw 紫）。
 - 字号与比例：圆形半径约占画布 **17%**；三字母（TIF/PDF/SVG/DXF/DWG/PLT/CMX）字号比两字母（AI/CDR）小一圈，保证圆内留白。
 - 多尺寸缓存：请求不同 `cx` 时按画布比例生成，各尺寸独立缓存。
+
+## CDR 转 PNG 验证 / 命令行调用坑（2026-08-14）
+- exe 自带 headless 入口：`QuickView.exe --export-png <in> <out.png> [maxDim]`，走 libcdr→SVG→resvg 全流程（含画布外 viewBox 扩展），是验证 CDR 解码/画布外逻辑的最佳手段（headless 无法复现 GUI 的 FastLane 预览帧路径）。
+- **路径陷阱（致命）**：Git Bash 把 `/e/...` POSIX 路径传给 exe 时，`CreateFileW` 打不开 → 所有文件 E_FAIL；必须传 `E:/...` 盘符 Windows 路径（或 `C:\...`）。
+- **后台 PowerShell ~2min 硬超时**：`run_in_background` 的 PS 任务跑长循环（含 `Start-Process` 调 exe 逐个转）约 2 分钟被杀死，循环中途断、log 不落盘；长任务必须前台 PowerShell + `timeout=600000`。
+- **特殊文件名 exit=3**：PowerShell `Start-Process -ArgumentList "--export-png",$fullName,$out,"4096"` 当 `$fullName` 含空格/逗号（如 `Generated Image August 13, 2026 - ...cdr`）时 exe 返回 exit=3；绕过法：①用 Git Bash 直接调 exe（Windows 路径 + 引号）；②先 `cp` 到 ASCII 名再转、转完 `cp` 回桌面原名。文件本身可正常解码，纯属传参问题。
+- CDR 解码瓶颈实测：大文件(13MB 含位图)卡在 libcdr 解析(~57s)，非 resvg 栅格化；纯矢量 RIFF 解析也慢(t2_riff 12s)。GUI 转圈根因=FastLane 同步跑 libcdr 无超时；已改"内嵌预览优先+后台矢量解析"(任务B)。
