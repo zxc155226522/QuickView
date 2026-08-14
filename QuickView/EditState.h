@@ -572,6 +572,7 @@ bool SwatchIsCheckerboard[9] = {true, true, true, false, false, false, false, fa
     wchar_t CustomLiteTags[256] = L"ISO, Aperture, Shutter, Date"; // Using array for easier serialization or wstring
     bool RoundedCorners = true; // [v3.1.2] Toggle rounded corners
     bool EnableAmbientDimmer = true;    // [v9.0] Toggle background overlay for modals
+    bool ShowCdrOutsidePage = true;      // [CDR] 显示页面外（画布外）内容
     int FullScreenZoomMode = 0;         // 0=Fit, 1=Auto
 
     // --- Window Size Limits ---

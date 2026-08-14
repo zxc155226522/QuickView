@@ -1206,7 +1206,54 @@ void ImageEngine::FastLane::QueueWorker() {
                     rawFrame.onAuxLayerReady.ctxDeleter = [](void* c) { delete static_cast<AuxLayerReadyCtx*>(c); };
                 }
             }
-            HRESULT hr = m_loader->LoadToFrame(cmd.path.c_str(), &rawFrame, &arena, targetW, targetH, &loaderName, {}, &decodeMeta, true, false, cmd.targetHdrHeadroomStops);
+            // [CDR] Embedded preview first-paint: extract the file's embedded
+        // bitmap instantly so the main view stops spinning while libcdr parses
+        // a huge CDR (can take 50s+). The full vector frame follows below.
+        {
+          std::wstring lowPath = cmd.path;
+          std::transform(lowPath.begin(), lowPath.end(), lowPath.begin(),
+                         ::towlower);
+          bool isCdr = lowPath.ends_with(L".cdr") || lowPath.ends_with(L".cmx");
+          if (isCdr) {
+            QuickView::RawImageFrame previewFrame;
+            if (SUCCEEDED(m_loader->LoadCdrEmbeddedPreviewFrame(
+                    cmd.path.c_str(), &previewFrame)) &&
+                previewFrame.IsValid() && !previewFrame.IsSvg()) {
+              EngineEvent pe;
+              pe.type = EventType::FullReady;  // treated as final preview so the
+                                               // quality gate does not drop it
+              pe.filePath = cmd.path;
+              pe.imageId = cmd.id;
+              pe.targetSlot = cmd.targetSlot;
+              pe.generationId = cmd.generationId;
+
+              auto pf = std::make_shared<QuickView::RawImageFrame>();
+              size_t bs = previewFrame.GetBufferSize();
+              uint8_t* hp = new uint8_t[bs];
+              memcpy(hp, previewFrame.pixels, bs);
+              pf->pixels = hp;
+              pf->width = previewFrame.width;
+              pf->height = previewFrame.height;
+              pf->stride = previewFrame.stride;
+              pf->format = previewFrame.format;
+              pf->formatDetails = previewFrame.formatDetails;
+              pf->quality = QuickView::DecodeQuality::Preview;
+              pf->memoryDeleter = QuickView::MemoryDeleter::FromDeleteArray();
+              pe.rawFrame = pf;
+              pe.metadata.Format = info.format;
+              pe.metadata.LoaderName = L"CDR Embed";
+              pe.isScaled = false;
+
+              {
+                std::lock_guard lock(m_queueMutex);
+                m_results.push_back(std::move(pe));
+              }
+              m_parent->QueueEvent(EngineEvent{});
+            }
+          }
+        }
+
+        HRESULT hr = m_loader->LoadToFrame(cmd.path.c_str(), &rawFrame, &arena, targetW, targetH, &loaderName, {}, &decodeMeta, true, false, cmd.targetHdrHeadroomStops);
             
             int decodeMs = (int)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start).count();
 

@@ -4496,7 +4496,8 @@ HRESULT ExportToPng(LPCWSTR inPath, LPCWSTR outPath, int maxDim,
     CImageLoader loader;
     if (wf) loader.Initialize(wf);
     RawImageFrame frame;
-    hr = loader.LoadToFrame(inPath, &frame);
+    CImageLoader::ImageMetadata meta;
+    hr = loader.LoadToFrame(inPath, &frame, nullptr, 0, 0, nullptr, {}, &meta);
     if (SUCCEEDED(hr) && frame.IsValid()) {
       if (frame.IsSvg() && frame.svg) {
         std::vector<uint8_t> bgra;
@@ -11646,6 +11647,29 @@ HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
     if (svgW <= 0) svgW = 512;
     if (svgH <= 0) svgH = 512;
 
+    // [Canvas Outside] Optionally expand viewBox to include drawing that lies
+    // outside the Corel page rectangle (画布外内容). The page rect was already
+    // inserted above, so the content bbox always contains it; if artwork spills
+    // beyond the page, the bbox grows and the whole design becomes visible.
+    // 8x fallback guards against guide/crop elements inflating the bbox to nil.
+    if (g_config.ShowCdrOutsidePage) {
+      SvgContentBBox contentBox = ComputeSvgContentBBox(svgContent);
+      if (contentBox.valid && contentBox.maxX > contentBox.minX &&
+          contentBox.maxY > contentBox.minY) {
+        float cw = contentBox.maxX - contentBox.minX;
+        float ch = contentBox.maxY - contentBox.minY;
+        if (cw <= pageW * 8.0f && ch <= pageH * 8.0f) {
+          std::string rewritten = RewriteSvgRootViewBox(
+              svgContent, contentBox.minX, contentBox.minY, cw, ch);
+          if (!rewritten.empty()) {
+            svgContent = std::move(rewritten);
+            svgW = cw;
+            svgH = ch;
+          }
+        }
+      }
+    }
+
     // Cache processed page
     CdrPageData pageData;
     pageData.xmlData.assign(svgContent.begin(), svgContent.end());
@@ -11688,6 +11712,47 @@ HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
   }
   outFrame->formatDetails = isCdr ? L"CDR" : L"CMX";
 
+  return S_OK;
+}
+
+// [CDR] Embedded preview for instant first paint (see header comment).
+// Extracts the file's embedded preview bitmap (ZIP: PNG/BMP; RIFF: DISP DIB)
+// and decodes it to a BGRA bitmap frame. Orders of magnitude faster than the
+// full libcdr vector parse, so FastLane can show something immediately.
+HRESULT CImageLoader::LoadCdrEmbeddedPreviewFrame(LPCWSTR filePath,
+                                                  QuickView::RawImageFrame *outFrame) {
+  if (!outFrame) return E_INVALIDARG;
+
+  std::vector<uint8_t> data;
+  if (!ReadFileToVector(filePath, data) || data.empty())
+    return E_FAIL;
+
+  PreviewExtractor::ExtractedData exData;
+  if (!PreviewExtractor::ExtractFromCDR(data.data(), data.size(), exData) ||
+      !exData.IsValid())
+    return E_FAIL;
+
+  ThumbData td;
+  if (FAILED(LoadThumbImageFromMemoryWIC(exData.pData, exData.size, 4096, &td)) ||
+      !td.isValid)
+    return E_FAIL;
+
+  size_t bufSize = td.pixels.size();
+  if (bufSize == 0 || td.width <= 0 || td.height <= 0)
+    return E_FAIL;
+
+  uint8_t* heap = new (std::nothrow) uint8_t[bufSize];
+  if (!heap) return E_OUTOFMEMORY;
+  memcpy(heap, td.pixels.data(), bufSize);
+
+  outFrame->pixels = heap;
+  outFrame->width = td.width;
+  outFrame->height = td.height;
+  outFrame->stride = (td.stride > 0) ? td.stride : td.width * 4;
+  outFrame->format = QuickView::PixelFormat::BGRA8888;
+  outFrame->formatDetails = L"CDR Embed";
+  outFrame->quality = QuickView::DecodeQuality::Preview;
+  outFrame->memoryDeleter = QuickView::MemoryDeleter::FromDeleteArray();
   return S_OK;
 }
 

@@ -1285,6 +1285,11 @@ void SettingsOverlay::BuildMenu() {
     itemDimmer.tooltipText = AppStrings::Settings_Tooltip_AmbientDimmer;
     tabTheme.items.push_back(itemDimmer);
 
+    // [CDR] Show content outside the page rectangle (画布外内容)
+    SettingsItem itemCdrOutside = { L"显示 CDR 画布外内容", OptionType::Toggle, &g_config.ShowCdrOutsidePage, {} };
+    itemCdrOutside.tooltipText = L"打开 CDR 时同时显示页面矩形之外的图形（画布外内容），而非只显示页面内。";
+    tabTheme.items.push_back(itemCdrOutside);
+
     // Rounded Corners
     SettingsItem itemRounded = { AppStrings::Settings_Label_RoundedCorners, OptionType::Toggle, &g_config.RoundedCorners, {} };
     itemRounded.onChange = []([[maybe_unused]] SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) {

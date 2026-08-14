@@ -368,6 +368,12 @@ public:
                       bool allowFakeBase = true, bool isTitanMode = false,
                       float targetHdrHeadroomStops = -1.0f);
 
+  // [CDR] Extract the embedded preview bitmap for an instant first paint
+  // (seconds vs the 50s+ full libcdr vector parse). Used by FastLane so the
+  // main view stops spinning immediately; the full vector frame follows.
+  HRESULT LoadCdrEmbeddedPreviewFrame(LPCWSTR filePath,
+                                      QuickView::RawImageFrame *outFrame);
+
   /// <summary>
   /// Load a frame directly from a mapped/in-memory buffer via the unified
   /// buffer dispatcher, with WIC fallback for unsupported formats.
