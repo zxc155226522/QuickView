@@ -4533,6 +4533,88 @@ HRESULT ExportToPng(LPCWSTR inPath, LPCWSTR outPath, int maxDim,
   return hr;
 }
 
+// [Export] Decode a vector source to a TRUE vector SVG on disk. Unlike
+// ExportToPng (which rasterizes), this writes the raw libcdr/librevenge SVG
+// verbatim: NO white page rectangle, NO whitespace crop, NO style inlining,
+// so the result is a transparent, native SVG you can scale infinitely in a
+// browser. Raster formats cannot produce a meaningful SVG, so they fail here.
+HRESULT ExportToSvg(LPCWSTR inPath, LPCWSTR outPath) {
+  if (!inPath || !outPath) return E_INVALIDARG;
+
+  // Read source via wide-path-aware reader (handles Chinese paths).
+  std::vector<uint8_t> fileData;
+  if (!ReadFileToVector(inPath, fileData) || fileData.empty()) {
+    fprintf(stderr, "[export-svg] cannot read input %ls\n", inPath);
+    return E_FAIL;
+  }
+
+  std::wstring lowPath(inPath);
+  for (auto& c : lowPath) c = (wchar_t)::towlower(c);
+  bool isCdr = lowPath.ends_with(L".cdr") || lowPath.ends_with(L".cmx");
+  bool isOtherVec = lowPath.ends_with(L".svg") || lowPath.ends_with(L".plt") ||
+                    lowPath.ends_with(L".dxf") || lowPath.ends_with(L".dwg");
+  if (!isCdr && !isOtherVec) {
+    fprintf(stderr, "[export-svg] not a vector source: %ls\n", inPath);
+    return E_FAIL;
+  }
+
+  std::vector<uint8_t> svgXml;
+  if (isCdr) {
+    // [Pure SVG] Parse CDR/CMX with librevenge and take the RAW page SVG.
+    // We deliberately skip LoadCDR's post-processing (white page rect,
+    // whitespace crop, style inlining) so the exported file is the native,
+    // transparent libcdr output.
+    librevenge::RVNGStringStream input(fileData.data(), (unsigned)fileData.size());
+    bool isCdrDoc = libcdr::CDRDocument::isSupported(&input);
+    bool isCmxDoc = false;
+    if (!isCdrDoc) isCmxDoc = libcdr::CMXDocument::isSupported(&input);
+    if (!isCdrDoc && !isCmxDoc) {
+      fprintf(stderr, "[export-svg] unsupported/encrypted CDR: %ls\n", inPath);
+      return E_FAIL;
+    }
+    librevenge::RVNGStringVector svgPages;
+    librevenge::RVNGSVGDrawingGenerator painter(svgPages, "");
+    bool parsed = isCdrDoc ? libcdr::CDRDocument::parse(&input, &painter)
+                           : libcdr::CMXDocument::parse(&input, &painter);
+    if (!parsed || svgPages.empty()) {
+      fprintf(stderr, "[export-svg] CDR parse failed: %ls\n", inPath);
+      return E_FAIL;
+    }
+    const char* p = svgPages[0].cstr();
+    svgXml.assign(reinterpret_cast<const uint8_t*>(p),
+                  reinterpret_cast<const uint8_t*>(p) + strlen(p));
+  } else {
+    // SVG/PLT/DXF/DWG: the loader already produces a clean native SVG.
+    CImageLoader loader;
+    RawImageFrame frame;
+    CImageLoader::ImageMetadata meta;
+    HRESULT hr = loader.LoadToFrame(inPath, &frame, nullptr, 0, 0, nullptr, {}, &meta);
+    if (FAILED(hr) || !frame.IsSvg() || !frame.svg || frame.svg->xmlData.empty()) {
+      fprintf(stderr, "[export-svg] no SVG data in %ls (hr=0x%08lX)\n", inPath, hr);
+      return E_FAIL;
+    }
+    svgXml = frame.svg->xmlData;
+  }
+
+  // Write the raw SVG XML as UTF-8 (no BOM) using a wide-path-aware handle.
+  HANDLE hFile = CreateFileW(outPath, GENERIC_WRITE, 0, nullptr,
+                             CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (hFile == INVALID_HANDLE_VALUE) {
+    fprintf(stderr, "[export-svg] cannot create output %ls\n", outPath);
+    return E_FAIL;
+  }
+  DWORD written = 0;
+  BOOL ok = WriteFile(hFile, svgXml.data(), (DWORD)svgXml.size(), &written, nullptr);
+  CloseHandle(hFile);
+  if (!ok || written != (DWORD)svgXml.size()) {
+    fprintf(stderr, "[export-svg] write failed for %ls\n", outPath);
+    return E_FAIL;
+  }
+
+  fprintf(stderr, "[export-svg] wrote %ls (%u bytes)\n", outPath, (unsigned)svgXml.size());
+  return S_OK;
+}
+
 } // namespace QuickView
 
 static HRESULT RasterizeSvgThumbnail(const std::vector<uint8_t> &xmlData,

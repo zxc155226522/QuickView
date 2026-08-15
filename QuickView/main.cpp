@@ -5910,6 +5910,26 @@ static int RunDecodeWorker(int argc, LPWSTR* argv) {
     return SUCCEEDED(hr) ? 0 : 2;
 }
 
+static int RunExportSvg(int argc, wchar_t** argv) {
+  std::wstring inPath, outPath;
+  for (int i = 1; i < argc; ++i) {
+    if (_wcsicmp(argv[i], L"--export-svg") == 0) {
+      if (i + 1 < argc) inPath = argv[++i];
+      if (i + 1 < argc) outPath = argv[++i];
+    }
+  }
+  if (inPath.empty() || outPath.empty()) {
+    fwprintf(stderr, L"Usage: QuickView.exe --export-svg <input.cdr> <output.svg>\n");
+    return 2;
+  }
+  HRESULT hr = QuickView::ExportToSvg(inPath.c_str(), outPath.c_str());
+  if (FAILED(hr)) {
+    fwprintf(stderr, L"ExportToSvg failed: 0x%08X\n", hr);
+    return 3;
+  }
+  return 0;
+}
+
 static int RunExportPng(int argc, wchar_t** argv) {
   std::wstring inPath, outPath;
   int maxDim = 0;
@@ -5946,7 +5966,7 @@ static bool TryRunToolProcessFromCommandLine(int* outExitCode) {
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     if (!argv) return false;
 
-    enum class ToolMode { None, DecodeWorker, Uninstall, Thumbnail, ThumbnailServer, ExportPng };
+    enum class ToolMode { None, DecodeWorker, Uninstall, Thumbnail, ThumbnailServer, ExportPng, ExportSvg };
     ToolMode mode = ToolMode::None;
 
     for (int i = 1; i < argc; ++i) {
@@ -5956,6 +5976,7 @@ static bool TryRunToolProcessFromCommandLine(int* outExitCode) {
         if (_wcsicmp(argv[i], L"--thumbnail") == 0) { mode = ToolMode::Thumbnail; break; }
         if (_wcsicmp(argv[i], L"--thumbnail-server") == 0) { mode = ToolMode::ThumbnailServer; break; }
         if (_wcsicmp(argv[i], L"--export-png") == 0) { mode = ToolMode::ExportPng; break; }
+        if (_wcsicmp(argv[i], L"--export-svg") == 0) { mode = ToolMode::ExportSvg; break; }
     }
 
     if (mode == ToolMode::None) {
@@ -5974,6 +5995,7 @@ static bool TryRunToolProcessFromCommandLine(int* outExitCode) {
         case ToolMode::Thumbnail:    *outExitCode = QuickView::RunThumbnailWorker(argc, argv); break;
         case ToolMode::ThumbnailServer: *outExitCode = QuickView::RunThumbnailServer(argc, argv); break;
         case ToolMode::ExportPng:       *outExitCode = RunExportPng(argc, argv); break;
+        case ToolMode::ExportSvg:       *outExitCode = RunExportSvg(argc, argv); break;
         default:                     *outExitCode = 2; break;
     }
     LocalFree(argv);

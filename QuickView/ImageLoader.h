@@ -43,6 +43,13 @@ HRESULT ExportToPng(LPCWSTR inPath, LPCWSTR outPath, int maxDim = 0,
                     bool whiteBg = true, bool includeOutsidePage = true,
                     int targetLongSide = 0);
 
+// [Export] Decode a file to a true vector SVG on disk. For CDR/CMX/SVG the
+// in-memory processed SVG (cropped/style-inlined/outside-page-expanded, same
+// as the main view) is written as UTF-8. Raster formats fall back to a 1:1
+// SVG wrapper is NOT done here; only vector sources are meaningful, so for a
+// non-SVG frame this returns E_FAIL.
+HRESULT ExportToSvg(LPCWSTR inPath, LPCWSTR outPath);
+
 // Render an SVG frame to BGRA. Expands the viewBox to include content outside
 // the declared page rectangle. When targetW/targetH (>0) are given, the SVG is
 // rasterized to roughly that pixel size (allowing upscaling, zoom > 1) so the
