@@ -54,6 +54,12 @@ static UINT GetSvgSurfaceSizeLimit();
 #include <shlobj.h>
 #pragma comment(lib, "shlwapi.lib")
 #include "SupportedExtensions.h"
+
+// [CDR→PDF] MuPDF + libcdr includes for command-line CDR to PDF conversion
+#include <mupdf/fitz.h>
+#include <libcdr/libcdr.h>
+#include <librevenge-stream/librevenge-stream.h>
+#include <librevenge/librevenge.h>
 #include <cwctype>
 #include <commctrl.h> 
 #include <wrl/client.h>
@@ -5911,23 +5917,171 @@ static int RunDecodeWorker(int argc, LPWSTR* argv) {
 }
 
 static int RunExportSvg(int argc, wchar_t** argv) {
-  std::wstring inPath, outPath;
-  for (int i = 1; i < argc; ++i) {
-    if (_wcsicmp(argv[i], L"--export-svg") == 0) {
-      if (i + 1 < argc) inPath = argv[++i];
-      if (i + 1 < argc) outPath = argv[++i];
+std::wstring inPath, outPath;
+for (int i = 1; i < argc; ++i) {
+if (_wcsicmp(argv[i], L"--export-svg") == 0) {
+if (i + 1 < argc) inPath = argv[++i];
+if (i + 1 < argc) outPath = argv[++i];
+}
+}
+if (inPath.empty() || outPath.empty()) {
+fwprintf(stderr, L"Usage: QuickView.exe --export-svg <input.cdr> <output.svg>\n");
+return 2;
+}
+HRESULT hr = QuickView::ExportToSvg(inPath.c_str(), outPath.c_str());
+if (FAILED(hr)) {
+fwprintf(stderr, L"ExportToSvg failed: 0x%08X\n", hr);
+return 3;
+}
+return 0;
+}
+
+// [CDR→PDF] Command-line tool: parse CDR via libcdr → SVG → MuPDF PDF writer.
+// Records per-stage timing to stdout for profiling.
+static int RunCdrToPdf(int argc, wchar_t** argv) {
+    std::wstring inPath, outPath;
+    for (int i = 1; i < argc; ++i) {
+        if (_wcsicmp(argv[i], L"--cdr-to-pdf") == 0) {
+            if (i + 1 < argc) inPath = argv[++i];
+            if (i + 1 < argc) outPath = argv[++i];
+        }
     }
-  }
-  if (inPath.empty() || outPath.empty()) {
-    fwprintf(stderr, L"Usage: QuickView.exe --export-svg <input.cdr> <output.svg>\n");
-    return 2;
-  }
-  HRESULT hr = QuickView::ExportToSvg(inPath.c_str(), outPath.c_str());
-  if (FAILED(hr)) {
-    fwprintf(stderr, L"ExportToSvg failed: 0x%08X\n", hr);
-    return 3;
-  }
-  return 0;
+    if (inPath.empty() || outPath.empty()) {
+        fwprintf(stderr, L"Usage: QuickView.exe --cdr-to-pdf <input.cdr> <output.pdf>\n");
+        return 2;
+    }
+
+    // Convert output path to UTF-8 for MuPDF
+    std::string outPathUtf8;
+    {
+        int len = WideCharToMultiByte(CP_UTF8, 0, outPath.c_str(), -1, nullptr, 0, nullptr, nullptr);
+        if (len > 0) {
+            outPathUtf8.resize(len - 1);
+            WideCharToMultiByte(CP_UTF8, 0, outPath.c_str(), -1, outPathUtf8.data(), len, nullptr, nullptr);
+        }
+    }
+
+    auto t0 = GetTickCount64();
+
+    // ---- Stage 1: Read CDR file ----
+    std::vector<uint8_t> fileData;
+    {
+        HANDLE hFile = CreateFileW(inPath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                                   OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (hFile == INVALID_HANDLE_VALUE) {
+            fwprintf(stderr, L"Cannot open input file: %s\n", inPath.c_str());
+            return 3;
+        }
+        LARGE_INTEGER sz; GetFileSizeEx(hFile, &sz);
+        fileData.resize(static_cast<size_t>(sz.QuadPart));
+        DWORD read = 0;
+        ReadFile(hFile, fileData.data(), static_cast<DWORD>(fileData.size()), &read, nullptr);
+        CloseHandle(hFile);
+    }
+    auto t1 = GetTickCount64();
+    fwprintf(stdout, L"[1/4] Read CDR file:        %llu ms  (%zu bytes)\n",
+             t1 - t0, fileData.size());
+
+    // ---- Stage 2: libcdr parse CDR → SVG ----
+    librevenge::RVNGStringStream input(fileData.data(), static_cast<unsigned>(fileData.size()));
+    bool isCdr = libcdr::CDRDocument::isSupported(&input);
+    bool isCmx = false;
+    if (!isCdr) {
+        isCmx = libcdr::CMXDocument::isSupported(&input);
+        if (!isCmx) {
+            fwprintf(stderr, L"CDR/CMX format not supported\n");
+            return 4;
+        }
+    }
+
+    librevenge::RVNGStringVector svgPages;
+    librevenge::RVNGSVGDrawingGenerator painter(svgPages, "");
+    bool parsed = false;
+    if (isCdr)
+        parsed = libcdr::CDRDocument::parse(&input, &painter);
+    else
+        parsed = libcdr::CMXDocument::parse(&input, &painter);
+
+    if (!parsed || svgPages.empty()) {
+        fwprintf(stderr, L"libcdr parse failed\n");
+        return 5;
+    }
+    auto t2 = GetTickCount64();
+    fwprintf(stdout, L"[2/4] libcdr parse → SVG:    %llu ms  (%zu pages)\n",
+             t2 - t1, svgPages.size());
+
+    // ---- Stage 3: MuPDF open SVG → display list ----
+    fz_context* ctx = fz_new_context(nullptr, nullptr, FZ_STORE_DEFAULT);
+    if (!ctx) { fwprintf(stderr, L"fz_new_context failed\n"); return 6; }
+    fz_try(ctx) { fz_register_document_handlers(ctx); }
+    fz_catch(ctx) { fwprintf(stderr, L"fz_register_document_handlers failed\n"); fz_drop_context(ctx); return 7; }
+
+    std::string firstSvg(svgPages[0].cstr());
+    fz_buffer* svgBuf = nullptr;
+    fz_document* svgDoc = nullptr;
+    fz_display_list* displayList = nullptr;
+    float pageW = 0, pageH = 0;
+
+    fz_try(ctx) {
+        svgBuf = fz_new_buffer_from_shared_data(ctx,
+            reinterpret_cast<const unsigned char*>(firstSvg.data()), firstSvg.size());
+        svgDoc = fz_open_document_with_buffer(ctx, "image/svg+xml", svgBuf);
+        displayList = fz_new_display_list_from_page_number(ctx, svgDoc, 0);
+        // Get page dimensions
+        fz_page* page = fz_load_page(ctx, svgDoc, 0);
+        fz_rect bounds = fz_bound_page(ctx, page);
+        pageW = bounds.x1 - bounds.x0;
+        pageH = bounds.y1 - bounds.y0;
+        fz_drop_page(ctx, page);
+    }
+    fz_catch(ctx) {
+        fwprintf(stderr, L"MuPDF open SVG failed: %S\n", fz_caught_message(ctx));
+        if (displayList) fz_drop_display_list(ctx, displayList);
+        if (svgDoc) fz_drop_document(ctx, svgDoc);
+        if (svgBuf) fz_drop_buffer(ctx, svgBuf);
+        fz_drop_context(ctx);
+        return 8;
+    }
+    auto t3 = GetTickCount64();
+    fwprintf(stdout, L"[3/4] MuPDF open SVG:        %llu ms  (%.1f x %.1f pt)\n",
+             t3 - t2, pageW, pageH);
+
+    // ---- Stage 4: MuPDF write PDF ----
+    fz_document_writer* writer = nullptr;
+    fz_device* dev = nullptr;
+    fz_try(ctx) {
+        writer = fz_new_document_writer(ctx, outPathUtf8.c_str(), "pdf", nullptr);
+        dev = fz_begin_page(ctx, writer, fz_make_rect(0, 0, pageW, pageH));
+        fz_run_display_list(ctx, displayList, dev, fz_identity, fz_infinite_rect, nullptr);
+        fz_close_device(ctx, dev);
+        fz_end_page(ctx, writer);
+        fz_close_document_writer(ctx, writer);
+    }
+    fz_always(ctx) {
+        if (dev) fz_drop_device(ctx, dev);
+    }
+    fz_catch(ctx) {
+        fwprintf(stderr, L"MuPDF write PDF failed: %S\n", fz_caught_message(ctx));
+        if (writer) fz_drop_document_writer(ctx, writer);
+        if (displayList) fz_drop_display_list(ctx, displayList);
+        if (svgDoc) fz_drop_document(ctx, svgDoc);
+        if (svgBuf) fz_drop_buffer(ctx, svgBuf);
+        fz_drop_context(ctx);
+        return 9;
+    }
+
+    if (displayList) fz_drop_display_list(ctx, displayList);
+    if (svgDoc) fz_drop_document(ctx, svgDoc);
+    if (svgBuf) fz_drop_buffer(ctx, svgBuf);
+    fz_drop_context(ctx);
+
+    auto t4 = GetTickCount64();
+    fwprintf(stdout, L"[4/4] MuPDF write PDF:       %llu ms\n", t4 - t3);
+    fwprintf(stdout, L"------------------------------------\n");
+    fwprintf(stdout, L"Total:                       %llu ms\n", t4 - t0);
+    fwprintf(stdout, L"Output: %s\n", outPath.c_str());
+
+    return 0;
 }
 
 static int RunExportPng(int argc, wchar_t** argv) {
@@ -5966,7 +6120,7 @@ static bool TryRunToolProcessFromCommandLine(int* outExitCode) {
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     if (!argv) return false;
 
-    enum class ToolMode { None, DecodeWorker, Uninstall, Thumbnail, ThumbnailServer, ExportPng, ExportSvg };
+    enum class ToolMode { None, DecodeWorker, Uninstall, Thumbnail, ThumbnailServer, ExportPng, ExportSvg, CdrToPdf };
     ToolMode mode = ToolMode::None;
 
     for (int i = 1; i < argc; ++i) {
@@ -5977,6 +6131,7 @@ static bool TryRunToolProcessFromCommandLine(int* outExitCode) {
         if (_wcsicmp(argv[i], L"--thumbnail-server") == 0) { mode = ToolMode::ThumbnailServer; break; }
         if (_wcsicmp(argv[i], L"--export-png") == 0) { mode = ToolMode::ExportPng; break; }
         if (_wcsicmp(argv[i], L"--export-svg") == 0) { mode = ToolMode::ExportSvg; break; }
+        if (_wcsicmp(argv[i], L"--cdr-to-pdf") == 0) { mode = ToolMode::CdrToPdf; break; }
     }
 
     if (mode == ToolMode::None) {
@@ -5996,6 +6151,7 @@ static bool TryRunToolProcessFromCommandLine(int* outExitCode) {
         case ToolMode::ThumbnailServer: *outExitCode = QuickView::RunThumbnailServer(argc, argv); break;
         case ToolMode::ExportPng:       *outExitCode = RunExportPng(argc, argv); break;
         case ToolMode::ExportSvg:       *outExitCode = RunExportSvg(argc, argv); break;
+        case ToolMode::CdrToPdf:        *outExitCode = RunCdrToPdf(argc, argv); break;
         default:                     *outExitCode = 2; break;
     }
     LocalFree(argv);
