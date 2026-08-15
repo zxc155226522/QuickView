@@ -65,6 +65,9 @@ HRESULT QvRasterizeSvgFrameToBgra(const RawImageFrame::SvgData &svgData,
 
 } // namespace QuickView
 
+// [CDR/CMX] Forward declaration — defined after CImageLoader below.
+struct CdrPageData;
+
 /// <summary>
 /// Image Loader
 /// Uses WIC to load image files
@@ -385,6 +388,16 @@ public:
   // main view stops spinning immediately; the full vector frame follows.
   HRESULT LoadCdrEmbeddedPreviewFrame(LPCWSTR filePath,
                                       QuickView::RawImageFrame *outFrame);
+
+  // [CDR/CMX Page Switch] Render a cached SVG page to a BGRA frame via MuPDF.
+  // Called by HandleCdrPageStep for multi-page CDR/CMX navigation.
+  // pageData: cached SVG XML + viewBox dimensions.
+  // sourcePath: original file path (for metadata/debugging).
+  // outFrame: receives a BGRA8888 frame (caller owns pixel memory).
+  // ::CdrPageData is forward-declared before this class and defined after.
+  static HRESULT RenderCdrCachePageToFrame(const ::CdrPageData& pageData,
+                                           const std::wstring& sourcePath,
+                                           QuickView::RawImageFrame* outFrame);
 
   /// <summary>
   /// Load a frame directly from a mapped/in-memory buffer via the unified

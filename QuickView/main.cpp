@@ -14137,8 +14137,9 @@ void HandlePdfPageResult(HWND hwnd) {
 }
 
 // [CDR/CMX] Synchronous page switch from cached SVG data.
-// Unlike PDF (async MuPDF render), CDR pages are pre-parsed SVG strings,
-// so switching is instant — just rebuild the D2D SvgDocument.
+// Uses MuPDF to render the cached SVG XML into a BGRA bitmap, replacing the
+// former D2D SVG document + resvg fallback path. MuPDF provides more complete
+// SVG feature support (gradients, text, clips, masks, filters).
 void HandleCdrPageStep(HWND hwnd, uint32_t targetPage) {
     auto& cache = GetCdrPageCache();
     if (targetPage >= cache.size()) return;
@@ -14150,90 +14151,27 @@ void HandleCdrPageStep(HWND hwnd, uint32_t targetPage) {
 
     auto& pane = GetPaneContext(PaneSlot::Primary);
 
-    // Create D2D SvgDocument from cached XML (same logic as FullReady SVG path)
-    ComPtr<ID2D1DeviceContext> ctxBase = g_renderEngine->GetDeviceContext();
-    ComPtr<ID2D1DeviceContext5> ctx5;
-    if (!ctxBase || FAILED(ctxBase.As(&ctx5))) {
-        g_osd.Show(hwnd, L"SVG 上下文获取失败", true);
+    // [MuPDF] Render the cached SVG page via MuPDF into a BGRA bitmap.
+    QuickView::RawImageFrame bgraFrame;
+    HRESULT hr = CImageLoader::RenderCdrCachePageToFrame(
+        pageData, pane.metadata.SourcePath, &bgraFrame);
+    if (FAILED(hr)) {
+        g_osd.Show(hwnd, L"SVG 页面渲染失败", true);
         return;
     }
 
-    ComPtr<IStream> stream;
-    HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, pageData.xmlData.size());
-    if (!hMem) return;
-    {
-        void* pMem = GlobalLock(hMem);
-        if (pMem) {
-            memcpy(pMem, pageData.xmlData.data(), pageData.xmlData.size());
-            GlobalUnlock(hMem);
-            CreateStreamOnHGlobal(hMem, TRUE, &stream);
-        } else {
-            GlobalFree(hMem);
-            return;
-        }
+    ComPtr<ID2D1Bitmap> bmp;
+    hr = g_renderEngine->UploadRawFrameToGPU(bgraFrame, &bmp);
+    // bgraFrame's pixel memory (new[]'d) is freed by its deleter on scope exit.
+    if (FAILED(hr) || !bmp) {
+        bgraFrame.Release();
+        g_osd.Show(hwnd, L"GPU 上传失败", true);
+        return;
     }
 
-    D2D1_SIZE_F vpSize = { svgW, svgH };
-    if (vpSize.width <= 0) vpSize.width = 100;
-    if (vpSize.height <= 0) vpSize.height = 100;
-
-    // [resvg] D2D cannot render <image>/filters/clips/masks; route those
-    // (and any D2D failure) through resvg as a raster bitmap so paged CDR/AI
-    // with embedded bitmaps no longer show blank in the page panel.
-    auto pageContains = [&](const char* needle) -> bool {
-        const size_t nl = strlen(needle);
-        const auto& pd = pageData.xmlData;
-        if (pd.size() < nl) return false;
-        for (size_t i = 0; i + nl <= pd.size(); ++i)
-            if (memcmp(pd.data() + i, needle, nl) == 0) return true;
-        return false;
-    };
-    const bool pageHasImage = pageContains("<image") ||
-                              pageContains("xlink:href=\"data:image") ||
-                              pageContains("href=\"data:image");
-
-    auto renderPageViaResvg = [&]() -> bool {
-        if (!g_renderEngine) return false;
-        std::vector<uint8_t> bgra;
-        uint32_t nW=0,nH=0,rW=0,rH=0;
-        if (FAILED(QuickView::QvRasterizeSvgResvg(pageData.xmlData, 3.0f, bgra,
-                true, true, &nW, &nH, &rW, &rH))) return false;
-        if (rW == 0 || rH == 0) return false;
-        QuickView::RawImageFrame frame;
-        frame.pixels = bgra.data();
-        frame.width = (int)rW;
-        frame.height = (int)rH;
-        frame.stride = (int)(rW * 4);
-        frame.format = QuickView::PixelFormat::BGRA8888;
-        ComPtr<ID2D1Bitmap> bmp;
-        if (FAILED(g_renderEngine->UploadRawFrameToGPU(frame, &bmp)) || !bmp) return false;
-        pane.resource.Reset();
-        pane.resource.bitmap = bmp;
-        return true;
-    };
-
-    if (pageHasImage) {
-        if (!renderPageViaResvg()) {
-            g_osd.Show(hwnd, L"SVG 位图渲染失败", true);
-            return;
-        }
-    } else {
-        ComPtr<ID2D1SvgDocument> svgDoc;
-        HRESULT hr = ctx5->CreateSvgDocument(stream.Get(), vpSize, &svgDoc);
-        if (FAILED(hr) || !svgDoc) {
-            // [resvg] D2D SVG subset failed -> safety net.
-            if (!renderPageViaResvg()) {
-                g_osd.Show(hwnd, L"SVG 文档创建失败", true);
-                return;
-            }
-        } else {
-            pane.resource.Reset();
-            pane.resource.isSvg = true;
-            pane.resource.svgW = svgW;
-            pane.resource.svgH = svgH;
-            pane.resource.svgDoc = svgDoc;
-        }
-    }
+    // Update pane resource
+    pane.resource.Reset();
+    pane.resource.bitmap = bmp;
 
     // Update paged state
     g_pagedDoc.currentPage = targetPage;

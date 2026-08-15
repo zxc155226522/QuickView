@@ -97,6 +97,45 @@ HRESULT MuPdfDocument::Open(const std::wstring& path, std::wstring& errorMessage
     return S_OK;
 }
 
+HRESULT MuPdfDocument::OpenFromBuffer(const uint8_t* data, size_t size,
+                                     const char* mimeType, const std::wstring& sourcePath,
+                                     std::wstring& errorMessage) noexcept {
+    Close();
+    if (!m_context || !data || size == 0 || !mimeType)
+        return E_INVALIDARG;
+
+    fz_buffer* buffer = nullptr;
+    fz_document* document = nullptr;
+    uint32_t pageCount = 0;
+
+    fz_try(m_context) {
+        // Use shared_data: MuPDF does NOT take ownership of the buffer memory
+        // (won't fz_free it). The caller (LoadCDR/HandleCdrPageStep) keeps the
+        // SVG XML alive long enough for OpenFromBuffer + RenderPage to complete.
+        // fz_new_buffer_from_data would take ownership and fz_free the pointer,
+        // which would crash on non-MuPDF-allocated memory.
+        buffer = fz_new_buffer_from_shared_data(m_context, data, size);
+        document = fz_open_document_with_buffer(m_context, mimeType, buffer);
+        const int count = fz_count_pages(m_context, document);
+        if (count <= 0) {
+            fz_throw(m_context, FZ_ERROR_FORMAT, "document contains no pages");
+        }
+        pageCount = static_cast<uint32_t>(count);
+    }
+    fz_catch(m_context) {
+        errorMessage = Utf8ToWide(fz_caught_message(m_context));
+        if (document) fz_drop_document(m_context, document);
+        if (buffer) fz_drop_buffer(m_context, buffer);
+        return HRESULT_FROM_WIN32(ERROR_BAD_FORMAT);
+    }
+
+    m_buffer = buffer;
+    m_document = document;
+    m_path = sourcePath;
+    m_pageCount = pageCount;
+    return S_OK;
+}
+
 void MuPdfDocument::Close() noexcept {
     if (m_context) {
         if (m_displayList) fz_drop_display_list(m_context, m_displayList);
