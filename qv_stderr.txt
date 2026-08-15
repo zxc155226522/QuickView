@@ -1,0 +1,268 @@
+[BMP Fix] Extracted image 0 to C:\Users\Administrator\AppData\Local\Temp\qv_bmp_32348_96731578\qv_bmp_0.png, SVG ref=qv_bmp_0.png
+[svg-render] page=-340.9,0.0,1597.9,1532.5 contentBbox=85.2,138.8,1198.5,1010.5 final=-340.9,0.0,1624.6,1532.5
+Warning (in usvg::parser::image:110): 'qv_bmp_0.png' is not a path to an image.
+Warning (in usvg::parser::image:110): 'qv_bmp_0.png' is not a path to an image.
+[svg-render] page=-340.9,0.0,1597.9,1532.5 contentBbox=85.2,138.8,1198.5,1010.5 final=-340.9,0.0,1624.6,1532.5
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\066.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\base5.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\beishida说文小篆.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\BSONGSJ.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Caffe Latte.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CAFFEEN.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Captain Spandex.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\casual.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Cat Krap.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLOD.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLOREAL.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLORENF.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Circles-n.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Decker.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\DeckerB.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Fiolex Girls.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Fiolex Mephisto.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\FSONGSF.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\FSONGSJ.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Gothic_Love_Letters.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\HDANTB.TTF' cause font doesn't have a family name.
+Warning (in usvg::parser::image:110): 'qv_bmp_0.png' is not a path to an image.
+Warning (in usvg::parser::image:110): 'qv_bmp_0.png' is not a path to an image.
+[svg-render] page=-340.9,0.0,1597.9,1532.5 contentBbox=85.2,138.8,1198.5,1010.5 final=-340.9,0.0,1624.6,1532.5
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\066.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\base5.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\beishida说文小篆.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\BSONGSJ.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Caffe Latte.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CAFFEEN.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Captain Spandex.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\casual.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Cat Krap.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLOD.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLOREAL.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLORENF.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Circles-n.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Decker.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\DeckerB.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Fiolex Girls.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Fiolex Mephisto.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\FSONGSF.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\FSONGSJ.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Gothic_Love_Letters.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\HDANTB.TTF' cause font doesn't have a family name.
+Warning (in usvg::parser::image:110): 'qv_bmp_0.png' is not a path to an image.
+[BMP Fix] Extracted image 0 to C:\Users\Administrator\AppData\Local\Temp\qv_bmp_32348_96733593\qv_bmp_0.png, SVG ref=qv_bmp_0.png
+Warning (in usvg::parser::image:110): 'qv_bmp_0.png' is not a path to an image.
+[svg-render] page=-340.9,0.0,1597.9,1532.5 contentBbox=85.2,138.8,1198.5,1010.5 final=-340.9,0.0,1624.6,1532.5
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\066.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\base5.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\beishida说文小篆.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\BSONGSJ.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Caffe Latte.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CAFFEEN.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Captain Spandex.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\casual.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Cat Krap.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLOD.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLOREAL.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLORENF.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Circles-n.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Decker.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\DeckerB.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Fiolex Girls.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Fiolex Mephisto.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\FSONGSF.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\FSONGSJ.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Gothic_Love_Letters.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\HDANTB.TTF' cause font doesn't have a family name.
+Warning (in usvg::parser::image:110): 'qv_bmp_0.png' is not a path to an image.
+Warning (in usvg::parser::image:110): 'qv_bmp_0.png' is not a path to an image.
+[svg-render] page=-340.9,0.0,1597.9,1532.5 contentBbox=85.2,138.8,1198.5,1010.5 final=-340.9,0.0,1624.6,1532.5
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\066.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\base5.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\beishida说文小篆.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\BSONGSJ.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Caffe Latte.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CAFFEEN.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Captain Spandex.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\casual.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Cat Krap.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLOD.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLOREAL.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLORENF.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Circles-n.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Decker.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\DeckerB.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Fiolex Girls.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Fiolex Mephisto.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\FSONGSF.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\FSONGSJ.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Gothic_Love_Letters.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\HDANTB.TTF' cause font doesn't have a family name.
+Warning (in usvg::parser::image:110): 'qv_bmp_0.png' is not a path to an image.
+Warning (in usvg::parser::image:110): 'qv_bmp_0.png' is not a path to an image.
+[svg-render] page=-340.9,0.0,1597.9,1532.5 contentBbox=85.2,138.8,1198.5,1010.5 final=-340.9,0.0,1624.6,1532.5
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\066.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\base5.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\beishida说文小篆.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\BSONGSJ.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Caffe Latte.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CAFFEEN.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Captain Spandex.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\casual.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Cat Krap.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLOD.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLOREAL.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLORENF.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Circles-n.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Decker.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\DeckerB.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Fiolex Girls.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Fiolex Mephisto.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\FSONGSF.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\FSONGSJ.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Gothic_Love_Letters.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\HDANTB.TTF' cause font doesn't have a family name.
+Warning (in usvg::parser::image:110): 'qv_bmp_0.png' is not a path to an image.
+Warning (in usvg::parser::image:110): 'qv_bmp_0.png' is not a path to an image.
+[svg-render] page=-340.9,0.0,1597.9,1532.5 contentBbox=85.2,138.8,1198.5,1010.5 final=-340.9,0.0,1624.6,1532.5
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\066.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\base5.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\beishida说文小篆.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\BSONGSJ.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Caffe Latte.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CAFFEEN.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Captain Spandex.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\casual.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Cat Krap.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLOD.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLOREAL.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLORENF.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Circles-n.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Decker.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\DeckerB.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Fiolex Girls.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Fiolex Mephisto.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\FSONGSF.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\FSONGSJ.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Gothic_Love_Letters.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\HDANTB.TTF' cause font doesn't have a family name.
+Warning (in usvg::parser::image:110): 'qv_bmp_0.png' is not a path to an image.
+Warning (in usvg::parser::image:110): 'qv_bmp_0.png' is not a path to an image.
+[svg-render] page=-340.9,0.0,1597.9,1532.5 contentBbox=85.2,138.8,1198.5,1010.5 final=-340.9,0.0,1624.6,1532.5
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\066.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\base5.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\beishida说文小篆.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\BSONGSJ.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Caffe Latte.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CAFFEEN.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Captain Spandex.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\casual.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Cat Krap.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLOD.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLOREAL.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLORENF.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Circles-n.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Decker.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\DeckerB.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Fiolex Girls.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Fiolex Mephisto.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\FSONGSF.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\FSONGSJ.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Gothic_Love_Letters.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\HDANTB.TTF' cause font doesn't have a family name.
+Warning (in usvg::parser::image:110): 'qv_bmp_0.png' is not a path to an image.
+Warning (in usvg::parser::image:110): 'qv_bmp_0.png' is not a path to an image.
+[svg-render] page=-340.9,0.0,1597.9,1532.5 contentBbox=85.2,138.8,1198.5,1010.5 final=-340.9,0.0,1624.6,1532.5
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\066.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\base5.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\beishida说文小篆.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\BSONGSJ.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Caffe Latte.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CAFFEEN.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Captain Spandex.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\casual.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Cat Krap.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLOD.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLOREAL.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLORENF.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Circles-n.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Decker.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\DeckerB.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Fiolex Girls.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Fiolex Mephisto.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\FSONGSF.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\FSONGSJ.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Gothic_Love_Letters.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\HDANTB.TTF' cause font doesn't have a family name.
+Warning (in usvg::parser::image:110): 'qv_bmp_0.png' is not a path to an image.
+Warning (in usvg::parser::image:110): 'qv_bmp_0.png' is not a path to an image.
+[svg-render] page=-340.9,0.0,1597.9,1532.5 contentBbox=85.2,138.8,1198.5,1010.5 final=-340.9,0.0,1624.6,1532.5
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\066.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\base5.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\beishida说文小篆.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\BSONGSJ.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Caffe Latte.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CAFFEEN.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Captain Spandex.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\casual.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Cat Krap.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLOD.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLOREAL.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLORENF.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Circles-n.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Decker.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\DeckerB.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Fiolex Girls.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Fiolex Mephisto.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\FSONGSF.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\FSONGSJ.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Gothic_Love_Letters.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\HDANTB.TTF' cause font doesn't have a family name.
+Warning (in usvg::parser::image:110): 'qv_bmp_0.png' is not a path to an image.
+Warning (in usvg::parser::image:110): 'qv_bmp_0.png' is not a path to an image.
+[svg-render] page=-340.9,0.0,1597.9,1532.5 contentBbox=85.2,138.8,1198.5,1010.5 final=-340.9,0.0,1624.6,1532.5
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\066.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\base5.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\beishida说文小篆.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\BSONGSJ.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Caffe Latte.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CAFFEEN.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Captain Spandex.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\casual.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Cat Krap.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLOD.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLOREAL.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLORENF.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Circles-n.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Decker.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\DeckerB.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Fiolex Girls.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Fiolex Mephisto.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\FSONGSF.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\FSONGSJ.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Gothic_Love_Letters.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\HDANTB.TTF' cause font doesn't have a family name.
+Warning (in usvg::parser::image:110): 'qv_bmp_0.png' is not a path to an image.
+Warning (in usvg::parser::image:110): 'qv_bmp_0.png' is not a path to an image.
+[svg-render] page=-340.9,0.0,1597.9,1532.5 contentBbox=85.2,138.8,1198.5,1010.5 final=-340.9,0.0,1624.6,1532.5
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\066.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\base5.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\beishida说文小篆.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\BSONGSJ.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Caffe Latte.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CAFFEEN.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Captain Spandex.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\casual.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Cat Krap.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLOD.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLOREAL.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\CHLORENF.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Circles-n.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Decker.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\DeckerB.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Fiolex Girls.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Fiolex Mephisto.ttf' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\FSONGSF.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\FSONGSJ.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\Gothic_Love_Letters.TTF' cause font doesn't have a family name.
+Warning (in fontdb:245): Failed to load a font face 0 from 'C:\Users\Administrator\AppData\Local\Microsoft\Windows\Fonts\HDANTB.TTF' cause font doesn't have a family name.
+Warning (in usvg::parser::image:110): 'qv_bmp_0.png' is not a path to an image.
