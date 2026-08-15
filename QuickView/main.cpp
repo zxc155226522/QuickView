@@ -5913,6 +5913,7 @@ static int RunDecodeWorker(int argc, LPWSTR* argv) {
 static int RunExportPng(int argc, wchar_t** argv) {
   std::wstring inPath, outPath;
   int maxDim = 0;
+  int longSide = 4000;  // [high-res] longer edge target in px (upscales if smaller)
   for (int i = 1; i < argc; ++i) {
     if (_wcsicmp(argv[i], L"--export-png") == 0) {
       if (i + 1 < argc) inPath = argv[++i];
@@ -5921,13 +5922,16 @@ static int RunExportPng(int argc, wchar_t** argv) {
         int v = _wtoi(argv[i + 1]);
         if (v > 0) { maxDim = v; ++i; }
       }
+    } else if (_wcsicmp(argv[i], L"--long-side") == 0 && i + 1 < argc) {
+      int v = _wtoi(argv[++i]);
+      if (v > 0) longSide = v;
     }
   }
   if (inPath.empty() || outPath.empty()) {
-    fwprintf(stderr, L"Usage: QuickView.exe --export-png <input> <output.png> [maxDim]\n");
+    fwprintf(stderr, L"Usage: QuickView.exe --export-png <input> <output.png> [maxDim] [--long-side N]\n");
     return 2;
   }
-  HRESULT hr = QuickView::ExportToPng(inPath.c_str(), outPath.c_str(), maxDim, true, true);
+  HRESULT hr = QuickView::ExportToPng(inPath.c_str(), outPath.c_str(), maxDim, true, true, longSide);
   if (FAILED(hr)) {
     fwprintf(stderr, L"ExportToPng failed: 0x%08X\n", hr);
     return 3;

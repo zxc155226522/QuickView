@@ -40,7 +40,8 @@ HRESULT QvRasterizeSvgResvg(const std::vector<uint8_t> &xml, float zoom,
 // includeOutsidePage expands the SVG viewBox to the full content bbox so
 // elements drawn outside the Corel page rectangle are not clipped.
 HRESULT ExportToPng(LPCWSTR inPath, LPCWSTR outPath, int maxDim = 0,
-                    bool whiteBg = true, bool includeOutsidePage = true);
+                    bool whiteBg = true, bool includeOutsidePage = true,
+                    int targetLongSide = 0);
 
 // Render an SVG frame to BGRA. Expands the viewBox to include content outside
 // the declared page rectangle. When targetW/targetH (>0) are given, the SVG is

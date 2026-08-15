@@ -4474,22 +4474,9 @@ HRESULT QvRasterizeSvgFrameToBgra(const RawImageFrame::SvgData& svgData,
   return hr;
 }
 
-// Thin wrapper kept for ExportToPng so it can log the raw/rewritten SVG heads.
-static HRESULT RenderSvgFrameToBgra(const RawImageFrame::SvgData& svgData, int maxDim,
-                                    bool whiteBg, bool includeOutsidePage,
-                                    std::vector<uint8_t>& outBgra, uint32_t& outW,
-                                    uint32_t& outH) {
-  HRESULT hr = QvRasterizeSvgFrameToBgra(svgData, outBgra, outW, outH,
-                                           whiteBg, includeOutsidePage,
-                                           maxDim > 0 ? maxDim : 8192);
-  if (SUCCEEDED(hr)) {
-    fprintf(stderr, "[export] wrote %ux%u bgra\n", outW, outH);
-  }
-  return hr;
-}
-
 HRESULT ExportToPng(LPCWSTR inPath, LPCWSTR outPath, int maxDim,
-                    bool whiteBg, bool includeOutsidePage) {
+                    bool whiteBg, bool includeOutsidePage,
+                    int targetLongSide) {
   if (!inPath || !outPath) return E_INVALIDARG;
   HRESULT coHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
   bool comOwned = SUCCEEDED(coHr);
@@ -4509,9 +4496,20 @@ HRESULT ExportToPng(LPCWSTR inPath, LPCWSTR outPath, int maxDim,
     hr = loader.LoadToFrame(inPath, &frame, nullptr, 0, 0, nullptr, {}, &meta);
     if (SUCCEEDED(hr) && frame.IsValid()) {
       if (frame.IsSvg() && frame.svg) {
+        // [high-res export] When targetLongSide > 0, render at that resolution
+        // (upscaling if needed) so the exported PNG is not limited to the SVG's
+        // native coordinate size. Aspect ratio is taken from the SVG viewBox.
+        int tW = 0, tH = 0;
+        if (targetLongSide > 0 && frame.svg->viewBoxW > 0 && frame.svg->viewBoxH > 0) {
+          double nat = (std::max)((double)frame.svg->viewBoxW, (double)frame.svg->viewBoxH);
+          double s = (double)targetLongSide / nat;
+          tW = (int)std::lround(frame.svg->viewBoxW * s);
+          tH = (int)std::lround(frame.svg->viewBoxH * s);
+        }
         std::vector<uint8_t> bgra;
         uint32_t w = 0, h = 0;
-        hr = RenderSvgFrameToBgra(*frame.svg, maxDim, whiteBg, includeOutsidePage, bgra, w, h);
+        hr = QvRasterizeSvgFrameToBgra(*frame.svg, bgra, w, h,
+                                       whiteBg, includeOutsidePage, maxDim, tW, tH);
         if (SUCCEEDED(hr) && !bgra.empty()) {
           hr = SaveBgraAsPng(wf, outPath, bgra, w, h);
         }
