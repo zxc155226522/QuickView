@@ -4596,6 +4596,43 @@ HRESULT ExportToSvg(LPCWSTR inPath, LPCWSTR outPath) {
     svgXml = frame.svg->xmlData;
   }
 
+  // [export-svg] Expand the root viewBox to the full content bounding box so
+  // elements outside the Corel page rectangle are also included (mirrors the
+  // App's includeOutsidePage). Without this, browsers clip to the page rect
+  // because the root <svg> viewBox is hard-limited to page size by libcdr.
+  // This keeps the file a native, transparent SVG (no white rect, no style
+  // inlining) -- only the visible viewBox range changes.
+  {
+    std::string svgStr(reinterpret_cast<const char*>(svgXml.data()), svgXml.size());
+    double pageX = 0, pageY = 0, pageW = 0, pageH = 0;
+    if (ParseSvgViewBox(svgStr, &pageX, &pageY, &pageW, &pageH) && pageW > 0 && pageH > 0) {
+      resvg_options* opt = resvg_options_create();
+      if (opt) {
+        resvg_render_tree* tree = nullptr;
+        if (resvg_parse_tree_from_data(svgStr.c_str(), svgStr.size(), opt, &tree) == RESVG_OK && tree) {
+          resvg_rect cb = {};
+          if (resvg_get_image_bbox(tree, &cb)) {
+            double nx = std::min(pageX, (double)cb.x);
+            double ny = std::min(pageY, (double)cb.y);
+            double mx = std::max(pageX + pageW, (double)cb.x + (double)cb.width);
+            double my = std::max(pageY + pageH, (double)cb.y + (double)cb.height);
+            double rw = mx - nx, rh = my - ny;
+            // Heuristic: if the content bbox is wildly larger than the page
+            // rect, a hidden/guide element likely inflated it; keep the page
+            // rect so the main design isn't shrunk to a few pixels.
+            if (!(rw > pageW * 8.0 || rh > pageH * 8.0)) {
+              std::string rewritten = RewriteSvgRootViewBox(svgStr, nx, ny, rw, rh);
+              svgXml.assign(reinterpret_cast<const uint8_t*>(rewritten.data()),
+                            reinterpret_cast<const uint8_t*>(rewritten.data()) + rewritten.size());
+            }
+          }
+          resvg_tree_destroy(tree);
+        }
+        resvg_options_destroy(opt);
+      }
+    }
+  }
+
   // Write the raw SVG XML as UTF-8 (no BOM) using a wide-path-aware handle.
   HANDLE hFile = CreateFileW(outPath, GENERIC_WRITE, 0, nullptr,
                              CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
