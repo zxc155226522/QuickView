@@ -6022,6 +6022,18 @@ static int RunCdrToPdf(int argc, wchar_t** argv) {
     fwprintf(stdout, L"[2b/5] SVG post-process:     %llu ms  (%zu pages)\n",
              t2b - t2, processedPages.size());
 
+    // [Debug] Check if BMP data URIs were converted to PNG
+    if (!processedPages.empty()) {
+        const auto& firstSvg = processedPages[0].xmlData;
+        bool hasBmp = false, hasPng = false;
+        for (size_t j = 0; j + 20 < firstSvg.size(); ++j) {
+            if (!memcmp(firstSvg.data() + j, "data:image/bmp", 14)) hasBmp = true;
+            if (!memcmp(firstSvg.data() + j, "data:image/png", 14)) hasPng = true;
+        }
+        fwprintf(stdout, L"[DBG] After post-process: image/bmp=%s image/png=%s svgSize=%zu\n",
+                 hasBmp ? L"YES" : L"no", hasPng ? L"YES" : L"no", firstSvg.size());
+    }
+
     if (processedPages.empty()) {
         fwprintf(stderr, L"SVG post-processing produced no pages\n");
         return 5;

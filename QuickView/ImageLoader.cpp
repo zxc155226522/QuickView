@@ -57,6 +57,7 @@ using namespace QuickView;
 #include "MappedFile.h" // [Opt]
 #include "TinyExrLoader.h"
 #include <shobjidl.h> // [Add] for IShellItemImageFactory
+#include <wincrypt.h> // [BMP→PNG] CryptStringToBinary / CryptBinaryToString for base64
 #include <thread>
 #include "MiniTiff.h"
 
@@ -11652,9 +11653,48 @@ static void InlineSvgStyleAttrs(std::string &svg) {
 }
 
 // ----------------------------------------------------------------------------
+// [CDR/CMX] Convert data:image/bmp;base64,... URIs to PNG.
+// MuPDF's SVG renderer does not support BMP format in data URIs.
+// We decode the BMP (via WIC) and re-encode as PNG so MuPDF can render it.
+// Also handles other unsupported formats (TIFF, etc.) by converting to PNG.
+// ----------------------------------------------------------------------------
+// [CDR/CMX] Rewrite data:image/bmp and data:image/tiff URI prefixes to
+// data:image/png so MuPDF's SVG renderer accepts them. MuPDF's svg_run_image
+// only checks for data:image/jpeg and data:image/png prefixes, but then
+// calls fz_new_image_from_buffer which detects format by file header,
+// so simply rewriting the prefix is sufficient — no re-encoding needed.
+// ----------------------------------------------------------------------------
+static void RewriteUnsupportedDataUriPrefixes(std::string &svg) {
+  // MuPDF svg_run_image only recognizes these two prefixes:
+  //   data:image/jpeg;base64,
+  //   data:image/png;base64,
+  // We rewrite unsupported ones to data:image/png;base64, so MuPDF's
+  // prefix check passes. fz_new_image_from_buffer then detects the actual
+  // format by file header (BMP, TIFF, etc.), so the image renders correctly.
+  static const std::vector<std::string> kFrom = {
+    "data:image/bmp;base64,",
+    "data:image/x-ms-bmp;base64,",
+    "data:image/tiff;base64,",
+    "data:image/x-tiff;base64,",
+  };
+  static const char *kTo = "data:image/png;base64,";
+
+  for (const auto &from : kFrom) {
+    size_t pos = 0;
+    while (true) {
+      size_t found = svg.find(from, pos);
+      if (found == std::string::npos) break;
+      svg.replace(found, from.length(), kTo);
+      pos = found + strlen(kTo);
+    }
+  }
+}
+
+// ----------------------------------------------------------------------------
 // [CDR/CMX] Shared SVG post-processing extracted from LoadCDR.
-// Applies: viewBox parsing → whitespace crop → style inlining → page
-// boundary rect insertion → out-of-canvas viewBox expansion.
+// Applies: BMP data URI → PNG conversion → viewBox parsing → whitespace
+// crop → style inlining → page boundary rect insertion → out-of-canvas
+// viewBox expansion.
 // Returns one processed CdrPageData per input page.
 // ----------------------------------------------------------------------------
 std::vector<CdrPageData> ProcessCdrSvgPages(
@@ -11664,6 +11704,9 @@ std::vector<CdrPageData> ProcessCdrSvgPages(
 
   for (size_t i = 0; i < rawSvgPages.size(); ++i) {
     std::string svgContent(rawSvgPages[i]);
+
+    // [BMP→PNG] Rewrite BMP/TIFF data URI prefixes to PNG so MuPDF can render them.
+    RewriteUnsupportedDataUriPrefixes(svgContent);
 
     // [Canvas] Record original page dimensions before cropping.
     float pageX = 0.0f, pageY = 0.0f, pageW = 0.0f, pageH = 0.0f;
