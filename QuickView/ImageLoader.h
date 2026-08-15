@@ -647,6 +647,15 @@ struct CdrPageData {
 std::vector<CdrPageData>& GetCdrPageCache();
 void ClearCdrPageCache();
 
+// [CDR/CMX] Shared SVG post-processing: crop whitespace, inline styles,
+// insert page boundary rect, optionally expand viewBox for out-of-canvas
+// content. Called by both LoadCDR and the --cdr-to-pdf CLI tool so the
+// PDF output matches what the viewer displays.
+// Input: raw SVG page strings (one per page, from RVNGSVGDrawingGenerator).
+// Output: processed CdrPageData entries (one per page).
+std::vector<CdrPageData> ProcessCdrSvgPages(
+    const std::vector<std::string>& rawSvgPages);
+
 namespace QuickView {
 namespace Codec {
 

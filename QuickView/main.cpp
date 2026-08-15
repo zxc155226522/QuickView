@@ -6010,51 +6010,91 @@ static int RunCdrToPdf(int argc, wchar_t** argv) {
     fwprintf(stdout, L"[2/4] libcdr parse → SVG:    %llu ms  (%zu pages)\n",
              t2 - t1, svgPages.size());
 
-    // ---- Stage 3: MuPDF open SVG → display list ----
+    // ---- Stage 2b: SVG post-processing (same as LoadCDR) ----
+    // Crop whitespace, inline styles, insert page boundary rect, expand
+    // viewBox for out-of-canvas content — ensures PDF matches viewer.
+    std::vector<std::string> rawPages;
+    rawPages.reserve(svgPages.size());
+    for (size_t i = 0; i < svgPages.size(); ++i)
+        rawPages.emplace_back(svgPages[i].cstr());
+    auto processedPages = ProcessCdrSvgPages(rawPages);
+    auto t2b = GetTickCount64();
+    fwprintf(stdout, L"[2b/5] SVG post-process:     %llu ms  (%zu pages)\n",
+             t2b - t2, processedPages.size());
+
+    if (processedPages.empty()) {
+        fwprintf(stderr, L"SVG post-processing produced no pages\n");
+        return 5;
+    }
+
+    // ---- Stage 3: MuPDF open SVG → display list (all pages) ----
     fz_context* ctx = fz_new_context(nullptr, nullptr, FZ_STORE_DEFAULT);
     if (!ctx) { fwprintf(stderr, L"fz_new_context failed\n"); return 6; }
     fz_try(ctx) { fz_register_document_handlers(ctx); }
     fz_catch(ctx) { fwprintf(stderr, L"fz_register_document_handlers failed\n"); fz_drop_context(ctx); return 7; }
 
-    std::string firstSvg(svgPages[0].cstr());
-    fz_buffer* svgBuf = nullptr;
-    fz_document* svgDoc = nullptr;
-    fz_display_list* displayList = nullptr;
-    float pageW = 0, pageH = 0;
+    // Build a display list for each processed page
+    struct PageDL {
+        fz_buffer* buf = nullptr;
+        fz_document* doc = nullptr;
+        fz_display_list* dl = nullptr;
+        float w = 0, h = 0;
+    };
+    std::vector<PageDL> pageDLs;
+    bool openFailed = false;
 
-    fz_try(ctx) {
-        svgBuf = fz_new_buffer_from_shared_data(ctx,
-            reinterpret_cast<const unsigned char*>(firstSvg.data()), firstSvg.size());
-        svgDoc = fz_open_document_with_buffer(ctx, "image/svg+xml", svgBuf);
-        displayList = fz_new_display_list_from_page_number(ctx, svgDoc, 0);
-        // Get page dimensions
-        fz_page* page = fz_load_page(ctx, svgDoc, 0);
-        fz_rect bounds = fz_bound_page(ctx, page);
-        pageW = bounds.x1 - bounds.x0;
-        pageH = bounds.y1 - bounds.y0;
-        fz_drop_page(ctx, page);
+    for (size_t pi = 0; pi < processedPages.size(); ++pi) {
+        PageDL pd;
+        fz_try(ctx) {
+            pd.buf = fz_new_buffer_from_shared_data(ctx,
+                processedPages[pi].xmlData.data(), processedPages[pi].xmlData.size());
+            pd.doc = fz_open_document_with_buffer(ctx, "image/svg+xml", pd.buf);
+            pd.dl = fz_new_display_list_from_page_number(ctx, pd.doc, 0);
+            fz_page* page = fz_load_page(ctx, pd.doc, 0);
+            fz_rect bounds = fz_bound_page(ctx, page);
+            pd.w = bounds.x1 - bounds.x0;
+            pd.h = bounds.y1 - bounds.y0;
+            fz_drop_page(ctx, page);
+        }
+        fz_catch(ctx) {
+            fwprintf(stderr, L"MuPDF open SVG page %zu failed: %S\n", pi, fz_caught_message(ctx));
+            if (pd.dl) fz_drop_display_list(ctx, pd.dl);
+            if (pd.doc) fz_drop_document(ctx, pd.doc);
+            if (pd.buf) fz_drop_buffer(ctx, pd.buf);
+            openFailed = true;
+            break;
+        }
+        pageDLs.push_back(pd);
     }
-    fz_catch(ctx) {
-        fwprintf(stderr, L"MuPDF open SVG failed: %S\n", fz_caught_message(ctx));
-        if (displayList) fz_drop_display_list(ctx, displayList);
-        if (svgDoc) fz_drop_document(ctx, svgDoc);
-        if (svgBuf) fz_drop_buffer(ctx, svgBuf);
+
+    if (openFailed) {
+        for (auto& p : pageDLs) {
+            if (p.dl) fz_drop_display_list(ctx, p.dl);
+            if (p.doc) fz_drop_document(ctx, p.doc);
+            if (p.buf) fz_drop_buffer(ctx, p.buf);
+        }
         fz_drop_context(ctx);
         return 8;
     }
-    auto t3 = GetTickCount64();
-    fwprintf(stdout, L"[3/4] MuPDF open SVG:        %llu ms  (%.1f x %.1f pt)\n",
-             t3 - t2, pageW, pageH);
 
-    // ---- Stage 4: MuPDF write PDF ----
+    auto t3 = GetTickCount64();
+    fwprintf(stdout, L"[3/5] MuPDF open SVG:        %llu ms  (%zu pages, %.1f x %.1f pt first)\n",
+             t3 - t2b, pageDLs.size(), pageDLs[0].w, pageDLs[0].h);
+
+    // ---- Stage 4: MuPDF write PDF (all pages) ----
     fz_document_writer* writer = nullptr;
     fz_device* dev = nullptr;
+    bool writeFailed = false;
     fz_try(ctx) {
         writer = fz_new_document_writer(ctx, outPathUtf8.c_str(), "pdf", nullptr);
-        dev = fz_begin_page(ctx, writer, fz_make_rect(0, 0, pageW, pageH));
-        fz_run_display_list(ctx, displayList, dev, fz_identity, fz_infinite_rect, nullptr);
-        fz_close_device(ctx, dev);
-        fz_end_page(ctx, writer);
+        for (size_t pi = 0; pi < pageDLs.size(); ++pi) {
+            dev = fz_begin_page(ctx, writer, fz_make_rect(0, 0, pageDLs[pi].w, pageDLs[pi].h));
+            fz_run_display_list(ctx, pageDLs[pi].dl, dev, fz_identity, fz_infinite_rect, nullptr);
+            fz_close_device(ctx, dev);
+            fz_end_page(ctx, writer);
+            fz_drop_device(ctx, dev);
+            dev = nullptr;
+        }
         fz_close_document_writer(ctx, writer);
     }
     fz_always(ctx) {
@@ -6062,21 +6102,21 @@ static int RunCdrToPdf(int argc, wchar_t** argv) {
     }
     fz_catch(ctx) {
         fwprintf(stderr, L"MuPDF write PDF failed: %S\n", fz_caught_message(ctx));
-        if (writer) fz_drop_document_writer(ctx, writer);
-        if (displayList) fz_drop_display_list(ctx, displayList);
-        if (svgDoc) fz_drop_document(ctx, svgDoc);
-        if (svgBuf) fz_drop_buffer(ctx, svgBuf);
-        fz_drop_context(ctx);
-        return 9;
+        writeFailed = true;
     }
 
-    if (displayList) fz_drop_display_list(ctx, displayList);
-    if (svgDoc) fz_drop_document(ctx, svgDoc);
-    if (svgBuf) fz_drop_buffer(ctx, svgBuf);
+    if (writer) fz_drop_document_writer(ctx, writer);
+    for (auto& p : pageDLs) {
+        if (p.dl) fz_drop_display_list(ctx, p.dl);
+        if (p.doc) fz_drop_document(ctx, p.doc);
+        if (p.buf) fz_drop_buffer(ctx, p.buf);
+    }
     fz_drop_context(ctx);
 
+    if (writeFailed) return 9;
+
     auto t4 = GetTickCount64();
-    fwprintf(stdout, L"[4/4] MuPDF write PDF:       %llu ms\n", t4 - t3);
+    fwprintf(stdout, L"[4/5] MuPDF write PDF:       %llu ms\n", t4 - t3);
     fwprintf(stdout, L"------------------------------------\n");
     fwprintf(stdout, L"Total:                       %llu ms\n", t4 - t0);
     fwprintf(stdout, L"Output: %s\n", outPath.c_str());

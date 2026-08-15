@@ -11652,78 +11652,18 @@ static void InlineSvgStyleAttrs(std::string &svg) {
 }
 
 // ----------------------------------------------------------------------------
-// libcdr Decoder (CDR/CMX → SVG → D2D Native SVG Pipeline)
+// [CDR/CMX] Shared SVG post-processing extracted from LoadCDR.
+// Applies: viewBox parsing → whitespace crop → style inlining → page
+// boundary rect insertion → out-of-canvas viewBox expansion.
+// Returns one processed CdrPageData per input page.
 // ----------------------------------------------------------------------------
-HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
-                               QuickView::RawImageFrame *outFrame,
-                               std::wstring *pLoaderName,
-                               CImageLoader::ImageMetadata *pMetadata,
-                               CancelPredicate checkCancel) {
-  // [Fix] RVNGFileStream uses fopen() which does NOT support UTF-8 paths on
-  // Windows (fopen uses ANSI/GBK). When the CDR file path contains Chinese
-  // characters, fopen fails silently → isSupported/parse all return false.
-  // Solution: read file via CreateFileW (wide-char native) into memory, then
-  // use RVNGStringStream (memory-backed) to feed libcdr.
-  std::vector<uint8_t> fileData;
-  if (!ReadFileToVector(filePath, fileData) || fileData.empty()) {
-    if (pMetadata)
-      pMetadata->Format = L"CDR (File Read Error)";
-    return E_FAIL;
-  }
+std::vector<CdrPageData> ProcessCdrSvgPages(
+    const std::vector<std::string>& rawSvgPages) {
+  std::vector<CdrPageData> result;
+  result.reserve(rawSvgPages.size());
 
-  librevenge::RVNGStringStream input(fileData.data(),
-                                     (unsigned)fileData.size());
-
-  // Check cancel before heavy parsing
-  if (checkCancel)
-    return E_ABORT;
-
-  // Check format support
-  bool isCdr = libcdr::CDRDocument::isSupported(&input);
-  bool isCmx = false;
-  if (!isCdr) {
-    isCmx = libcdr::CMXDocument::isSupported(&input);
-    if (!isCmx) {
-      if (pMetadata)
-        pMetadata->Format = L"CDR (Unsupported/Encrypted)";
-      return E_FAIL;
-    }
-  }
-
-  // Check cancel before parse (can be slow for large CDR files)
-  if (checkCancel)
-    return E_ABORT;
-
-  // Generate SVG via librevenge's built-in RVNGSVGDrawingGenerator
-  // [Fix] Use empty namespace prefix so elements are <path> not <svg:path>.
-  // D2D's SVG renderer does not properly handle namespaced elements/attributes.
-  librevenge::RVNGStringVector svgPages;
-  librevenge::RVNGSVGDrawingGenerator painter(svgPages, "");
-
-  bool parsed = false;
-  if (isCdr)
-    parsed = libcdr::CDRDocument::parse(&input, &painter);
-  else
-    parsed = libcdr::CMXDocument::parse(&input, &painter);
-
-  if (!parsed || svgPages.empty()) {
-    if (pMetadata)
-      pMetadata->Format = L"CDR (Parse Failed)";
-    return E_FAIL;
-  }
-
-  // [Multi-page] Process ALL pages. When m_bPopulateCdrCache is true (main
-  // app, page navigation) the parsed pages are cached in the shared global
-  // g_cdrPageCache. The thumbnail server sets it false so it never touches
-  // that global -> CDR rendering is safe on multiple worker threads.
-  CdrPageData firstPageDataLocal;
-  if (m_bPopulateCdrCache) {
-    g_cdrPageCache.clear();
-    g_cdrPageCache.reserve(svgPages.size());
-  }
-
-  for (size_t i = 0; i < svgPages.size(); ++i) {
-    std::string svgContent(svgPages[i].cstr());
+  for (size_t i = 0; i < rawSvgPages.size(); ++i) {
+    std::string svgContent(rawSvgPages[i]);
 
     // [Canvas] Record original page dimensions before cropping.
     float pageX = 0.0f, pageY = 0.0f, pageW = 0.0f, pageH = 0.0f;
@@ -11796,16 +11736,91 @@ HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
       }
     }
 
-    // Cache processed page
     CdrPageData pageData;
     pageData.xmlData.assign(svgContent.begin(), svgContent.end());
     pageData.viewBoxW = svgW;
     pageData.viewBoxH = svgH;
-    if (m_bPopulateCdrCache) {
-      g_cdrPageCache.push_back(std::move(pageData));
-    } else if (i == 0) {
-      firstPageDataLocal = std::move(pageData);
+    result.push_back(std::move(pageData));
+  }
+  return result;
+}
+
+// ----------------------------------------------------------------------------
+// libcdr Decoder (CDR/CMX → SVG → D2D Native SVG Pipeline)
+// ----------------------------------------------------------------------------
+HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
+                               QuickView::RawImageFrame *outFrame,
+                               std::wstring *pLoaderName,
+                               CImageLoader::ImageMetadata *pMetadata,
+                               CancelPredicate checkCancel) {
+  // [Fix] RVNGFileStream uses fopen() which does NOT support UTF-8 paths on
+  // Windows (fopen uses ANSI/GBK). When the CDR file path contains Chinese
+  // characters, fopen fails silently → isSupported/parse all return false.
+  // Solution: read file via CreateFileW (wide-char native) into memory, then
+  // use RVNGStringStream (memory-backed) to feed libcdr.
+  std::vector<uint8_t> fileData;
+  if (!ReadFileToVector(filePath, fileData) || fileData.empty()) {
+    if (pMetadata)
+      pMetadata->Format = L"CDR (File Read Error)";
+    return E_FAIL;
+  }
+
+  librevenge::RVNGStringStream input(fileData.data(),
+                                     (unsigned)fileData.size());
+
+  // Check cancel before heavy parsing
+  if (checkCancel)
+    return E_ABORT;
+
+  // Check format support
+  bool isCdr = libcdr::CDRDocument::isSupported(&input);
+  bool isCmx = false;
+  if (!isCdr) {
+    isCmx = libcdr::CMXDocument::isSupported(&input);
+    if (!isCmx) {
+      if (pMetadata)
+        pMetadata->Format = L"CDR (Unsupported/Encrypted)";
+      return E_FAIL;
     }
+  }
+
+  // Check cancel before parse (can be slow for large CDR files)
+  if (checkCancel)
+    return E_ABORT;
+
+  // Generate SVG via librevenge's built-in RVNGSVGDrawingGenerator
+  // [Fix] Use empty namespace prefix so elements are <path> not <svg:path>.
+  // D2D's SVG renderer does not properly handle namespaced elements/attributes.
+  librevenge::RVNGStringVector svgPages;
+  librevenge::RVNGSVGDrawingGenerator painter(svgPages, "");
+
+  bool parsed = false;
+  if (isCdr)
+    parsed = libcdr::CDRDocument::parse(&input, &painter);
+  else
+    parsed = libcdr::CMXDocument::parse(&input, &painter);
+
+  if (!parsed || svgPages.empty()) {
+    if (pMetadata)
+      pMetadata->Format = L"CDR (Parse Failed)";
+    return E_FAIL;
+  }
+
+  // [Multi-page] Process ALL pages via shared post-processing function.
+  // When m_bPopulateCdrCache is true (main app, page navigation) the parsed
+  // pages are cached in the shared global g_cdrPageCache. The thumbnail
+  // server sets it false so it never touches that global.
+  std::vector<std::string> rawPages;
+  rawPages.reserve(svgPages.size());
+  for (size_t i = 0; i < svgPages.size(); ++i)
+    rawPages.emplace_back(svgPages[i].cstr());
+  auto processedPages = ProcessCdrSvgPages(rawPages);
+
+  CdrPageData firstPageDataLocal;
+  if (m_bPopulateCdrCache) {
+    g_cdrPageCache = std::move(processedPages);
+  } else if (!processedPages.empty()) {
+    firstPageDataLocal = std::move(processedPages[0]);
   }
 
   // Use first page for the output frame
