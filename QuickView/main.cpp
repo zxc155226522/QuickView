@@ -14243,8 +14243,13 @@ void HandlePdfPageStep(HWND hwnd, bool forward) {
 
     RECT rc{};
     GetClientRect(hwnd, &rc);
-    req.viewportWidth = (rc.right > 64) ? (rc.right - rc.left) : 1920;
-    req.viewportHeight = (rc.bottom > 64) ? (rc.bottom - rc.top) : 1080;
+    int vpW = (rc.right > 64) ? (rc.right - rc.left) : 1920;
+    int vpH = (rc.bottom > 64) ? (rc.bottom - rc.top) : 1080;
+    // [Fix] DPI compensation: GetClientRect returns DIPs in PerMonitorV2
+    // mode. Scale to physical pixels so MuPDF rasterizes at full resolution.
+    float dpiScale = (float)g_windowDpi / 96.0f;
+    req.viewportWidth = (int)std::lround(vpW * dpiScale);
+    req.viewportHeight = (int)std::lround(vpH * dpiScale);
     req.zoom = 1.0f;
 
     g_pagedDoc.requestId = g_docRenderCtrl->Request(std::move(req));
@@ -14273,8 +14278,13 @@ void HandlePdfPageJump(HWND hwnd, uint32_t targetPage) {
 
     RECT rc{};
     GetClientRect(hwnd, &rc);
-    req.viewportWidth = (rc.right > 64) ? (rc.right - rc.left) : 1920;
-    req.viewportHeight = (rc.bottom > 64) ? (rc.bottom - rc.top) : 1080;
+    int vpW = (rc.right > 64) ? (rc.right - rc.left) : 1920;
+    int vpH = (rc.bottom > 64) ? (rc.bottom - rc.top) : 1080;
+    // [Fix] DPI compensation: GetClientRect returns DIPs in PerMonitorV2
+    // mode. Scale to physical pixels so MuPDF rasterizes at full resolution.
+    float dpiScale = (float)g_windowDpi / 96.0f;
+    req.viewportWidth = (int)std::lround(vpW * dpiScale);
+    req.viewportHeight = (int)std::lround(vpH * dpiScale);
     req.zoom = 1.0f;
 
     g_pagedDoc.requestId = g_docRenderCtrl->Request(std::move(req));

@@ -15401,6 +15401,13 @@ HRESULT CImageLoader::LoadToFrame(
             if (fg) GetClientRect(fg, &rc);
             viewportW = (rc.right > 64) ? (rc.right - rc.left) : 1920;
             viewportH = (rc.bottom > 64) ? (rc.bottom - rc.top) : 1080;
+            // [Fix] DPI compensation: GetClientRect returns DIPs in PerMonitorV2
+            // mode. MuPDF rasterizes at the given resolution, so we must scale
+            // up to physical pixels to avoid blurry rendering on high-DPI.
+            UINT dpi = fg ? GetDpiForWindow(fg) : USER_DEFAULT_SCREEN_DPI;
+            float dpiScale = (float)dpi / 96.0f;
+            viewportW = (int)std::lround(viewportW * dpiScale);
+            viewportH = (int)std::lround(viewportH * dpiScale);
           }
           hr = doc.RenderPage(0, viewportW, viewportH, 1.0f, renderResult);
           if (FAILED(hr) || !renderResult.frame) {
