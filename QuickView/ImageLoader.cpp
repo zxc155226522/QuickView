@@ -11890,67 +11890,27 @@ HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
   const float svgW = firstPage.viewBoxW;
   const float svgH = firstPage.viewBoxH;
 
-  // [MuPDF] Render the SVG XML via MuPDF instead of resvg. MuPDF has a
-  // more complete SVG renderer (gradients, text, clips, masks, filters)
-  // and is already linked for PDF/AI rendering. This replaces the former
-  // SVG_XML → resvg rasterization path, producing a BGRA8888 frame that
-  // goes through the standard bitmap pipeline in main.cpp.
-  {
-    fz_context* ctx = AcquireThreadFzContext();
-    if (!ctx) {
-      if (pMetadata)
-        pMetadata->Format = L"CDR (MuPDF Init Failed)";
-      return E_OUTOFMEMORY;
-    }
-
-    HRESULT mupdfHr;
-    {
-      MuPdfDocument doc(ctx);
-      std::wstring errorMessage;
-      HRESULT hr = doc.OpenFromBuffer(
-          firstPage.xmlData.data(), firstPage.xmlData.size(),
-          "image/svg+xml", filePath, errorMessage);
-      if (FAILED(hr)) {
-        if (pMetadata)
-          pMetadata->Format = L"CDR (SVG Render Failed)";
-        mupdfHr = hr;
-      } else {
-        DocumentRenderResult renderResult;
-        // Render at a reasonable resolution: fit the SVG page into a
-        // max 4096px long side (enough for preview; zoom re-rasterizes
-        // via the cached SVG data in g_cdrPageCache).
-        int targetLong = 4096;
-        int viewportW, viewportH;
-        if (svgW >= svgH) {
-          viewportW = targetLong;
-          viewportH = (int)std::lround(targetLong * svgH / svgW);
-        } else {
-          viewportH = targetLong;
-          viewportW = (int)std::lround(targetLong * svgW / svgH);
-        }
-        hr = doc.RenderPage(0, viewportW, viewportH, 1.0f, renderResult);
-        if (FAILED(hr) || !renderResult.frame) {
-          if (pMetadata)
-            pMetadata->Format = L"CDR (MuPDF Render Failed)";
-          mupdfHr = hr;
-        } else {
-          *outFrame = std::move(*renderResult.frame);
-          outFrame->formatDetails = isCdr ? L"CDR" : L"CMX";
-          mupdfHr = S_OK;
-        }
-      }
-    } // doc destructor runs here (ctx still valid)
-
-    if (FAILED(mupdfHr))
-      return mupdfHr;
-  }
+  // [SVG_XML] 直接输出 SVG 矢量数据，跳过 MuPDF 光栅化。
+  // 与普通 SVG/PLT/DXF/DWG 走同一条路径：main.cpp 中 IsSvg() 检测后
+  // 由 D2D ID2D1SvgDocument（矢量无损缩放）或 resvg（嵌入位图时）渲染。
+  outFrame->format = PixelFormat::SVG_XML;
+  outFrame->width = (int)std::lround(svgW);
+  outFrame->height = (int)std::lround(svgH);
+  outFrame->stride = 0;
+  outFrame->pixels = nullptr;
+  outFrame->svg = std::make_unique<RawImageFrame::SvgData>();
+  outFrame->svg->xmlData = firstPage.xmlData;
+  outFrame->svg->viewBoxW = svgW;
+  outFrame->svg->viewBoxH = svgH;
+  outFrame->formatDetails = isCdr ? L"CDR" : L"CMX";
+  outFrame->quality = QuickView::DecodeQuality::Full;
 
   if (pLoaderName)
-    *pLoaderName = isCdr ? L"libcdr+MuPDF (CDR)" : L"libcdr+MuPDF (CMX)";
+    *pLoaderName = isCdr ? L"libcdr+SVG (CDR)" : L"libcdr+SVG (CMX)";
   if (pMetadata) {
-    pMetadata->LoaderName = isCdr ? L"libcdr+MuPDF (CDR)" : L"libcdr+MuPDF (CMX)";
+    pMetadata->LoaderName = isCdr ? L"libcdr+SVG (CDR)" : L"libcdr+SVG (CMX)";
     pMetadata->Format = isCdr ? L"CDR" : L"CMX";
-    pMetadata->FormatDetails = L"Vector (CorelDRAW → MuPDF)";
+    pMetadata->FormatDetails = L"Vector (CorelDRAW → SVG)";
     pMetadata->Width = (UINT)svgW;
     pMetadata->Height = (UINT)svgH;
     pMetadata->pageCount = static_cast<uint32_t>(
@@ -12001,65 +11961,27 @@ HRESULT CImageLoader::LoadCdrEmbeddedPreviewFrame(LPCWSTR filePath,
   return S_OK;
 }
 
-// [CDR/CMX Page Switch] Render a cached SVG page to a BGRA frame via MuPDF.
-// Uses the same MuPDF SVG rendering path as LoadCDR, but operates on a
-// pre-cached SVG XML page (from g_cdrPageCache) instead of re-parsing the
-// CDR file. Called by HandleCdrPageStep for multi-page navigation.
+// [CDR/CMX Page Switch] Output a cached SVG page as SVG_XML frame.
+// 与 LoadCDR 一致，直接输出 SVG 矢量数据，由渲染引擎处理。
+// Called by HandleCdrPageStep for multi-page CDR/CMX navigation.
 HRESULT CImageLoader::RenderCdrCachePageToFrame(const CdrPageData& pageData,
-                                                const std::wstring& sourcePath,
+                                                const std::wstring& /*sourcePath*/,
                                                 QuickView::RawImageFrame* outFrame) {
   if (!outFrame) return E_INVALIDARG;
   if (pageData.xmlData.empty() || pageData.viewBoxW <= 0 || pageData.viewBoxH <= 0)
     return E_INVALIDARG;
 
-  fz_context* ctx = AcquireThreadFzContext();
-  if (!ctx) return E_OUTOFMEMORY;
-
-  MuPdfDocument doc(ctx);
-  std::wstring errorMessage;
-  HRESULT hr = doc.OpenFromBuffer(
-      pageData.xmlData.data(), pageData.xmlData.size(),
-      "image/svg+xml", sourcePath, errorMessage);
-  if (FAILED(hr)) return hr;
-
-  const float svgW = pageData.viewBoxW;
-  const float svgH = pageData.viewBoxH;
-  int targetLong = 4096;
-  int viewportW, viewportH;
-  if (svgW >= svgH) {
-    viewportW = targetLong;
-    viewportH = (int)std::lround(targetLong * svgH / svgW);
-  } else {
-    viewportH = targetLong;
-    viewportW = (int)std::lround(targetLong * svgW / svgH);
-  }
-
-  DocumentRenderResult renderResult;
-  hr = doc.RenderPage(0, viewportW, viewportH, 1.0f, renderResult);
-  if (FAILED(hr) || !renderResult.frame) return E_FAIL;
-
-  // Transfer ownership: move the frame's pixel data into outFrame.
-  // renderResult.frame is a shared_ptr<RawImageFrame>; its pixels use
-  // MemoryDeleter::FromFree() (malloc'd by MuPdfDocument::RenderPage).
-  // We do a deep copy so outFrame is independent of renderResult's lifetime.
-  const int w = renderResult.frame->width;
-  const int h = renderResult.frame->height;
-  const int stride = renderResult.frame->stride;
-  const size_t bufSize = (size_t)stride * h;
-  uint8_t* heap = new (std::nothrow) uint8_t[bufSize];
-  if (!heap) return E_OUTOFMEMORY;
-  memcpy(heap, renderResult.frame->pixels, bufSize);
-
-  outFrame->pixels = heap;
-  outFrame->width = w;
-  outFrame->height = h;
-  outFrame->stride = stride;
-  outFrame->format = PixelFormat::BGRA8888;
+  outFrame->format = PixelFormat::SVG_XML;
+  outFrame->width = (int)std::lround(pageData.viewBoxW);
+  outFrame->height = (int)std::lround(pageData.viewBoxH);
+  outFrame->stride = 0;
+  outFrame->pixels = nullptr;
+  outFrame->svg = std::make_unique<RawImageFrame::SvgData>();
+  outFrame->svg->xmlData = pageData.xmlData;
+  outFrame->svg->viewBoxW = pageData.viewBoxW;
+  outFrame->svg->viewBoxH = pageData.viewBoxH;
   outFrame->quality = DecodeQuality::Full;
   outFrame->formatDetails = L"CDR";
-  outFrame->dpiX = renderResult.frame->dpiX;
-  outFrame->dpiY = renderResult.frame->dpiY;
-  outFrame->memoryDeleter = MemoryDeleter::FromDeleteArray();
   return S_OK;
 }
 
