@@ -6356,19 +6356,28 @@ void UIRenderer::DrawNavigator(ID2D1DeviceContext* dc) {
             topOffset += 32.0f * s;
         }
         
+        // [Fix] Reserve space for the bottom toolbar so the minimap never
+        // overlaps it. When the toolbar is visible, its reserved height is
+        // subtracted from the viewport's bottom edge for vertical positioning.
+        float toolbarReserved = 0.0f;
+        if (g_toolbar.IsVisible() && !g_toolbar.IsWindowTooNarrow()) {
+            toolbarReserved = g_toolbar.GetReservedHeight();
+        }
+        float vpBottom = vpRect.bottom - toolbarReserved;
+
         float minimapY = 0.0f;
         if (g_config.NavigatorAlignY == 0) {
             minimapY = topOffset + g_config.NavigatorOffsetY * s;
         } else {
-            minimapY = vpRect.bottom - minimapH - g_config.NavigatorOffsetY * s;
+            minimapY = vpBottom - minimapH - g_config.NavigatorOffsetY * s;
         }
         
-        // Clamp to keep it fully within the viewport
+        // Clamp to keep it fully within the viewport (above the toolbar)
         float margin = 8.0f * s;
         float minX = vpRect.left + margin;
         float maxX = vpRect.right - minimapW - margin;
         float minY = topOffset + margin;
-        float maxY = vpRect.bottom - minimapH - margin;
+        float maxY = vpBottom - minimapH - margin;
         
         minimapX = std::clamp(minimapX, minX, (std::max)(minX, maxX));
         minimapY = std::clamp(minimapY, minY, (std::max)(minY, maxY));

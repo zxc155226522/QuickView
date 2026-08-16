@@ -6754,6 +6754,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, [[maybe_unused]] LPWSTR lpCm
     {
         RECT rc; GetClientRect(hwnd, &rc);
         g_toolbar.UpdateLayout((float)rc.right, (float)rc.bottom);
+        // [Fix] Toolbar starts visible — m_opacity defaults to 0, so we must
+        // explicitly set the target visible and kick the animation timer to
+        // fade it in immediately, rather than waiting for the first mouse move.
+        g_toolbar.SetVisible(true);
+        SetTimer(hwnd, 997, 16, nullptr);
         // Force initial render of all UI layers
         RequestRepaint(PaintLayer::All);
     }
