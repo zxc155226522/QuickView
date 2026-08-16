@@ -11682,6 +11682,148 @@ static void RewriteUnsupportedDataUriPrefixes(std::string &svg) {
 }
 
 // ----------------------------------------------------------------------------
+// [CDR/CMX] 真正将 BMP/TIFF data URI 转换为 PNG data URI。
+// D2D ID2D1SvgDocument 和 resvg 不支持 BMP data URI（不像 MuPDF 能靠文件头
+// 检测格式），所以必须真正解码 BMP → 重编码为 PNG → base64 → 替换回 SVG。
+// 使用 WIC 解码/编码，CryptStringToBinary/CryptBinaryToString 做 base64。
+// ----------------------------------------------------------------------------
+static void ConvertBmpDataUrisToPng(std::string &svg) {
+  // 需要转换的 data URI 前缀列表
+  static const std::vector<std::string> kPrefixes = {
+    "data:image/bmp;base64,",
+    "data:image/x-ms-bmp;base64,",
+    "data:image/tiff;base64,",
+    "data:image/x-tiff;base64,",
+  };
+
+  // 懒初始化 WIC 工厂（线程安全：每次调用各自创建）
+  ComPtr<IWICImagingFactory> wicFactory;
+  HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr,
+                                CLSCTX_INPROC_SERVER,
+                                IID_PPV_ARGS(&wicFactory));
+  if (FAILED(hr) || !wicFactory) return;
+
+  for (const auto &prefix : kPrefixes) {
+    size_t pos = 0;
+    while (true) {
+      size_t found = svg.find(prefix, pos);
+      if (found == std::string::npos) break;
+
+      // base64 数据从 prefix 后开始，到下一个引号结束
+      size_t dataStart = found + prefix.length();
+      size_t dataEnd = svg.find('"', dataStart);
+      if (dataEnd == std::string::npos) break;
+
+      std::string_view b64Svg(svg.data() + dataStart, dataEnd - dataStart);
+
+      // ---- base64 解码 → BMP 二进制 ----
+      DWORD decodedSize = 0;
+      if (!CryptStringToBinaryA(b64Svg.data(), (DWORD)b64Svg.size(),
+                                CRYPT_STRING_BASE64, nullptr, &decodedSize,
+                                nullptr, nullptr)) {
+        pos = dataEnd;
+        continue;
+      }
+      std::vector<uint8_t> bmpData(decodedSize);
+      if (!CryptStringToBinaryA(b64Svg.data(), (DWORD)b64Svg.size(),
+                                CRYPT_STRING_BASE64, bmpData.data(),
+                                &decodedSize, nullptr, nullptr)) {
+        pos = dataEnd;
+        continue;
+      }
+
+      // ---- WIC 解码 BMP → BGRA ----
+      ComPtr<IWICStream> decStream;
+      if (FAILED(wicFactory->CreateStream(&decStream))) { pos = dataEnd; continue; }
+      if (FAILED(decStream->InitializeFromMemory(bmpData.data(),
+                                                  (DWORD)bmpData.size()))) {
+        pos = dataEnd; continue;
+      }
+      ComPtr<IWICBitmapDecoder> decoder;
+      if (FAILED(wicFactory->CreateDecoderFromStream(decStream.Get(), nullptr,
+                                                      WICDecodeMetadataCacheOnDemand,
+                                                      &decoder))) {
+        pos = dataEnd; continue;
+      }
+      ComPtr<IWICBitmapFrameDecode> frame;
+      if (FAILED(decoder->GetFrame(0, &frame))) { pos = dataEnd; continue; }
+      UINT w = 0, h = 0;
+      if (FAILED(frame->GetSize(&w, &h)) || w == 0 || h == 0) { pos = dataEnd; continue; }
+
+      // 转换为 32bppBGRA
+      ComPtr<IWICFormatConverter> converter;
+      if (FAILED(wicFactory->CreateFormatConverter(&converter))) { pos = dataEnd; continue; }
+      if (FAILED(converter->Initialize(frame.Get(),
+                                        GUID_WICPixelFormat32bppBGRA,
+                                        WICBitmapDitherTypeNone, nullptr,
+                                        0.0, WICBitmapPaletteTypeCustom))) {
+        pos = dataEnd; continue;
+      }
+      UINT stride = w * 4;
+      UINT bufSize = stride * h;
+      std::vector<uint8_t> bgra(bufSize);
+      if (FAILED(converter->CopyPixels(nullptr, stride, bufSize, bgra.data()))) {
+        pos = dataEnd; continue;
+      }
+
+      // ---- WIC 编码 BGRA → PNG（到内存流） ----
+      ComPtr<IWICBitmapEncoder> enc;
+      if (FAILED(wicFactory->CreateEncoder(GUID_ContainerFormatPng, nullptr, &enc))) {
+        pos = dataEnd; continue;
+      }
+      ComPtr<IWICStream> encStream;
+      if (FAILED(wicFactory->CreateStream(&encStream))) { pos = dataEnd; continue; }
+      // 用 IStream (HGLOBAL) 作为输出
+      ComPtr<IStream> hStream;
+      if (FAILED(CreateStreamOnHGlobal(nullptr, TRUE, &hStream))) { pos = dataEnd; continue; }
+      if (FAILED(encStream->InitializeFromIStream(hStream.Get()))) { pos = dataEnd; continue; }
+      if (FAILED(enc->Initialize(encStream.Get(), WICBitmapEncoderNoCache))) { pos = dataEnd; continue; }
+      ComPtr<IWICBitmapFrameEncode> fenc;
+      if (FAILED(enc->CreateNewFrame(&fenc, nullptr))) { pos = dataEnd; continue; }
+      if (FAILED(fenc->Initialize(nullptr))) { pos = dataEnd; continue; }
+      if (FAILED(fenc->SetSize(w, h))) { pos = dataEnd; continue; }
+      WICPixelFormatGUID fmt = GUID_WICPixelFormat32bppBGRA;
+      if (FAILED(fenc->SetPixelFormat(&fmt))) { pos = dataEnd; continue; }
+      if (FAILED(fenc->WritePixels(h, stride, bufSize, bgra.data()))) { pos = dataEnd; continue; }
+      if (FAILED(fenc->Commit())) { pos = dataEnd; continue; }
+      if (FAILED(enc->Commit())) { pos = dataEnd; continue; }
+
+      // 读取 PNG 二进制
+      STATSTG stat{};
+      if (FAILED(hStream->Stat(&stat, STATFLAG_NONAME))) { pos = dataEnd; continue; }
+      LARGE_INTEGER move{};
+      if (FAILED(hStream->Seek(move, STREAM_SEEK_SET, nullptr))) { pos = dataEnd; continue; }
+      std::vector<uint8_t> pngData((size_t)stat.cbSize.QuadPart);
+      ULONG read = 0;
+      if (FAILED(hStream->Read(pngData.data(), (ULONG)pngData.size(), &read))) {
+        pos = dataEnd; continue;
+      }
+
+      // ---- base64 编码 PNG ----
+      DWORD b64Size = 0;
+      if (!CryptBinaryToStringA(pngData.data(), (DWORD)pngData.size(),
+                                CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF,
+                                nullptr, &b64Size)) {
+        pos = dataEnd; continue;
+      }
+      std::string b64Png(b64Size, '\0');
+      if (!CryptBinaryToStringA(pngData.data(), (DWORD)pngData.size(),
+                                CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF,
+                                b64Png.data(), &b64Size)) {
+        pos = dataEnd; continue;
+      }
+      // CryptBinaryToStringA 可能不包含尾部 null，调整大小
+      b64Png.resize(b64Size);
+
+      // ---- 替换 SVG 中的 data URI ----
+      std::string replacement = "data:image/png;base64," + b64Png;
+      svg.replace(found, dataEnd - found, replacement);
+      pos = found + replacement.length();
+    }
+  }
+}
+
+// ----------------------------------------------------------------------------
 // [CDR/CMX] Shared SVG post-processing extracted from LoadCDR.
 // Applies: BMP data URI → PNG conversion → viewBox parsing → whitespace
 // crop → style inlining → page boundary rect insertion → out-of-canvas
@@ -11699,8 +11841,11 @@ std::vector<CdrPageData> ProcessCdrSvgPages(
   for (size_t i = 0; i < rawSvgPages.size(); ++i) {
     std::string svgContent(rawSvgPages[i]);
 
-    // [BMP→PNG] Rewrite BMP/TIFF data URI prefixes to PNG so MuPDF can render them.
-    RewriteUnsupportedDataUriPrefixes(svgContent);
+    // [BMP→PNG] fastMode 用真编码（D2D/resvg 需要 PNG），完整模式只改前缀（MuPDF 靠文件头检测）。
+    if (fastMode)
+      ConvertBmpDataUrisToPng(svgContent);
+    else
+      RewriteUnsupportedDataUriPrefixes(svgContent);
 
     if (fastMode) {
       // 快速模式：解析尺寸后直接返回，跳过所有耗时后处理。
