@@ -153,8 +153,12 @@ set_source_files_properties(QuickView/ImageLoaderSimd.cpp PROPERTIES SKIP_PRECOM
 set_source_files_properties(third_party/yyjson/yyjson.c PROPERTIES SKIP_PRECOMPILED_HEADERS ON)
 
 # [WinRT PDF] WinRtPdfDocument.cpp needs C++ exceptions for WRL::Make<>()
-# Override the global /EHs-c- with /EHsc for this file only
-set_source_files_properties(QuickView/WinRtPdfDocument.cpp PROPERTIES COMPILE_OPTIONS "/EHsc")
+# Override the global /EHs-c- with /EHsc for this file only.
+# Must also skip PCH because the PCH is built with /EHs-c- (exceptions disabled)
+# and clang-cl errors when a file with /EHsc tries to consume it.
+set_source_files_properties(QuickView/WinRtPdfDocument.cpp PROPERTIES
+    COMPILE_OPTIONS "/EHsc"
+    SKIP_PRECOMPILED_HEADERS ON)
 
 # ============================================================================
 # Compiler & Linker Flags (Clang-CL Matrix)
