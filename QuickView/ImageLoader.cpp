@@ -11687,9 +11687,12 @@ static void RewriteUnsupportedDataUriPrefixes(std::string &svg) {
 // crop → style inlining → page boundary rect insertion → out-of-canvas
 // viewBox expansion.
 // Returns one processed CdrPageData per input page.
+// fastMode=true: 只做 data URI 前缀重写 + 尺寸解析，跳过所有耗时后处理。
+//   用于看图渲染（MuPDF 原生支持 CSS style 属性，不需要 InlineSvgStyleAttrs）。
+// fastMode=false: 完整后处理，用于 CLI 导出 PDF/SVG/PNG。
 // ----------------------------------------------------------------------------
 std::vector<CdrPageData> ProcessCdrSvgPages(
-    const std::vector<std::string>& rawSvgPages) {
+    const std::vector<std::string>& rawSvgPages, bool fastMode) {
   std::vector<CdrPageData> result;
   result.reserve(rawSvgPages.size());
 
@@ -11698,6 +11701,30 @@ std::vector<CdrPageData> ProcessCdrSvgPages(
 
     // [BMP→PNG] Rewrite BMP/TIFF data URI prefixes to PNG so MuPDF can render them.
     RewriteUnsupportedDataUriPrefixes(svgContent);
+
+    if (fastMode) {
+      // 快速模式：解析尺寸后直接返回，跳过所有耗时后处理。
+      // MuPDF 的 SVG 渲染器原生支持 CSS style 属性，不需要 InlineSvgStyleAttrs。
+      // CropSvgWhitespace / 页面矩形 / viewBox 扩展只是视觉优化，对渲染本身非必要。
+      float svgW = 0.0f, svgH = 0.0f;
+      const std::string wStr = GetSvgRootAttrVal(svgContent, "width");
+      const std::string hStr = GetSvgRootAttrVal(svgContent, "height");
+      const bool hasWidth = TryParseSvgLengthToDip(wStr, &svgW);
+      const bool hasHeight = TryParseSvgLengthToDip(hStr, &svgH);
+      if (!hasWidth || !hasHeight || svgW <= 0.0f || svgH <= 0.0f) {
+        const std::string viewBox = GetSvgRootAttrVal(svgContent, "viewBox");
+        TryParseSvgViewBoxSize(viewBox, &svgW, &svgH);
+      }
+      if (svgW <= 0) svgW = 512;
+      if (svgH <= 0) svgH = 512;
+
+      CdrPageData pageData;
+      pageData.xmlData.assign(svgContent.begin(), svgContent.end());
+      pageData.viewBoxW = svgW;
+      pageData.viewBoxH = svgH;
+      result.push_back(std::move(pageData));
+      continue;
+    }
 
     // [Canvas] Record original page dimensions before cropping.
     float pageX = 0.0f, pageY = 0.0f, pageW = 0.0f, pageH = 0.0f;
@@ -11848,7 +11875,7 @@ HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
   rawPages.reserve(svgPages.size());
   for (size_t i = 0; i < svgPages.size(); ++i)
     rawPages.emplace_back(svgPages[i].cstr());
-  auto processedPages = ProcessCdrSvgPages(rawPages);
+  auto processedPages = ProcessCdrSvgPages(rawPages, true);
 
   CdrPageData firstPageDataLocal;
   if (m_bPopulateCdrCache) {

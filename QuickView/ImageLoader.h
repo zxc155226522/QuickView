@@ -651,10 +651,12 @@ void ClearCdrPageCache();
 // insert page boundary rect, optionally expand viewBox for out-of-canvas
 // content. Called by both LoadCDR and the --cdr-to-pdf CLI tool so the
 // PDF output matches what the viewer displays.
+// fastMode=true: 只做 data URI 前缀重写 + 尺寸解析（看图渲染用）。
+// fastMode=false: 完整后处理（CLI 导出用）。
 // Input: raw SVG page strings (one per page, from RVNGSVGDrawingGenerator).
 // Output: processed CdrPageData entries (one per page).
 std::vector<CdrPageData> ProcessCdrSvgPages(
-    const std::vector<std::string>& rawSvgPages);
+    const std::vector<std::string>& rawSvgPages, bool fastMode = false);
 
 namespace QuickView {
 namespace Codec {
