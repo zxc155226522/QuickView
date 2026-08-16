@@ -15396,11 +15396,11 @@ HRESULT CImageLoader::LoadToFrame(
             viewportW = targetWidth;
             viewportH = targetHeight;
           } else {
-            RECT rc{};
-            HWND fg = GetForegroundWindow();
-            if (fg) GetClientRect(fg, &rc);
-            viewportW = (rc.right > 64) ? (rc.right - rc.left) : 1920;
-            viewportH = (rc.bottom > 64) ? (rc.bottom - rc.top) : 1080;
+            // [Fix] Use a large fixed viewport (4K) instead of relying on
+            // GetForegroundWindow(), which returns the small initial window
+            // size during startup, causing low-res rasterization -> blurry.
+            viewportW = 3840;
+            viewportH = 2160;
           }
           hr = doc.RenderPage(0, viewportW, viewportH, 1.0f, renderResult);
           if (FAILED(hr) || !renderResult.frame) {

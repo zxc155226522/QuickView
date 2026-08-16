@@ -14241,10 +14241,10 @@ void HandlePdfPageStep(HWND hwnd, bool forward) {
     req.path = GetPaneContext(PaneSlot::Primary).path;
     req.pageIndex = targetPage;
 
-    RECT rc{};
-    GetClientRect(hwnd, &rc);
-    req.viewportWidth = (rc.right > 64) ? (rc.right - rc.left) : 1920;
-    req.viewportHeight = (rc.bottom > 64) ? (rc.bottom - rc.top) : 1080;
+    // [Fix] Use a large fixed viewport (4K) to ensure high-res rasterization
+    // regardless of current window size (small window -> low-res -> blurry).
+    req.viewportWidth = 3840;
+    req.viewportHeight = 2160;
     req.zoom = 1.0f;
 
     g_pagedDoc.requestId = g_docRenderCtrl->Request(std::move(req));
@@ -14271,10 +14271,9 @@ void HandlePdfPageJump(HWND hwnd, uint32_t targetPage) {
     req.path = GetPaneContext(PaneSlot::Primary).path;
     req.pageIndex = targetPage;
 
-    RECT rc{};
-    GetClientRect(hwnd, &rc);
-    req.viewportWidth = (rc.right > 64) ? (rc.right - rc.left) : 1920;
-    req.viewportHeight = (rc.bottom > 64) ? (rc.bottom - rc.top) : 1080;
+    // [Fix] Use a large fixed viewport (4K) to ensure high-res rasterization
+    req.viewportWidth = 3840;
+    req.viewportHeight = 2160;
     req.zoom = 1.0f;
 
     g_pagedDoc.requestId = g_docRenderCtrl->Request(std::move(req));
