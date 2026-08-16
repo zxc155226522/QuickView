@@ -111,6 +111,7 @@ set(QUICKVIEW_SOURCES
     QuickView/JxlAnimator.cpp
     QuickView/QuickViewETW.cpp
     QuickView/MuPdfDocument.cpp
+    QuickView/WinRtPdfDocument.cpp
     QuickView/DocumentRenderController.cpp
     QuickView/VectorLoader.cpp
     QuickView/ThumbDiskCache.cpp
@@ -150,6 +151,10 @@ target_precompile_headers(QuickView PRIVATE $<$<COMPILE_LANGUAGE:CXX>:pch.h>)
 set_source_files_properties(QuickView/WuffsImpl.cpp PROPERTIES SKIP_PRECOMPILED_HEADERS ON)
 set_source_files_properties(QuickView/ImageLoaderSimd.cpp PROPERTIES SKIP_PRECOMPILED_HEADERS ON)
 set_source_files_properties(third_party/yyjson/yyjson.c PROPERTIES SKIP_PRECOMPILED_HEADERS ON)
+
+# [WinRT PDF] WinRtPdfDocument.cpp needs C++ exceptions for WRL::Make<>()
+# Override the global /EHs-c- with /EHsc for this file only
+set_source_files_properties(QuickView/WinRtPdfDocument.cpp PROPERTIES COMPILE_OPTIONS "/EHsc")
 
 # ============================================================================
 # Compiler & Linker Flags (Clang-CL Matrix)
@@ -345,6 +350,9 @@ target_link_libraries(QuickView PRIVATE
     shlwapi.lib
     shell32.lib
     mscms.lib
+    # [WinRT PDF] Windows.Data.Pdf native rendering
+    windows.data.pdf.lib
+    runtimeobject.lib
     # resvg C-API 是 Rust 静态库，其 Rust std 依赖以下 Windows 导入库（否则 lld-link 报 undefined symbol）
     ntdll.lib
     userenv.lib

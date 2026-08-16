@@ -19,6 +19,7 @@ DocumentRenderController::DocumentRenderController() {
     }
 
     m_document = std::make_unique<MuPdfDocument>(m_context);
+    m_winRtDoc = std::make_unique<WinRtPdfDocument>();  // [WinRT PDF] Native engine
     m_available = true;
     m_worker = std::thread(&DocumentRenderController::WorkerMain, this);
 }
@@ -31,6 +32,7 @@ DocumentRenderController::~DocumentRenderController() {
     }
     m_condition.notify_one();
     if (m_worker.joinable()) m_worker.join();
+    m_winRtDoc.reset();
     m_document.reset();
     if (m_context) fz_drop_context(m_context);
     m_context = nullptr;
@@ -68,6 +70,16 @@ bool DocumentRenderController::TakeLatestResult(DocumentRenderResult& result) {
 HRESULT DocumentRenderController::EnsureDocument(const std::wstring& path,
                                                   std::wstring& errorMessage) noexcept {
     if (!m_document) return E_UNEXPECTED;
+
+    // [WinRT PDF] Try native engine first (browser-quality vector rendering)
+    if (m_winRtDoc) {
+        if (m_winRtDoc->IsOpen() && m_winRtDoc->Path() == path) return S_OK;
+        HRESULT hr = m_winRtDoc->Open(path, errorMessage);
+        if (SUCCEEDED(hr)) return S_OK;
+        // Fall back to MuPDF if native engine fails
+    }
+
+    // [Fallback] MuPDF engine
     if (m_document->IsOpen() && m_document->Path() == path) return S_OK;
     return m_document->Open(path, errorMessage);
 }
@@ -91,11 +103,37 @@ void DocumentRenderController::WorkerMain() noexcept {
         std::wstring errorMessage;
         HRESULT hr = EnsureDocument(request.path, errorMessage);
         if (SUCCEEDED(hr)) {
-            hr = m_document->RenderPage(request.pageIndex,
-                                        request.viewportWidth,
-                                        request.viewportHeight,
-                                        request.zoom,
-                                        result);
+            // [WinRT PDF] Prefer native engine; fall back to MuPDF
+            bool rendered = false;
+            if (m_winRtDoc && m_winRtDoc->IsOpen()) {
+                hr = m_winRtDoc->RenderPage(request.pageIndex,
+                                            request.viewportWidth,
+                                            request.viewportHeight,
+                                            request.zoom,
+                                            result);
+                if (SUCCEEDED(hr)) {
+                    rendered = true;
+                } else {
+                    // Native render failed, try MuPDF
+                    std::wstring mupdfError;
+                    HRESULT mupdfHr = m_document->Open(request.path, mupdfError);
+                    if (SUCCEEDED(mupdfHr)) {
+                        hr = m_document->RenderPage(request.pageIndex,
+                                                    request.viewportWidth,
+                                                    request.viewportHeight,
+                                                    request.zoom,
+                                                    result);
+                        rendered = SUCCEEDED(hr);
+                    }
+                }
+            }
+            if (!rendered) {
+                hr = m_document->RenderPage(request.pageIndex,
+                                            request.viewportWidth,
+                                            request.viewportHeight,
+                                            request.zoom,
+                                            result);
+            }
         } else {
             result.status = hr;
             result.errorMessage = std::move(errorMessage);

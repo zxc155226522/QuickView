@@ -47,6 +47,7 @@ extern struct AppConfig g_config;
 // MuPDF: PDF and PDF-compatible AI rendering
 #include <mupdf/fitz.h>
 #include "MuPdfDocument.h"
+#include "WinRtPdfDocument.h"  // [WinRT PDF] Native vector rendering
 #include "DocumentRenderController.h"
 #include "VectorLoader.h"
 
@@ -15369,6 +15370,42 @@ HRESULT CImageLoader::LoadToFrame(
     if (QuickView::ExtEqualsIgnoreCase(ext, L".pdf") ||
         QuickView::ExtEqualsIgnoreCase(ext, L".ai") ||
         format == L"PDF") {
+      // [WinRT PDF] Try native engine first for browser-quality vector rendering
+      {
+        QuickView::WinRtPdfDocument winRtDoc;
+        std::wstring errorMessage;
+        HRESULT hr = winRtDoc.Open(filePath, errorMessage);
+        if (SUCCEEDED(hr)) {
+          DocumentRenderResult renderResult;
+          int viewportW, viewportH;
+          if (targetWidth > 0 && targetHeight > 0) {
+            viewportW = targetWidth;
+            viewportH = targetHeight;
+          } else {
+            viewportW = 3840;
+            viewportH = 2160;
+          }
+          hr = winRtDoc.RenderPage(0, viewportW, viewportH, 1.0f, renderResult);
+          if (SUCCEEDED(hr) && renderResult.frame) {
+            *outFrame = std::move(*renderResult.frame);
+            outFrame->formatDetails = L"Windows.Data.Pdf (Native)";
+            if (pLoaderName)
+              *pLoaderName = L"WinRT PDF";
+            if (pMetadata) {
+              pMetadata->LoaderName = L"WinRT PDF";
+              pMetadata->Format = QuickView::ExtEqualsIgnoreCase(ext, L".ai") ? L"AI" : L"PDF";
+              pMetadata->FormatDetails = L"Document (Windows.Data.Pdf)";
+              pMetadata->Width = (UINT)outFrame->width;
+              pMetadata->Height = (UINT)outFrame->height;
+              pMetadata->pageCount = winRtDoc.PageCount();
+            }
+            return S_OK;
+          }
+        }
+        // Fall through to MuPDF if WinRT fails
+      }
+
+      // [Fallback] MuPDF engine
       // Reuse one fz_context per thread (MuPDF contexts are not thread-safe).
       // AcquireThreadFzContext creates + registers once; drops on thread exit.
       fz_context* ctx = AcquireThreadFzContext();

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MuPdfDocument.h"
+#include "WinRtPdfDocument.h"
 
 #include <condition_variable>
 #include <cstdint>
@@ -32,6 +33,7 @@ private:
 
     fz_context* m_context = nullptr;
     std::unique_ptr<MuPdfDocument> m_document;
+    std::unique_ptr<WinRtPdfDocument> m_winRtDoc;  // [WinRT PDF] Native engine (preferred)
     std::thread m_worker;
     std::mutex m_mutex;
     std::condition_variable m_condition;
