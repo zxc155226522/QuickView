@@ -2130,9 +2130,11 @@ static D2D1_SIZE_U ComputeDesiredBitmapSurfaceSize(UINT winW, UINT winH, const I
     }
 
     float desiredScale = fitScale * GetPaneContext(PaneSlot::Primary).view.Zoom;
-    // [Quality Optimization] For bitmaps, cap at original size (1.0) for large images 
-    // but allow upscaling to fit (fitScale) for small images for smooth display.
-    float qualityCap = std::max(1.0f, fitScale);
+    // [Fix] Cap surface at bitmap's original size (1.0). DComp handles
+    // upscaling via GPU linear interpolation, which is sharper than having
+    // D2D DrawBitmap upscale to a larger surface (causes blurry rendering,
+    // especially for PDF/AI where MuPDF rasterizes at fit-to-viewport size).
+    float qualityCap = 1.0f;
     if (desiredScale > qualityCap) desiredScale = qualityCap;
 
     if (!(desiredScale > 0.0f)) return D2D1::SizeU(0, 0);
@@ -14243,13 +14245,8 @@ void HandlePdfPageStep(HWND hwnd, bool forward) {
 
     RECT rc{};
     GetClientRect(hwnd, &rc);
-    int vpW = (rc.right > 64) ? (rc.right - rc.left) : 1920;
-    int vpH = (rc.bottom > 64) ? (rc.bottom - rc.top) : 1080;
-    // [Fix] DPI compensation: GetClientRect returns DIPs in PerMonitorV2
-    // mode. Scale to physical pixels so MuPDF rasterizes at full resolution.
-    float dpiScale = (float)g_windowDpi / 96.0f;
-    req.viewportWidth = (int)std::lround(vpW * dpiScale);
-    req.viewportHeight = (int)std::lround(vpH * dpiScale);
+    req.viewportWidth = (rc.right > 64) ? (rc.right - rc.left) : 1920;
+    req.viewportHeight = (rc.bottom > 64) ? (rc.bottom - rc.top) : 1080;
     req.zoom = 1.0f;
 
     g_pagedDoc.requestId = g_docRenderCtrl->Request(std::move(req));
@@ -14278,13 +14275,8 @@ void HandlePdfPageJump(HWND hwnd, uint32_t targetPage) {
 
     RECT rc{};
     GetClientRect(hwnd, &rc);
-    int vpW = (rc.right > 64) ? (rc.right - rc.left) : 1920;
-    int vpH = (rc.bottom > 64) ? (rc.bottom - rc.top) : 1080;
-    // [Fix] DPI compensation: GetClientRect returns DIPs in PerMonitorV2
-    // mode. Scale to physical pixels so MuPDF rasterizes at full resolution.
-    float dpiScale = (float)g_windowDpi / 96.0f;
-    req.viewportWidth = (int)std::lround(vpW * dpiScale);
-    req.viewportHeight = (int)std::lround(vpH * dpiScale);
+    req.viewportWidth = (rc.right > 64) ? (rc.right - rc.left) : 1920;
+    req.viewportHeight = (rc.bottom > 64) ? (rc.bottom - rc.top) : 1080;
     req.zoom = 1.0f;
 
     g_pagedDoc.requestId = g_docRenderCtrl->Request(std::move(req));
