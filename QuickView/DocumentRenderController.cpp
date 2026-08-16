@@ -2,7 +2,6 @@
 #include "DocumentRenderController.h"
 
 #include <mupdf/fitz.h>
-#include <libloader.h>  // LoadLibraryExW
 
 namespace QuickView {
 

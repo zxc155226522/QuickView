@@ -165,7 +165,7 @@ set_source_files_properties(QuickView/WinRtPdfDocument.cpp PROPERTIES
 # first call to PdfCreateRenderer / RoActivateInstance.  If loading fails,
 # WinRtPdfDocument::Open() returns an error and the controller falls back to
 # MuPDF automatically.
-target_link_options(main PRIVATE
+target_link_options(QuickView PRIVATE
     "/DELAYLOAD:Windows.Data.Pdf.dll"
     "/DELAYLOAD:runtimeobject.dll")
 
