@@ -2130,11 +2130,9 @@ static D2D1_SIZE_U ComputeDesiredBitmapSurfaceSize(UINT winW, UINT winH, const I
     }
 
     float desiredScale = fitScale * GetPaneContext(PaneSlot::Primary).view.Zoom;
-    // [Fix] Cap surface at bitmap's original size (1.0). DComp handles
-    // upscaling via GPU linear interpolation, which is sharper than having
-    // D2D DrawBitmap upscale to a larger surface (causes blurry rendering,
-    // especially for PDF/AI where MuPDF rasterizes at fit-to-viewport size).
-    float qualityCap = 1.0f;
+    // [Quality Optimization] For bitmaps, cap at original size (1.0) for large images 
+    // but allow upscaling to fit (fitScale) for small images for smooth display.
+    float qualityCap = std::max(1.0f, fitScale);
     if (desiredScale > qualityCap) desiredScale = qualityCap;
 
     if (!(desiredScale > 0.0f)) return D2D1::SizeU(0, 0);

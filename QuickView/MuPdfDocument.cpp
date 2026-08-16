@@ -217,7 +217,12 @@ HRESULT MuPdfDocument::RenderPage(uint32_t pageIndex,
 
     const float safeViewportWidth = static_cast<float>(std::max(viewportWidth, 64));
     const float safeViewportHeight = static_cast<float>(std::max(viewportHeight, 64));
-    const float fitScale = std::min(safeViewportWidth / pageWidthPoints,
+    // [Fix] Use max (not min) so the rasterized bitmap covers the LARGER
+    // viewport dimension. With min, an A4 page (595x842pt) in a 1920x1080
+    // window yields fitScale=1.283 -> 763px wide bitmap, which DComp then
+    // upscales 2.5x to fill 1920px -> blurry. With max, fitScale=3.227 ->
+    // 1920px wide bitmap -> no DComp upscaling -> sharp.
+    const float fitScale = std::max(safeViewportWidth / pageWidthPoints,
                                     safeViewportHeight / pageHeightPoints);
     const float requestedScale = std::clamp(fitScale * std::max(zoom, 0.05f), 0.05f, 16.0f);
     const float maxDimensionScale = 16384.0f / std::max(pageWidthPoints, pageHeightPoints);
