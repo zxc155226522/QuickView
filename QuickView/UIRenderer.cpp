@@ -6336,72 +6336,30 @@ void UIRenderer::DrawNavigator(ID2D1DeviceContext* dc) {
         
         if (!shouldShow) continue;
         
-        // 固定尺寸矩形：尺寸由 NavigatorW/H 记忆，不随图像比例变化；图像在框内等比内含（留白）
-        float minimapW = g_config.NavigatorW * s;
-        float minimapH = g_config.NavigatorH * s;
-        minimapW = (std::max)(minimapW, 40.0f * s);
-        minimapH = (std::max)(minimapH, 40.0f * s);
-        
-        // Horizontal position
-        float minimapX = 0.0f;
-        if (g_config.NavigatorAlignX == 0) {
-            minimapX = vpRect.left + g_config.NavigatorOffsetX * s;
-        } else {
-            minimapX = vpRect.right - minimapW - g_config.NavigatorOffsetX * s;
-        }
-        
-        // Vertical position
-        float topOffset = vpRect.top;
-        if (vpRect.right >= (float)m_width - 1.0f && m_showControls) {
-            topOffset += 32.0f * s;
-        }
-        
-        // [Fix] Reserve space for the bottom toolbar so the minimap never
-        // overlaps it. When the toolbar is visible, its reserved height is
-        // subtracted from the viewport's bottom edge for vertical positioning.
+        // [Fix] 鸟瞰图布局计算统一到 CalculateMinimapLayout()，确保绘制 / 拖拽 / 缩放公式一致
         float toolbarReserved = 0.0f;
         if (g_toolbar.IsVisible() && !g_toolbar.IsWindowTooNarrow()) {
             toolbarReserved = g_toolbar.GetReservedHeight();
         }
-        float vpBottom = vpRect.bottom - toolbarReserved;
+        MinimapLayoutParams layoutParams{};
+        layoutParams.vpRect = vpRect;
+        layoutParams.winW = (float)m_width;
+        layoutParams.uiScale = s;
+        layoutParams.showControls = m_showControls;
+        layoutParams.toolbarReserved = toolbarReserved;
+        layoutParams.navigatorW = g_config.NavigatorW;
+        layoutParams.navigatorH = g_config.NavigatorH;
+        layoutParams.navigatorAlignX = g_config.NavigatorAlignX;
+        layoutParams.navigatorAlignY = g_config.NavigatorAlignY;
+        layoutParams.navigatorOffsetX = g_config.NavigatorOffsetX;
+        layoutParams.navigatorOffsetY = g_config.NavigatorOffsetY;
+        MinimapLayoutResult ml = CalculateMinimapLayout(layoutParams);
 
-        float minimapY = 0.0f;
-        if (g_config.NavigatorAlignY == 0) {
-            minimapY = topOffset + g_config.NavigatorOffsetY * s;
-        } else {
-            minimapY = vpBottom - minimapH - g_config.NavigatorOffsetY * s;
-        }
-        
-        // Clamp to keep it fully within the viewport (above the toolbar)
-        float margin = 8.0f * s;
-        float minX = vpRect.left + margin;
-        float maxX = vpRect.right - minimapW - margin;
-        float minY = topOffset + margin;
-        float maxY = vpBottom - minimapH - margin;
-        
-        minimapX = std::clamp(minimapX, minX, (std::max)(minX, maxX));
-        minimapY = std::clamp(minimapY, minY, (std::max)(minY, maxY));
-        
-        minimap.layoutRect = D2D1::RectF(minimapX, minimapY, minimapX + minimapW, minimapY + minimapH);
-        
-        float closeBtnSize = 16.0f * s;
-        minimap.closeBtnRect = D2D1::RectF(minimap.layoutRect.right - closeBtnSize, minimap.layoutRect.top, minimap.layoutRect.right, minimap.layoutRect.top + closeBtnSize);
-        minimap.innerRect = minimap.layoutRect;
-
-        // Resize grips at TOP-LEFT and BOTTOM-RIGHT corners (both draggable; TOP-RIGHT reserved for close button)
-        {
-            float grip = 16.0f * s;
-            minimap.resizeGripRectTL = D2D1::RectF(
-                minimap.layoutRect.left,
-                minimap.layoutRect.top,
-                minimap.layoutRect.left + grip,
-                minimap.layoutRect.top + grip);
-            minimap.resizeGripRectBR = D2D1::RectF(
-                minimap.layoutRect.right - grip,
-                minimap.layoutRect.bottom - grip,
-                minimap.layoutRect.right,
-                minimap.layoutRect.bottom);
-        }
+        minimap.layoutRect = ml.layoutRect;
+        minimap.innerRect = ml.innerRect;
+        minimap.closeBtnRect = ml.closeBtnRect;
+        minimap.resizeGripRectTL = ml.resizeGripRectTL;
+        minimap.resizeGripRectBR = ml.resizeGripRectBR;
         
         ComPtr<ID2D1Factory> factory;
         dc->GetFactory(&factory);

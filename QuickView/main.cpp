@@ -7986,16 +7986,18 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
                   if (isCompare && g_toolbar.IsComicMode()) numPanes = 2;
                   else if (isCompare && AppContext::GetInstance().Compare.mode == ViewMode::CompareSideBySide) numPanes = 2;
                   
-                  float vpW = winW;
-                  float vpH = winH;
-                  float vpLeft = 0.0f;
+                  // [Fix] 与 DrawNavigator 完全一致的 vpRect 构造
+                  D2D1_RECT_F vpRect;
                   if (numPanes == 2) {
-                      vpW = winW * 0.5f;
+                      float splitX = 0.5f * winW;
+                      // main.cpp 的 idx 0 = Primary（右半），idx 1 = Left（左半）
                       if (idx == 1) {
-                          vpLeft = 0.0f;
+                          vpRect = D2D1::RectF(0.0f, 0.0f, splitX, winH);
                       } else {
-                          vpLeft = winW * 0.5f;
+                          vpRect = D2D1::RectF(splitX, 0.0f, winW, winH);
                       }
+                  } else {
+                      vpRect = D2D1::RectF(0.0f, 0.0f, winW, winH);
                   }
                   
                   float minimapW = minimap.layoutRect.right - minimap.layoutRect.left;
@@ -8004,36 +8006,43 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
                   if (minimapW <= 0.0f) minimapW = g_config.NavigatorW * s;
                   if (minimapH <= 0.0f) minimapH = g_config.NavigatorH * s;
                   
-                  float topOffset = 0.0f;
-                  if (vpLeft + vpW >= winW - 1.0f && g_showControls) {
+                  // [Fix] 与 DrawNavigator 一致的 topOffset / vpBottom
+                  float toolbarReserved = 0.0f;
+                  if (g_toolbar.IsVisible() && !g_toolbar.IsWindowTooNarrow()) {
+                      toolbarReserved = g_toolbar.GetReservedHeight();
+                  }
+                  float topOffset = vpRect.top;
+                  if (vpRect.right >= winW - 1.0f && g_showControls) {
                       topOffset += 32.0f * s;
                   }
+                  float vpBottom = winH - toolbarReserved;
+                  if (numPanes == 2) vpBottom = vpRect.bottom - toolbarReserved;
                   
                   // Clamp to keep it fully within the viewport
                   float margin = 8.0f * s;
-                  float minX = vpLeft + margin;
-                  float maxX = vpLeft + vpW - minimapW - margin;
+                  float minX = vpRect.left + margin;
+                  float maxX = vpRect.right - minimapW - margin;
                   float minY = topOffset + margin;
-                  float maxY = vpH - minimapH - margin;
+                  float maxY = vpBottom - minimapH - margin;
                   
                   float clampedX = std::clamp(currentMinimapX, minX, (std::max)(minX, maxX));
                   float clampedY = std::clamp(currentMinimapY, minY, (std::max)(minY, maxY));
                   
                   // Dynamically determine closest anchor and update config
-                  if (clampedX + minimapW * 0.5f < vpLeft + vpW * 0.5f) {
+                  if (clampedX + minimapW * 0.5f < vpRect.left + (vpRect.right - vpRect.left) * 0.5f) {
                       g_config.NavigatorAlignX = 0; // Left
-                      g_config.NavigatorOffsetX = (clampedX - vpLeft) / s;
+                      g_config.NavigatorOffsetX = (clampedX - vpRect.left) / s;
                   } else {
                       g_config.NavigatorAlignX = 1; // Right
-                      g_config.NavigatorOffsetX = (vpLeft + vpW - (clampedX + minimapW)) / s;
+                      g_config.NavigatorOffsetX = (vpRect.right - (clampedX + minimapW)) / s;
                   }
                   
-                  if (clampedY + minimapH * 0.5f < topOffset + (vpH - topOffset) * 0.5f) {
+                  if (clampedY + minimapH * 0.5f < topOffset + (vpBottom - topOffset) * 0.5f) {
                       g_config.NavigatorAlignY = 0; // Top
                       g_config.NavigatorOffsetY = (clampedY - topOffset) / s;
                   } else {
                       g_config.NavigatorAlignY = 1; // Bottom
-                      g_config.NavigatorOffsetY = (vpH - (clampedY + minimapH)) / s;
+                      g_config.NavigatorOffsetY = (vpBottom - (clampedY + minimapH)) / s;
                   }
                   
                   RequestRepaint(PaintLayer::Static | PaintLayer::Dynamic);
@@ -8049,15 +8058,23 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
                   RECT rcClient; GetClientRect(hwnd, &rcClient);
                   float winW = (float)(rcClient.right - rcClient.left);
                   float winH = (float)(rcClient.bottom - rcClient.top);
+
+                  // [Fix] 与 DrawNavigator 一致的 topOffset / vpBottom
+                  float toolbarReserved = 0.0f;
+                  if (g_toolbar.IsVisible() && !g_toolbar.IsWindowTooNarrow()) {
+                      toolbarReserved = g_toolbar.GetReservedHeight();
+                  }
                   float topOffset = 0.0f;
                   if (winW >= (float)rcClient.right - 1.0f && g_showControls) topOffset += 32.0f * s;
+                  float vpBottom = winH - toolbarReserved;
+
                   float fixedX = 0.0f, fixedY = 0.0f;
                   if (corner == 0) {
                       // 拖左上角 -> 以右下角为固定锚点 (对齐右下)，反算 offset 使右下角不跳变
                       g_config.NavigatorAlignX = 1; g_config.NavigatorAlignY = 1;
                       fixedX = minimap.layoutRect.right; fixedY = minimap.layoutRect.bottom;
                       g_config.NavigatorOffsetX = (winW - fixedX) / s;
-                      g_config.NavigatorOffsetY = (winH - fixedY) / s;
+                      g_config.NavigatorOffsetY = (vpBottom - fixedY) / s;
                   } else {
                       // 拖右下角 -> 以左上角为固定锚点 (对齐左上)，反算 offset 使左上角不跳变
                       g_config.NavigatorAlignX = 0; g_config.NavigatorAlignY = 0;
