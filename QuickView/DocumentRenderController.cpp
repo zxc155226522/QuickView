@@ -2,8 +2,28 @@
 #include "DocumentRenderController.h"
 
 #include <mupdf/fitz.h>
+#include <libloader.h>  // LoadLibraryExW
 
 namespace QuickView {
+
+// [WinRT PDF] Check if Windows.Data.Pdf.dll is available on this system.
+// On Windows Server / LTSC / stripped images the DLL may be absent.
+// We use a lightweight LoadLibraryEx probe (LOAD_LIBRARY_AS_IMAGE_RESOURCE
+// to avoid executing any code) before creating WinRtPdfDocument.
+static bool IsWinRtPdfAvailable() noexcept {
+    // Both DLLs must be present for WinRT PDF rendering to work.
+    // LOAD_LIBRARY_AS_IMAGE_RESOURCE avoids executing any DLL code.
+    HMODULE h1 = LoadLibraryExW(L"Windows.Data.Pdf.dll", nullptr,
+                                LOAD_LIBRARY_AS_IMAGE_RESOURCE);
+    if (!h1) return false;
+    FreeLibrary(h1);
+
+    HMODULE h2 = LoadLibraryExW(L"runtimeobject.dll", nullptr,
+                                LOAD_LIBRARY_AS_IMAGE_RESOURCE);
+    if (!h2) return false;
+    FreeLibrary(h2);
+    return true;
+}
 
 DocumentRenderController::DocumentRenderController() {
     m_context = fz_new_context(nullptr, nullptr, FZ_STORE_DEFAULT);
@@ -19,7 +39,9 @@ DocumentRenderController::DocumentRenderController() {
     }
 
     m_document = std::make_unique<MuPdfDocument>(m_context);
-    m_winRtDoc = std::make_unique<WinRtPdfDocument>();  // [WinRT PDF] Native engine
+    if (IsWinRtPdfAvailable()) {
+        m_winRtDoc = std::make_unique<WinRtPdfDocument>();  // [WinRT PDF] Native engine
+    }
     m_available = true;
     m_worker = std::thread(&DocumentRenderController::WorkerMain, this);
 }

@@ -24,9 +24,8 @@
 #include <cstdlib>
 #include <cstring>
 
-// 链接 windows.data.pdf.lib (PdfCreateRenderer)
-#pragma comment(lib, "windows.data.pdf.lib")
-#pragma comment(lib, "runtimeobject.lib")  // RoActivateInstance 等
+// Library linking handled by CMakeLists.txt (delay-loaded)
+// windows.data.pdf.lib + runtimeobject.lib + delayimp.lib
 
 using namespace ABI::Windows::Data::Pdf;
 using namespace ABI::Windows::Foundation;

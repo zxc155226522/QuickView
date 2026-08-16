@@ -159,6 +159,16 @@ set_source_files_properties(third_party/yyjson/yyjson.c PROPERTIES SKIP_PRECOMPI
 set_source_files_properties(QuickView/WinRtPdfDocument.cpp PROPERTIES
     COMPILE_OPTIONS "/clang:-fexceptions")
 
+# [WinRT PDF] Delay-load Windows.Data.Pdf.dll and runtimeobject.dll so the
+# EXE does not crash at startup when these system DLLs are missing (e.g. on
+# Windows Server / LTSC / stripped images).  The DLLs are loaded lazily on
+# first call to PdfCreateRenderer / RoActivateInstance.  If loading fails,
+# WinRtPdfDocument::Open() returns an error and the controller falls back to
+# MuPDF automatically.
+target_link_options(main PRIVATE
+    "/DELAYLOAD:Windows.Data.Pdf.dll"
+    "/DELAYLOAD:runtimeobject.dll")
+
 # ============================================================================
 # Compiler & Linker Flags (Clang-CL Matrix)
 # ============================================================================
@@ -353,9 +363,10 @@ target_link_libraries(QuickView PRIVATE
     shlwapi.lib
     shell32.lib
     mscms.lib
-    # [WinRT PDF] Windows.Data.Pdf native rendering
+    # [WinRT PDF] Windows.Data.Pdf native rendering (delay-loaded)
     windows.data.pdf.lib
     runtimeobject.lib
+    delayimp.lib   # delay-load helper
     # resvg C-API 是 Rust 静态库，其 Rust std 依赖以下 Windows 导入库（否则 lld-link 报 undefined symbol）
     ntdll.lib
     userenv.lib
