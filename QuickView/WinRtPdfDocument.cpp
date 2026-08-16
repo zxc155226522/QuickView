@@ -78,11 +78,11 @@ struct WinRtPdfDocument::Impl {
         if (!d2dContext) return E_POINTER;
 
         ComPtr<ID2D1Device> d2dDevice;
-        HRESULT hr = d2dContext->GetDevice(&d2dDevice);
-        if (FAILED(hr) || !d2dDevice) return hr;
+        d2dContext->GetDevice(&d2dDevice);
+        if (!d2dDevice) return E_POINTER;
 
         ComPtr<IDXGIDevice> dxgiDev;
-        hr = d2dDevice.As(&dxgiDev);
+        HRESULT hr = d2dDevice.As(&dxgiDev);
         if (FAILED(hr)) return hr;
 
         dxgiDevice = dxgiDev;
@@ -171,7 +171,7 @@ HRESULT WinRtPdfDocument::Open(const std::wstring& path,
 
     if (waitResult != WAIT_OBJECT_0) {
         errorMessage = L"PDF 加载超时";
-        return E_TIMEOUT;
+        return HRESULT_FROM_WIN32(ERROR_TIMEOUT);
     }
     if (FAILED(loadHr) || !resultDoc) {
         errorMessage = L"PDF 加载失败";
@@ -315,7 +315,7 @@ HRESULT WinRtPdfDocument::RenderPage(uint32_t pageIndex,
 
     ComPtr<ID2D1Bitmap1> targetBitmap;
     D2D1_SIZE_U bitmapSize = { destWidth, destHeight };
-    hr = d2dContext->CreateBitmap(bitmapSize, bmpProps, &targetBitmap);
+    hr = d2dContext->CreateBitmap(bitmapSize, nullptr, 0, &bmpProps, &targetBitmap);
     if (FAILED(hr) || !targetBitmap) {
         result.status = hr;
         result.errorMessage = L"CreateBitmap 失败";
