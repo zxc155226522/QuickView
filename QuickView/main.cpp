@@ -2150,6 +2150,25 @@ static D2D1_SIZE_U ComputeDesiredBitmapSurfaceSize(UINT winW, UINT winH, const I
         desiredH *= ratio;
     }
 
+    // [Fix] Ensure the surface is at least as large as the window (in both
+    // dimensions), preserving the image's aspect ratio. Without this, a large
+    // bitmap (e.g. PDF rasterized at 4K) gets downscaled to a small surface
+    // (e.g. 763px), then DComp upscales it back to 1920px via LINEAR -> blurry.
+    // By scaling up to cover the window, D2D does the high-quality downscale
+    // (CUBIC) and DComp displays 1:1 with no upscaling.
+    if (desiredW < (float)winW || desiredH < (float)winH) {
+        float coverScale = std::max((float)winW / desiredW, (float)winH / desiredH);
+        desiredW *= coverScale;
+        desiredH *= coverScale;
+        // Re-clamp after scaling up
+        if (desiredW > (float)g_maxBitmapSurfaceSize || desiredH > (float)g_maxBitmapSurfaceSize) {
+            float ratio = std::min((float)g_maxBitmapSurfaceSize / desiredW,
+                                   (float)g_maxBitmapSurfaceSize / desiredH);
+            desiredW *= ratio;
+            desiredH *= ratio;
+        }
+    }
+
     UINT outW = (UINT)std::max(1.0f, std::round(desiredW));
     UINT outH = (UINT)std::max(1.0f, std::round(desiredH));
     return D2D1::SizeU(outW, outH);
