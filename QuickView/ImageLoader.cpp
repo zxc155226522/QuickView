@@ -11075,15 +11075,14 @@ struct SvgContentBBox {
   }
 };
 
-// Find attribute value in a tag string with word-boundary safety.
-// e.g. FindAttrVal(tag, "x") matches x="..." but not cx="...".
-static std::string FindAttrVal(const std::string &tag, const char *attr) {
-  const size_t len = std::strlen(attr);
+// [Perf] string_view 版 FindAttrVal — 零拷贝，返回指向原始缓冲区的 view。
+// 调用者负责确保源字符串生命周期长于返回的 view。
+static std::string_view FindAttrValSV(std::string_view tag, std::string_view attr) {
   size_t pos = 0;
   while (pos < tag.size()) {
     size_t found = tag.find(attr, pos);
-    if (found == std::string::npos) return "";
-    // Check char before must be whitespace or start-of-string or '<'
+    if (found == std::string_view::npos) return {};
+    // 前一个字符必须是空白或 '<' 或字符串开头
     if (found > 0) {
       char prev = tag[found - 1];
       if (prev != ' ' && prev != '\t' && prev != '\n' && prev != '\r' && prev != '<') {
@@ -11091,9 +11090,7 @@ static std::string FindAttrVal(const std::string &tag, const char *attr) {
         continue;
       }
     }
-    // Check char after attr name must be '='
-    size_t eqPos = found + len;
-    // Skip whitespace between attr name and '='
+    size_t eqPos = found + attr.size();
     while (eqPos < tag.size() && (tag[eqPos] == ' ' || tag[eqPos] == '\t'))
       ++eqPos;
     if (eqPos >= tag.size() || tag[eqPos] != '=') {
@@ -11103,14 +11100,14 @@ static std::string FindAttrVal(const std::string &tag, const char *attr) {
     size_t valStart = eqPos + 1;
     while (valStart < tag.size() && (tag[valStart] == ' ' || tag[valStart] == '\t'))
       ++valStart;
-    if (valStart >= tag.size()) return "";
+    if (valStart >= tag.size()) return {};
     char quote = tag[valStart];
-    if (quote != '"' && quote != '\'') return "";
+    if (quote != '"' && quote != '\'') return {};
     size_t valEnd = tag.find(quote, valStart + 1);
-    if (valEnd == std::string::npos) return "";
+    if (valEnd == std::string_view::npos) return {};
     return tag.substr(valStart + 1, valEnd - valStart - 1);
   }
-  return "";
+  return {};
 }
 
 static float ParseFloatStr(const char *s, const char **endptr) {
@@ -11248,47 +11245,50 @@ static void ParsePointsForBBox(const std::string &pts, SvgContentBBox &bbox) {
   }
 }
 
-// Scan SVG content for all drawing elements and compute their combined bbox.
+// [Perf] Scan SVG content for all drawing elements and compute combined bbox.
+// 优化：用 string_view 定位标签范围，零拷贝标签名和标签内容；
+// 只对属性值做小拷贝（传给 strtof / ParsePathDForBBox）。
 static SvgContentBBox ComputeSvgContentBBox(const std::string &svg) {
   SvgContentBBox bbox;
+  std::string_view sv(svg);
   size_t pos = 0;
-  while (pos < svg.size()) {
+  while (pos < sv.size()) {
     // Find next '<'
-    size_t lt = svg.find('<', pos);
-    if (lt == std::string::npos) break;
+    size_t lt = sv.find('<', pos);
+    if (lt == std::string_view::npos) break;
     pos = lt + 1;
-    if (pos >= svg.size()) break;
+    if (pos >= sv.size()) break;
 
     // Skip declarations, comments, CDATA
-    if (svg[pos] == '?' || svg[pos] == '!') {
-      size_t gt = svg.find('>', pos);
-      if (gt == std::string::npos) break;
+    if (sv[pos] == '?' || sv[pos] == '!') {
+      size_t gt = sv.find('>', pos);
+      if (gt == std::string_view::npos) break;
       pos = gt + 1;
       continue;
     }
 
-    // Extract tag name
+    // Extract tag name (string_view 指向原始缓冲区，零拷贝)
     size_t nameStart = pos;
-    while (pos < svg.size() && (isalnum((unsigned char)svg[pos]) || svg[pos] == ':' || svg[pos] == '-'))
+    while (pos < sv.size() && (isalnum((unsigned char)sv[pos]) || sv[pos] == ':' || sv[pos] == '-'))
       ++pos;
     if (pos == nameStart) {
-      size_t gt = svg.find('>', pos);
-      if (gt == std::string::npos) break;
+      size_t gt = sv.find('>', pos);
+      if (gt == std::string_view::npos) break;
       pos = gt + 1;
       continue;
     }
-    std::string tagName = svg.substr(nameStart, pos - nameStart);
+    std::string_view tagName = sv.substr(nameStart, pos - nameStart);
     // Strip namespace prefix (e.g. "svg:path" -> "path")
     size_t colon = tagName.find(':');
-    if (colon != std::string::npos)
+    if (colon != std::string_view::npos)
       tagName = tagName.substr(colon + 1);
 
     // Find end of tag (self-closing '>' or '>')
     bool inQuote = false;
     char quote = '\0';
     size_t tagEnd = pos;
-    while (tagEnd < svg.size()) {
-      char ch = svg[tagEnd];
+    while (tagEnd < sv.size()) {
+      char ch = sv[tagEnd];
       if (inQuote) {
         if (ch == quote) inQuote = false;
       } else {
@@ -11297,19 +11297,26 @@ static SvgContentBBox ComputeSvgContentBBox(const std::string &svg) {
       }
       ++tagEnd;
     }
-    if (tagEnd >= svg.size()) break;
+    if (tagEnd >= sv.size()) break;
 
-    std::string tagContent = svg.substr(pos, tagEnd - pos);
+    // [Perf] 标签内容用 string_view 定位 [pos, tagEnd)，零拷贝
+    std::string_view tagContent = sv.substr(pos, tagEnd - pos);
+
+    // 辅助：从 tagContent 取属性值并转 std::string（仅小拷贝）
+    auto attrStr = [&](const char *name) -> std::string {
+      auto v = FindAttrValSV(tagContent, name);
+      return v.empty() ? std::string() : std::string(v);
+    };
 
     // Process by tag type
     if (tagName == "path") {
-      std::string d = FindAttrVal(tagContent, "d");
+      std::string d = attrStr("d");
       if (!d.empty()) ParsePathDForBBox(d, bbox);
     } else if (tagName == "rect") {
-      std::string sx = FindAttrVal(tagContent, "x");
-      std::string sy = FindAttrVal(tagContent, "y");
-      std::string sw = FindAttrVal(tagContent, "width");
-      std::string sh = FindAttrVal(tagContent, "height");
+      std::string sx = attrStr("x");
+      std::string sy = attrStr("y");
+      std::string sw = attrStr("width");
+      std::string sh = attrStr("height");
       if (!sx.empty() && !sy.empty() && !sw.empty() && !sh.empty()) {
         float x = strtof(sx.c_str(), nullptr);
         float y = strtof(sy.c_str(), nullptr);
@@ -11319,14 +11326,14 @@ static SvgContentBBox ComputeSvgContentBBox(const std::string &svg) {
         bbox.Expand(x + w, y + h);
       }
     } else if (tagName == "ellipse" || tagName == "circle") {
-      std::string scx = FindAttrVal(tagContent, "cx");
-      std::string scy = FindAttrVal(tagContent, "cy");
+      std::string scx = attrStr("cx");
+      std::string scy = attrStr("cy");
       std::string srx, sry;
       if (tagName == "ellipse") {
-        srx = FindAttrVal(tagContent, "rx");
-        sry = FindAttrVal(tagContent, "ry");
+        srx = attrStr("rx");
+        sry = attrStr("ry");
       } else {
-        srx = FindAttrVal(tagContent, "r");
+        srx = attrStr("r");
         sry = srx;
       }
       if (!scx.empty() && !scy.empty() && !srx.empty() && !sry.empty()) {
@@ -11338,23 +11345,22 @@ static SvgContentBBox ComputeSvgContentBBox(const std::string &svg) {
         bbox.Expand(cx + rx, cy + ry);
       }
     } else if (tagName == "polyline" || tagName == "polygon") {
-      std::string pts = FindAttrVal(tagContent, "points");
+      std::string pts = attrStr("points");
       if (!pts.empty()) ParsePointsForBBox(pts, bbox);
     } else if (tagName == "line") {
-      std::string x1 = FindAttrVal(tagContent, "x1");
-      std::string y1 = FindAttrVal(tagContent, "y1");
-      std::string x2 = FindAttrVal(tagContent, "x2");
-      std::string y2 = FindAttrVal(tagContent, "y2");
+      std::string x1 = attrStr("x1");
+      std::string y1 = attrStr("y1");
+      std::string x2 = attrStr("x2");
+      std::string y2 = attrStr("y2");
       if (!x1.empty() && !y1.empty() && !x2.empty() && !y2.empty()) {
         bbox.Expand(strtof(x1.c_str(), nullptr), strtof(y1.c_str(), nullptr));
         bbox.Expand(strtof(x2.c_str(), nullptr), strtof(y2.c_str(), nullptr));
       }
     } else if (tagName == "image" || tagName == "text" || tagName == "tspan") {
-      // For image/text, use x/y/width/height if available
-      std::string sx = FindAttrVal(tagContent, "x");
-      std::string sy = FindAttrVal(tagContent, "y");
-      std::string sw = FindAttrVal(tagContent, "width");
-      std::string sh = FindAttrVal(tagContent, "height");
+      std::string sx = attrStr("x");
+      std::string sy = attrStr("y");
+      std::string sw = attrStr("width");
+      std::string sh = attrStr("height");
       if (!sx.empty() && !sy.empty()) {
         float x = strtof(sx.c_str(), nullptr);
         float y = strtof(sy.c_str(), nullptr);
@@ -11509,7 +11515,7 @@ static void CropSvgWhitespace(std::string &svgContent, float &outW, float &outH)
 
 static void InlineSvgStyleAttrs(std::string &svg) {
   // CSS property name -> SVG attribute name mapping
-  struct CssMap { const char *cssProp; const char *svgAttr; };
+  struct CssMap { std::string_view cssProp; std::string_view svgAttr; };
   static constexpr CssMap kMap[] = {
     {"fill",              "fill"},
     {"stroke",            "stroke"},
@@ -11555,39 +11561,45 @@ static void InlineSvgStyleAttrs(std::string &svg) {
     }
     if (tagEnd >= svg.size()) break;
 
-    // Extract style="..." value from this tag
-    std::string styleVal = FindAttrVal(svg.substr(lt, tagEnd - lt + 1), "style");
+    // [Perf] 用 string_view 在原始字符串上定位标签范围 [lt, tagEnd]
+    std::string_view tagSV(svg.data() + lt, tagEnd - lt + 1);
+
+    // [Perf] 零拷贝提取 style 属性值
+    std::string_view styleVal = FindAttrValSV(tagSV, "style");
     if (styleVal.empty()) {
       pos = tagEnd + 1;
       continue;
     }
 
     // Parse CSS declarations from style value
-    // Collect (attrName, value) pairs to insert
-    std::vector<std::pair<std::string, std::string>> toAdd;
-    const char *p = styleVal.c_str();
-    while (*p) {
+    // Collect (attrName, value) pairs to insert (均为 string_view，零拷贝)
+    std::vector<std::pair<std::string_view, std::string_view>> toAdd;
+    const char *p = styleVal.data();
+    const char *pEnd = p + styleVal.size();
+    while (p < pEnd) {
       // Skip whitespace and semicolons
-      while (*p && (isspace((unsigned char)*p) || *p == ';')) ++p;
-      if (!*p) break;
+      while (p < pEnd && (isspace((unsigned char)*p) || *p == ';')) ++p;
+      if (p >= pEnd) break;
       // Read property name
       const char *nameStart = p;
-      while (*p && *p != ':' && *p != ';' && !isspace((unsigned char)*p)) ++p;
-      if (!*p || *p == ';') { if (*p) ++p; continue; }
-      std::string propName(nameStart, p - nameStart);
+      while (p < pEnd && *p != ':' && *p != ';' && !isspace((unsigned char)*p)) ++p;
+      if (p >= pEnd || *p == ';') { if (p < pEnd) ++p; continue; }
+      std::string_view propName(nameStart, p - nameStart);
       // Skip whitespace before ':'
-      while (*p && isspace((unsigned char)*p)) ++p;
-      if (*p != ':') continue;
+      while (p < pEnd && isspace((unsigned char)*p)) ++p;
+      if (p >= pEnd || *p != ':') continue;
       ++p; // skip ':'
       // Skip whitespace after ':'
-      while (*p && isspace((unsigned char)*p)) ++p;
+      while (p < pEnd && isspace((unsigned char)*p)) ++p;
       // Read value until ';' or end
       const char *valStart = p;
-      while (*p && *p != ';') ++p;
-      std::string val(valStart, p - valStart);
+      while (p < pEnd && *p != ';') ++p;
+      std::string_view val(valStart, p - valStart);
       // Trim trailing whitespace
-      while (!val.empty() && isspace((unsigned char)val.back())) val.pop_back();
-      if (val.empty()) { if (*p) ++p; continue; }
+      size_t valLen = val.size();
+      while (valLen > 0 && isspace((unsigned char)val[valLen - 1])) --valLen;
+      val = val.substr(0, valLen);
+      if (val.empty()) { if (p < pEnd && *p == ';') ++p; continue; }
 
       // Map CSS property to SVG attribute
       for (const auto &m : kMap) {
@@ -11596,7 +11608,7 @@ static void InlineSvgStyleAttrs(std::string &svg) {
           break;
         }
       }
-      if (*p == ';') ++p;
+      if (p < pEnd && *p == ';') ++p;
     }
 
     if (toAdd.empty()) {
@@ -11604,52 +11616,30 @@ static void InlineSvgStyleAttrs(std::string &svg) {
       continue;
     }
 
-    // For each attribute to add, check if it already exists on the tag.
-    // If not, insert it right before the closing '>' or '/>'.
-    // We need to re-find tagEnd each time since string may change.
+    // [Perf] 一次性构造所有要插入的属性字符串，只做一次 insert
+    // 同时跳过标签上已存在的属性（用 FindAttrValSV 零拷贝检查）
+    std::string insertion;
     for (const auto &kv : toAdd) {
-      // Re-locate this tag (positions may have shifted)
-      // Find the tag that starts at or after 'lt'
-      size_t searchLt = svg.find('<', pos > 0 ? pos - 1 : 0);
-      if (searchLt == std::string::npos) break;
-      // Re-scan tag end
-      bool iq = false; char q = '\0';
-      size_t te = searchLt + 1;
-      while (te < svg.size()) {
-        char ch = svg[te];
-        if (iq) { if (ch == q) iq = false; }
-        else { if (ch == '"' || ch == '\'') { iq = true; q = ch; } else if (ch == '>') break; }
-        ++te;
-      }
-      if (te >= svg.size()) break;
+      // 检查属性是否已存在于标签上
+      if (!FindAttrValSV(tagSV, kv.first).empty()) continue;
+      insertion += ' ';
+      insertion.append(kv.first.data(), kv.first.size());
+      insertion += "=\"";
+      insertion.append(kv.second.data(), kv.second.size());
+      insertion += "\"";
+    }
 
-      // Check if attribute already exists
-      std::string tagStr = svg.substr(searchLt, te - searchLt + 1);
-      if (!FindAttrVal(tagStr, kv.first.c_str()).empty()) continue;
-
-      // Insert attr="val" before the closing '>'
-      // Handle self-closing tags (/>)
-      size_t insertPos = te;
+    if (!insertion.empty()) {
+      // 插入位置：在 '>' 之前，如果是自闭合标签则在 '/>' 之前
+      size_t insertPos = tagEnd;
       if (insertPos > 0 && svg[insertPos - 1] == '/')
         --insertPos;
-
-      std::string insertion = std::string(" ") + kv.first + "=\"" + kv.second + "\"";
       svg.insert(insertPos, insertion);
-      // Update pos to after the inserted text
-      // (te is now shifted by insertion.length())
+      // 更新 pos：跳过插入后的标签结尾
+      pos = tagEnd + insertion.size() + 1;
+    } else {
+      pos = tagEnd + 1;
     }
-
-    // Move past this tag
-    // Re-find the end of current tag
-    bool iq2 = false; char q2 = '\0';
-    size_t te2 = lt + 1;
-    while (te2 < svg.size()) {
-      char ch = svg[te2];
-      if (iq2) { if (ch == q2) iq2 = false; }
-      else { if (ch == '"' || ch == '\'') { iq2 = true; q2 = ch; } else if (ch == '>') break; }
-      ++te2;
-    }
-    pos = te2 + 1;
   }
 }
 
