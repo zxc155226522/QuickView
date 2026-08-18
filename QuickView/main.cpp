@@ -1920,27 +1920,27 @@ static float ComputeBaseFitScaleForVisual(const VisualState& vs, float winW, flo
 // and the left/right (and top/bottom) appear "covered" when zooming in. DComp then
 // performs centering + pan, and only upscales when GPU surface limits are exceeded.
 static void ComputeSvgSurfaceSize(float winW, float winH, float& outSurfW, float& outSurfH, float& outDCompScale) {
-    outSurfW = winW; outSurfH = winH; outDCompScale = 1.0f;
-    if (winW <= 0.0f || winH <= 0.0f) return;
-    VisualState vs = GetVisualState();
-    if (vs.VisualSize.width <= 0.0f || vs.VisualSize.height <= 0.0f) return;
-    const ImageViewportLayout viewport = ComputeImageViewportLayout(winW, winH);
-    const float baseFit = ComputeBaseFitScaleForVisual(vs, viewport.Width, viewport.Height);
-    const float zoom = GetPaneContext(PaneSlot::Primary).view.Zoom;
-    float dispW = vs.VisualSize.width * baseFit * zoom;
-    float dispH = vs.VisualSize.height * baseFit * zoom;
-    if (dispW <= 0.0f) dispW = 1.0f;
-    if (dispH <= 0.0f) dispH = 1.0f;
-    const float maxDim = (float)GetSvgSurfaceSizeLimit();
-    float dcompScale = 1.0f;
-    if (dispW > maxDim || dispH > maxDim) {
-        const float r = maxDim / (std::max)(dispW, dispH);
-        dispW *= r; dispH *= r;
-        dcompScale = 1.0f / r;
-    }
-    outSurfW = dispW;
-    outSurfH = dispH;
-    outDCompScale = dcompScale;
+outSurfW = winW; outSurfH = winH; outDCompScale = 1.0f;
+if (winW <= 0.0f || winH <= 0.0f) return;
+VisualState vs = GetVisualState();
+if (vs.VisualSize.width <= 0.0f || vs.VisualSize.height <= 0.0f) return;
+const ImageViewportLayout viewport = ComputeImageViewportLayout(winW, winH);
+const float baseFit = ComputeBaseFitScaleForVisual(vs, viewport.Width, viewport.Height);
+const float zoom = GetPaneContext(PaneSlot::Primary).view.Zoom;
+float dispW = vs.VisualSize.width * baseFit * zoom;
+float dispH = vs.VisualSize.height * baseFit * zoom;
+if (dispW <= 0.0f) dispW = 1.0f;
+if (dispH <= 0.0f) dispH = 1.0f;
+const float maxDim = (float)GetSvgSurfaceSizeLimit();
+float dcompScale = 1.0f;
+if (dispW > maxDim || dispH > maxDim) {
+const float r = maxDim / (std::max)(dispW, dispH);
+dispW *= r; dispH *= r;
+dcompScale = 1.0f / r;
+}
+outSurfW = dispW;
+outSurfH = dispH;
+outDCompScale = dcompScale;
 }
 
 static D2D1_MATRIX_3X2_F BuildSvgViewportTransform(float surfW, float surfH, const ImageResource& res, const VisualState& vs) {
@@ -3113,19 +3113,20 @@ static bool g_showControls = true;
 // --- Helpers for Zoom Consistency [Unification] ---
 
 static D2D1_SIZE_F GetLogicalImageSize() {
-    // [resvg Fix] resvg-rasterized SVGs (CDR/CMX) store the SVG intrinsic
-    // dimensions in svgW/svgH, same as the D2D SVG vector path.
-    if (GetPaneContext(PaneSlot::Primary).resource &&
-        (GetPaneContext(PaneSlot::Primary).resource.isSvg ||
-         GetPaneContext(PaneSlot::Primary).resource.isResvg)) {
-        if (GetPaneContext(PaneSlot::Primary).resource.svgW > 0.0f && GetPaneContext(PaneSlot::Primary).resource.svgH > 0.0f) {
-            return GetPaneContext(PaneSlot::Primary).resource.GetSize();
-        }
-        if (GetPaneContext(PaneSlot::Primary).metadata.Width > 0 && GetPaneContext(PaneSlot::Primary).metadata.Height > 0) {
-            return D2D1::SizeF((float)GetPaneContext(PaneSlot::Primary).metadata.Width, (float)GetPaneContext(PaneSlot::Primary).metadata.Height);
-        }
-        return D2D1::SizeF(512.0f, 512.0f);
-    }
+// [resvg Fix] resvg-rasterized SVGs (CDR/CMX) store the SVG intrinsic
+// dimensions in svgW/svgH, same as the D2D SVG vector path.
+// [CDR Fix] Do NOT use operator bool() — it requires svgDoc (D2D SVG) or
+// bitmap, but resvg path has neither (isResvg=true, bitmap set later).
+auto& res = GetPaneContext(PaneSlot::Primary).resource;
+if (res.isSvg || res.isResvg) {
+if (res.svgW > 0.0f && res.svgH > 0.0f) {
+return res.GetSize();
+}
+if (GetPaneContext(PaneSlot::Primary).metadata.Width > 0 && GetPaneContext(PaneSlot::Primary).metadata.Height > 0) {
+return D2D1::SizeF((float)GetPaneContext(PaneSlot::Primary).metadata.Width, (float)GetPaneContext(PaneSlot::Primary).metadata.Height);
+}
+return D2D1::SizeF(512.0f, 512.0f);
+}
 
     if (GetPaneContext(PaneSlot::Primary).metadata.Width > 8192 || GetPaneContext(PaneSlot::Primary).metadata.Height > 8192) {
         return D2D1::SizeF((float)GetPaneContext(PaneSlot::Primary).metadata.Width, (float)GetPaneContext(PaneSlot::Primary).metadata.Height);
@@ -11812,11 +11813,6 @@ void ProcessEngineEvents(HWND hwnd) {
                              : g_renderEngine->GetDisplayColorState();
             
             if (evt.rawFrame && evt.rawFrame->IsValid()) {
-                // [DIAG] Log what type of frame we got
-                { FILE* f = nullptr; fopen_s(&f, "E:\\qv_cdr_diag.txt", "a");
-                  if (f) { fprintf(f, "[CDR-DIAG] ProcessEngineEvents: frame valid=%d isSvg=%d hasSvg=%d width=%d height=%d\n",
-                           evt.rawFrame->IsValid() ? 1 : 0, evt.rawFrame->IsSvg() ? 1 : 0,
-                           evt.rawFrame->svg ? 1 : 0, evt.rawFrame->width, evt.rawFrame->height); fclose(f); } }
                 if (evt.rawFrame->IsSvg()) {
                      // === SVG Path ===
                      GetPaneContext(PaneSlot::Primary).resource.Reset();
@@ -11832,11 +11828,6 @@ void ProcessEngineEvents(HWND hwnd) {
                         const auto& xml = evt.rawFrame->svg->xmlData;
                         const float svgW = evt.rawFrame->svg->viewBoxW;
                         const float svgH = evt.rawFrame->svg->viewBoxH;
-
-                        // [DIAG] Log entry into SVG path
-                        { FILE* f = nullptr; fopen_s(&f, "E:\\qv_cdr_diag.txt", "a");
-                          if (f) { fprintf(f, "[CDR-DIAG] main.cpp SVG path entered: xmlSize=%zu svgW=%.1f svgH=%.1f\n",
-                                   xml.size(), svgW, svgH); fclose(f); } }
 
                         // [resvg] Detect embedded bitmaps (<image>). D2D's
                         // ID2D1SvgDocument only supports a SVG subset and cannot
@@ -11885,24 +11876,11 @@ void ProcessEngineEvents(HWND hwnd) {
                             int tW = (int)std::max(1L, (long)std::round(sW));
                             int tH = (int)std::max(1L, (long)std::round(sH));
 
-                            // [DIAG] Log resvg render params
-                            { FILE* f = nullptr; fopen_s(&f, "E:\\qv_cdr_diag.txt", "a");
-                              if (f) { fprintf(f, "[CDR-DIAG] renderSvgViaResvg: sW=%.1f sH=%.1f ds=%.3f tW=%d tH=%d viewBoxW=%.1f viewBoxH=%.1f\n",
-                                       sW, sH, ds, tW, tH, evt.rawFrame->svg->viewBoxW, evt.rawFrame->svg->viewBoxH); fclose(f); } }
-
                             std::vector<uint8_t> bgra;
                             uint32_t rW = 0, rH = 0;
                             HRESULT hr = QuickView::QvRasterizeSvgFrameToBgra(
                                 *evt.rawFrame->svg, bgra, rW, rH, true, true, 16384, tW, tH);
-                            if (FAILED(hr) || rW == 0 || rH == 0) {
-                                // [DIAG] Log failure
-                                { FILE* f = nullptr; fopen_s(&f, "E:\\qv_cdr_diag.txt", "a");
-                                  if (f) { fprintf(f, "[CDR-DIAG] resvg FAILED hr=0x%X rW=%u rH=%u\n", (unsigned)hr, rW, rH); fclose(f); } }
-                                return false;
-                            }
-                            // [DIAG] Log success
-                            { FILE* f = nullptr; fopen_s(&f, "E:\\qv_cdr_diag.txt", "a");
-                              if (f) { fprintf(f, "[CDR-DIAG] resvg OK: rW=%u rH=%u (target tW=%d tH=%d)\n", rW, rH, tW, tH); fclose(f); } }
+                            if (FAILED(hr) || rW == 0 || rH == 0) return false;
                             QuickView::RawImageFrame frame;
                             frame.pixels = bgra.data();
                             frame.width = (int)rW;
@@ -11938,9 +11916,6 @@ void ProcessEngineEvents(HWND hwnd) {
                             resourceReady = true;
                             hr = S_OK;
                             OutputDebugStringA("[CDR-DIAG] CDR routed through resvg directly\n");
-                            // [DIAG] Write to file
-                            { FILE* f = nullptr; fopen_s(&f, "E:\\qv_cdr_diag.txt", "a");
-                              if (f) { fprintf(f, "[CDR-DIAG] main.cpp: resvg render OK, svgW=%.1f svgH=%.1f\n", svgW, svgH); fclose(f); } }
                         } else {
                             hr = E_FAIL;
                             char db[128];

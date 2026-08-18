@@ -1220,8 +1220,10 @@ void ImageEngine::FastLane::QueueWorker() {
                     cmd.path.c_str(), &previewFrame)) &&
                 previewFrame.IsValid() && !previewFrame.IsSvg()) {
               EngineEvent pe;
-              pe.type = EventType::FullReady;  // treated as final preview so the
-                                               // quality gate does not drop it
+              pe.type = EventType::PreviewReady;  // [CDR Fix] Use PreviewReady so
+                                                 // g_imageQualityLevel=1, allowing
+                                                 // the subsequent SVG_XML FullReady
+                                                 // frame to pass the quality gate.
               pe.filePath = cmd.path;
               pe.imageId = cmd.id;
               pe.targetSlot = cmd.targetSlot;
