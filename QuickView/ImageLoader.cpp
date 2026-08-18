@@ -4439,13 +4439,14 @@ HRESULT QvRasterizeSvgFrameToBgra(const RawImageFrame::SvgData& svgData,
   }
 
   if (haveBBox) {
-    // Heuristic: if the content bbox is wildly larger than the page rect,
-    // some hidden/guide element has inflated it. Fall back to page rect
-    // so the main design isn't shrunk to a few pixels.
-    // [CDR Fix] Raised from 8x to 200x: many CDR files have legitimate content
-    // (bleed, registration marks, off-page artwork) 50-100x the page size.
-    // Only truly extreme inflation (>200x) is treated as a parsing anomaly.
-    if (rw > pageW * 200.0 || rh > pageH * 200.0) {
+    // [CDR Fix] If the content bbox is larger than the page rect, expanding
+    // the viewBox shrinks the main design to a tiny fraction of the bitmap,
+    // making it extremely blurry. Only expand when the content is at most
+    // 3x the page size (moderate off-page content like bleed marks).
+    // Beyond 3x, fall back to the page rect so the main design fills the
+    // bitmap and stays sharp. This matches how image viewers typically
+    // display only the page content, not the entire canvas.
+    if (rw > pageW * 3.0 || rh > pageH * 3.0) {
       rx = pageX; ry = pageY; rw = pageW; rh = pageH;
     }
   }
@@ -4619,7 +4620,7 @@ HRESULT ExportToSvg(LPCWSTR inPath, LPCWSTR outPath) {
             // Heuristic: if the content bbox is wildly larger than the page
             // rect, a hidden/guide element likely inflated it; keep the page
             // rect so the main design isn't shrunk to a few pixels.
-            if (!(rw > pageW * 8.0 || rh > pageH * 8.0)) {
+            if (!(rw > pageW * 3.0 || rh > pageH * 3.0)) {
               std::string rewritten = RewriteSvgRootViewBox(svgStr, nx, ny, rw, rh);
               svgXml.assign(reinterpret_cast<const uint8_t*>(rewritten.data()),
                             reinterpret_cast<const uint8_t*>(rewritten.data()) + rewritten.size());
