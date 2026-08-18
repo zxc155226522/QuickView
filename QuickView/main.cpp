@@ -1905,6 +1905,14 @@ static bool UseSvgViewportRendering(const ImageResource& res) {
     return res.isSvg && res.svgDoc;
 }
 
+// [resvg Fix] Surface-based rendering applies to both D2D SVG vector path and
+// resvg rasterized path (CDR/CMX). Both use ComputeSvgSurfaceSize for backing
+// surface sizing and need Image-layer repaints on pan/zoom to trigger
+// re-rasterization (resvg) or re-render (SVG vector).
+static bool UseSurfaceBasedRendering(const ImageResource& res) {
+    return UseSvgViewportRendering(res) || res.isResvg;
+}
+
 static float ComputeBaseFitScaleForVisual(const VisualState& vs, float winW, float winH);
 
 // [Fix] The SVG backing surface must hold the FULL zoomed image (not just the
@@ -3105,7 +3113,11 @@ static bool g_showControls = true;
 // --- Helpers for Zoom Consistency [Unification] ---
 
 static D2D1_SIZE_F GetLogicalImageSize() {
-    if (GetPaneContext(PaneSlot::Primary).resource && GetPaneContext(PaneSlot::Primary).resource.isSvg) {
+    // [resvg Fix] resvg-rasterized SVGs (CDR/CMX) store the SVG intrinsic
+    // dimensions in svgW/svgH, same as the D2D SVG vector path.
+    if (GetPaneContext(PaneSlot::Primary).resource &&
+        (GetPaneContext(PaneSlot::Primary).resource.isSvg ||
+         GetPaneContext(PaneSlot::Primary).resource.isResvg)) {
         if (GetPaneContext(PaneSlot::Primary).resource.svgW > 0.0f && GetPaneContext(PaneSlot::Primary).resource.svgH > 0.0f) {
             return GetPaneContext(PaneSlot::Primary).resource.GetSize();
         }
@@ -3505,9 +3517,13 @@ static float ClampTotalScale(HWND hwnd, float newTotalScale) {
 
     float minScale = 0.1f * fitScale;
     float maxScale = std::max(50.0f * fitScale, 50.0f);
-    if (GetPaneContext(PaneSlot::Primary).resource.isSvg && !UseSvgViewportRendering(GetPaneContext(PaneSlot::Primary).resource)) {
-        maxScale = std::min(maxScale, GetSvgMaxSharpTotalScale(GetPaneContext(PaneSlot::Primary).resource));
-    }
+if (GetPaneContext(PaneSlot::Primary).resource.isSvg && !UseSvgViewportRendering(GetPaneContext(PaneSlot::Primary).resource)) {
+maxScale = std::min(maxScale, GetSvgMaxSharpTotalScale(GetPaneContext(PaneSlot::Primary).resource));
+}
+// [resvg Fix] resvg bitmaps are also capped by the GPU surface size limit.
+if (GetPaneContext(PaneSlot::Primary).resource.isResvg) {
+maxScale = std::min(maxScale, GetSvgMaxSharpTotalScale(GetPaneContext(PaneSlot::Primary).resource));
+}
 
     if (newTotalScale < minScale) newTotalScale = minScale;
     if (newTotalScale > maxScale) newTotalScale = maxScale;
@@ -5548,7 +5564,12 @@ if (g_config.CanvasColor == 5 && g_config.SwatchColorIndex >= 0 && g_config.Swat
             displayPanX += viewport.CenterOffsetX;
             displayPanY += viewport.CenterOffsetY;
 
-            if (UseSvgViewportRendering(GetPaneContext(PaneSlot::Primary).resource)) {
+            // [resvg Fix] resvg-rasterized SVGs (CDR/CMX) also use the SVG surface
+            // transform path: the backing surface already holds the FULL zoomed image
+            // at display resolution (re-rasterized on zoom change), so DComp should
+            // apply 1:1 + pan (ds) instead of stretching a fixed bitmap with displayZoom.
+            if (UseSvgViewportRendering(GetPaneContext(PaneSlot::Primary).resource) ||
+                GetPaneContext(PaneSlot::Primary).resource.isResvg) {
                 VisualState surfaceVs{};
                 float sW = 0.0f, sH = 0.0f, ds = 1.0f;
                 ComputeSvgSurfaceSize(winW, winH, sW, sH, ds);
@@ -5558,7 +5579,7 @@ if (g_config.CanvasColor == 5 && g_config.SwatchColorIndex >= 0 && g_config.Swat
                 surfaceVs.IsRotated90 = false;
                 surfaceVs.FlipX = 1.0f;
                 surfaceVs.FlipY = 1.0f;
-                // The SVG backing surface now holds the FULL zoomed image; DComp performs
+                // The backing surface holds the FULL zoomed image; DComp performs
                 // centering + pan (and a possible upscale only when GPU limits are exceeded).
                 float svgPanX = GetPaneContext(PaneSlot::Primary).view.PanX + viewport.CenterOffsetX;
                 float svgPanY = GetPaneContext(PaneSlot::Primary).view.PanY + viewport.CenterOffsetY;
@@ -8648,11 +8669,11 @@ SKIP_EDGE_NAV:;
 
                  RECT rc; GetClientRect(hwnd, &rc);
                  SyncDCompState(hwnd, (float)rc.right, (float)rc.bottom);
-                 if (UseSvgViewportRendering(GetPaneContext(PaneSlot::Primary).resource)) {
-                     RequestRepaint(PaintLayer::Image | PaintLayer::Dynamic | PaintLayer::Static);
-                 } else {
-                     RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);  // OSD and Border indicators update
-                 }
+if (UseSurfaceBasedRendering(GetPaneContext(PaneSlot::Primary).resource)) {
+RequestRepaint(PaintLayer::Image | PaintLayer::Dynamic | PaintLayer::Static);
+} else {
+RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);  // OSD and Border indicators update
+}
              }
          }
          
@@ -9913,11 +9934,11 @@ SKIP_EDGE_NAV:;
                 GetPaneContext(PaneSlot::Primary).view.PanX += dx;
                 RECT rc; GetClientRect(hwnd, &rc);
                 SyncDCompState(hwnd, (float)rc.right, (float)rc.bottom);
-                if (UseSvgViewportRendering(GetPaneContext(PaneSlot::Primary).resource)) {
-                    RequestRepaint(PaintLayer::Image | PaintLayer::Dynamic | PaintLayer::Static);
-                } else {
-                    RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);
-                }
+if (UseSurfaceBasedRendering(GetPaneContext(PaneSlot::Primary).resource)) {
+RequestRepaint(PaintLayer::Image | PaintLayer::Dynamic | PaintLayer::Static);
+} else {
+RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);
+}
             }
             return 0;
         }
@@ -10028,11 +10049,11 @@ SKIP_EDGE_NAV:;
                     GetPaneContext(PaneSlot::Primary).view.PanX += dx;
                     RECT rc; GetClientRect(hwnd, &rc);
                     SyncDCompState(hwnd, (float)rc.right, (float)rc.bottom);
-                    if (UseSvgViewportRendering(GetPaneContext(PaneSlot::Primary).resource)) {
-                        RequestRepaint(PaintLayer::Image | PaintLayer::Dynamic | PaintLayer::Static);
-                    } else {
-                        RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);
-                    }
+if (UseSurfaceBasedRendering(GetPaneContext(PaneSlot::Primary).resource)) {
+RequestRepaint(PaintLayer::Image | PaintLayer::Dynamic | PaintLayer::Static);
+} else {
+RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);
+}
                 }
             } else {
                 // Vertical Pan over minimap
@@ -10051,11 +10072,11 @@ SKIP_EDGE_NAV:;
                     GetPaneContext(PaneSlot::Primary).view.PanY += dy;
                     RECT rc; GetClientRect(hwnd, &rc);
                     SyncDCompState(hwnd, (float)rc.right, (float)rc.bottom);
-                    if (UseSvgViewportRendering(GetPaneContext(PaneSlot::Primary).resource)) {
-                        RequestRepaint(PaintLayer::Image | PaintLayer::Dynamic | PaintLayer::Static);
-                    } else {
-                        RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);
-                    }
+if (UseSurfaceBasedRendering(GetPaneContext(PaneSlot::Primary).resource)) {
+RequestRepaint(PaintLayer::Image | PaintLayer::Dynamic | PaintLayer::Static);
+} else {
+RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);
+}
                 }
             }
             return 0;
@@ -10083,11 +10104,11 @@ SKIP_EDGE_NAV:;
                     GetPaneContext(PaneSlot::Primary).view.PanX += dx;
                     RECT rc; GetClientRect(hwnd, &rc);
                     SyncDCompState(hwnd, (float)rc.right, (float)rc.bottom);
-                    if (UseSvgViewportRendering(GetPaneContext(PaneSlot::Primary).resource)) {
-                        RequestRepaint(PaintLayer::Image | PaintLayer::Dynamic | PaintLayer::Static);
-                    } else {
-                        RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);
-                    }
+if (UseSurfaceBasedRendering(GetPaneContext(PaneSlot::Primary).resource)) {
+RequestRepaint(PaintLayer::Image | PaintLayer::Dynamic | PaintLayer::Static);
+} else {
+RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);
+}
                 }
                 return 0;
             }
@@ -10137,11 +10158,11 @@ SKIP_EDGE_NAV:;
                 GetPaneContext(PaneSlot::Primary).view.PanY += dy;
                 RECT rc; GetClientRect(hwnd, &rc);
                 SyncDCompState(hwnd, (float)rc.right, (float)rc.bottom);
-                if (UseSvgViewportRendering(GetPaneContext(PaneSlot::Primary).resource)) {
-                    RequestRepaint(PaintLayer::Image | PaintLayer::Dynamic | PaintLayer::Static);
-                } else {
-                    RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);
-                }
+if (UseSurfaceBasedRendering(GetPaneContext(PaneSlot::Primary).resource)) {
+RequestRepaint(PaintLayer::Image | PaintLayer::Dynamic | PaintLayer::Static);
+} else {
+RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);
+}
             }
             return 0;
         }
@@ -11608,11 +11629,15 @@ void OnResize(HWND hwnd, UINT width, UINT height) {
         }
         g_compEngine->Commit();
         
-        // [SVG Sync] Trigger lazy re-render after window resize settles.
-        // During active resize, SyncDCompState handles smooth pixel scaling.
-        if (GetPaneContext(PaneSlot::Primary).resource.isSvg && UseSvgViewportRendering(GetPaneContext(PaneSlot::Primary).resource)) {
-            SetTimer(hwnd, IDT_SVG_RERENDER, 100, nullptr);
-        }
+// [SVG Sync] Trigger lazy re-render after window resize settles.
+// During active resize, SyncDCompState handles smooth pixel scaling.
+if (GetPaneContext(PaneSlot::Primary).resource.isSvg && UseSvgViewportRendering(GetPaneContext(PaneSlot::Primary).resource)) {
+SetTimer(hwnd, IDT_SVG_RERENDER, 100, nullptr);
+}
+// [resvg Fix] resvg bitmaps also need re-rasterization after resize.
+if (GetPaneContext(PaneSlot::Primary).resource.isResvg) {
+SetTimer(hwnd, IDT_SVG_RERENDER, 100, nullptr);
+}
     }
     if (g_uiRenderer) g_uiRenderer->OnResize(width, height);
     g_toolbar.UpdateLayout((float)width, (float)height);
@@ -11869,76 +11894,33 @@ void ProcessEngineEvents(HWND hwnd) {
                             resvgRes.Reset();
                             resvgRes.bitmap = bmp;
                             resvgRes.isResvg = true;
+                            // [resvg Fix] Set svgW/svgH so GetLogicalImageSize returns the
+                            // SVG's intrinsic dimensions (not bitmap pixels or 512x512
+                            // metadata default), enabling correct surface-size calculation.
+                            resvgRes.svgW = evt.rawFrame->svg->viewBoxW;
+                            resvgRes.svgH = evt.rawFrame->svg->viewBoxH;
                             resvgRes.resvgSrc = std::make_shared<QuickView::RawImageFrame::SvgData>(*evt.rawFrame->svg);
                             resvgRes.resvgRasterW = rW;
                             resvgRes.resvgRasterH = rH;
                             return true;
                         };
 
-                        if (hasEmbeddedImage) {
-                            // Route embedded-bitmap SVGs through resvg directly.
-                            if (renderSvgViaResvg()) { resourceReady = true; hr = S_OK; }
-                            else hr = E_FAIL;
+                        // [CDR Fix] D2D's ID2D1SvgDocument only supports a limited SVG
+                        // subset and cannot correctly render libcdr's SVG output (CSS
+                        // styles, complex paths, transforms). Route ALL CDR/CMX SVGs
+                        // through resvg for correct rendering. resvg re-rasterizes on
+                        // zoom via the surface-size transform in SyncDCompState, so the
+                        // preview stays sharp at any zoom level.
+                        if (renderSvgViaResvg()) {
+                            resourceReady = true;
+                            hr = S_OK;
+                            OutputDebugStringA("[CDR-DIAG] CDR routed through resvg directly\n");
                         } else {
-                        // [CDR Fix] Large-coordinate CDR SVG scaled to fit the window
-                        // becomes sub-pixel thin and the white page rect dominates ->
-                        // blank main view. Upscale stroke widths at the initial fit
-                        // scale (mirrors RasterizeSvgThumbnail logic).
-                        const uint8_t* streamData = xml.data();
-                        size_t streamSize = xml.size();
-                        std::string upscaledXml;
-                        {
-                            RECT rcClient{};
-                            GetClientRect(hwnd, &rcClient);
-                            const ImageViewportLayout layout =
-                                ComputeImageViewportLayout((float)rcClient.right, (float)rcClient.bottom);
-                            const float paneW = (std::max)(0.0f, layout.Right - layout.Left);
-                            const float paneH = (std::max)(0.0f, layout.Bottom - layout.Top);
-                            if (paneW > 1.0f && paneH > 1.0f && svgW > 0.0f && svgH > 0.0f) {
-                                const float fitScale = (std::min)(paneW / svgW, paneH / svgH);
-                                if (fitScale < 1.0f) {
-                                    upscaledXml.assign((const char*)xml.data(), xml.size());
-                                    QuickView::QvUpscaleSvgStrokeWidths(upscaledXml, 2.0f, fitScale);
-                                    streamData = (const uint8_t*)upscaledXml.data();
-                                    streamSize = upscaledXml.size();
-                                }
-                            }
+                            hr = E_FAIL;
+                            char db[128];
+                            snprintf(db, sizeof(db), "[CDR-DIAG] resvg rendering failed for CDR\n");
+                            OutputDebugStringA(db);
                         }
-
-                        // Create Stream
-                        ComPtr<IStream> stream;
-                        HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, streamSize);
-                        if (hMem) {
-                            void* pMem = GlobalLock(hMem);
-                            if (pMem) {
-                                memcpy(pMem, streamData, streamSize);
-                                GlobalUnlock(hMem);
-                                CreateStreamOnHGlobal(hMem, TRUE, &stream);
-                            } else GlobalFree(hMem);
-                        }
-                         
-                         if (stream) {
-                             D2D1_SIZE_F vpSize = { GetPaneContext(PaneSlot::Primary).resource.svgW, GetPaneContext(PaneSlot::Primary).resource.svgH };
-                             if (vpSize.width <= 0) vpSize.width = 100;
-                             if (vpSize.height <= 0) vpSize.height = 100;
-                             
-                             hr = ctx5->CreateSvgDocument(stream.Get(), vpSize, &GetPaneContext(PaneSlot::Primary).resource.svgDoc);
-                         } else hr = E_OUTOFMEMORY;
-
-                         if (SUCCEEDED(hr)) {
-                             resourceReady = true;
-                             OutputDebugStringA("[CDR-DIAG] D2D CreateSvgDocument succeeded\n");
-                         } else if (renderSvgViaResvg()) {
-                             // [resvg] D2D SVG subset failed -> safety net.
-                             resourceReady = true;
-                             hr = S_OK;
-                             OutputDebugStringA("[CDR-DIAG] D2D failed, resvg safety net succeeded\n");
-                         } else {
-                             char db[128];
-                             snprintf(db, sizeof(db), "[CDR-DIAG] D2D failed (0x%X), resvg also failed\n", (unsigned)hr);
-                             OutputDebugStringA(db);
-                         }
-                        } // end else (D2D vector path)
                      } else hr = E_NOINTERFACE;
                      
                      if (SUCCEEDED(hr)) {
@@ -13676,9 +13658,15 @@ void OnPaint(HWND hwnd) {
             // Background clearing and grid drawing are moved to CompositionEngine surfaces.
             SyncDCompState(hwnd, winPixelsW, winPixelsH);
 
-            if (imageWasDirty && UseSvgViewportRendering(GetPaneContext(PaneSlot::Primary).resource)) {
-                UpgradeSvgSurface(hwnd, GetPaneContext(PaneSlot::Primary).resource);
-            }
+if (imageWasDirty && UseSvgViewportRendering(GetPaneContext(PaneSlot::Primary).resource)) {
+UpgradeSvgSurface(hwnd, GetPaneContext(PaneSlot::Primary).resource);
+}
+
+// [resvg Fix] resvg bitmaps also need re-rasterization when the surface size
+// changes (e.g. zoom/resize), mirroring the SVG vector re-render above.
+if (imageWasDirty && GetPaneContext(PaneSlot::Primary).resource.isResvg) {
+TryUpgradeBitmapSurface(hwnd);
+}
 
             // [Fix] Snapshot metadata to avoid dangling .c_str() if coroutine resets GetPaneContext(PaneSlot::Primary).metadata mid-paint.
             const auto titanMeta = GetPaneContext(PaneSlot::Primary).metadata; // Value copy - safe from concurrent reset
@@ -14014,7 +14002,7 @@ void PerformSmartZoom(HWND hwnd, float newTotalScale, const POINT* centerPt, [[m
     const float sourceDisplayZoom = AppContext::GetInstance().SmoothZoom.Active ? AppContext::GetInstance().SmoothZoom.CurrentZoom : (currentBaseFit * GetPaneContext(PaneSlot::Primary).view.Zoom);
     const float sourceDisplayPanX = AppContext::GetInstance().SmoothZoom.Active ? AppContext::GetInstance().SmoothZoom.CurrentPanX : GetPaneContext(PaneSlot::Primary).view.PanX;
     const float sourceDisplayPanY = AppContext::GetInstance().SmoothZoom.Active ? AppContext::GetInstance().SmoothZoom.CurrentPanY : GetPaneContext(PaneSlot::Primary).view.PanY;
-    const bool useSmoothZoomAnimation = animateDisplay && !UseSvgViewportRendering(GetPaneContext(PaneSlot::Primary).resource);
+    const bool useSmoothZoomAnimation = animateDisplay && !UseSurfaceBasedRendering(GetPaneContext(PaneSlot::Primary).resource);
     const POINT* effectiveAnchorPt = (centerPt && g_config.MouseAnchoredWindowZoom) ? centerPt : nullptr;
 
     // [Fix] Do not trigger auto-lock resize if we're just looking at the skeleton
@@ -15650,11 +15638,11 @@ bool HandleHotkeyAction(HWND hwnd, HotkeyAction action) {
 
             RECT rc; GetClientRect(hwnd, &rc);
             SyncDCompState(hwnd, (float)rc.right, (float)rc.bottom);
-            if (UseSvgViewportRendering(GetPaneContext(PaneSlot::Primary).resource)) {
-                RequestRepaint(PaintLayer::Image | PaintLayer::Dynamic | PaintLayer::Static);
-            } else {
-                RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);
-            }
+if (UseSurfaceBasedRendering(GetPaneContext(PaneSlot::Primary).resource)) {
+RequestRepaint(PaintLayer::Image | PaintLayer::Dynamic | PaintLayer::Static);
+} else {
+RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);
+}
         }
         return true;
     }

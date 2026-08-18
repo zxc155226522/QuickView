@@ -98,7 +98,8 @@ struct ImageResource {
     }
 
     D2D1_SIZE_F GetSize() const {
-        if (isSvg) return D2D1::SizeF(svgW, svgH);
+        // [resvg Fix] resvg-rasterized SVGs store intrinsic dimensions in svgW/svgH.
+        if (isSvg || isResvg) return D2D1::SizeF(svgW, svgH);
         if (bitmap) return bitmap->GetSize();
         return D2D1::SizeF(0.0f, 0.0f);
     }
