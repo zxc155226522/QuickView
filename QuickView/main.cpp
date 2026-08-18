@@ -11812,6 +11812,11 @@ void ProcessEngineEvents(HWND hwnd) {
                              : g_renderEngine->GetDisplayColorState();
             
             if (evt.rawFrame && evt.rawFrame->IsValid()) {
+                // [DIAG] Log what type of frame we got
+                { FILE* f = nullptr; fopen_s(&f, "E:\\qv_cdr_diag.txt", "a");
+                  if (f) { fprintf(f, "[CDR-DIAG] ProcessEngineEvents: frame valid=%d isSvg=%d hasSvg=%d width=%d height=%d\n",
+                           evt.rawFrame->IsValid() ? 1 : 0, evt.rawFrame->IsSvg() ? 1 : 0,
+                           evt.rawFrame->svg ? 1 : 0, evt.rawFrame->width, evt.rawFrame->height); fclose(f); } }
                 if (evt.rawFrame->IsSvg()) {
                      // === SVG Path ===
                      GetPaneContext(PaneSlot::Primary).resource.Reset();
@@ -11827,6 +11832,11 @@ void ProcessEngineEvents(HWND hwnd) {
                         const auto& xml = evt.rawFrame->svg->xmlData;
                         const float svgW = evt.rawFrame->svg->viewBoxW;
                         const float svgH = evt.rawFrame->svg->viewBoxH;
+
+                        // [DIAG] Log entry into SVG path
+                        { FILE* f = nullptr; fopen_s(&f, "E:\\qv_cdr_diag.txt", "a");
+                          if (f) { fprintf(f, "[CDR-DIAG] main.cpp SVG path entered: xmlSize=%zu svgW=%.1f svgH=%.1f\n",
+                                   xml.size(), svgW, svgH); fclose(f); } }
 
                         // [resvg] Detect embedded bitmaps (<image>). D2D's
                         // ID2D1SvgDocument only supports a SVG subset and cannot
@@ -11875,11 +11885,24 @@ void ProcessEngineEvents(HWND hwnd) {
                             int tW = (int)std::max(1L, (long)std::round(sW));
                             int tH = (int)std::max(1L, (long)std::round(sH));
 
+                            // [DIAG] Log resvg render params
+                            { FILE* f = nullptr; fopen_s(&f, "E:\\qv_cdr_diag.txt", "a");
+                              if (f) { fprintf(f, "[CDR-DIAG] renderSvgViaResvg: sW=%.1f sH=%.1f ds=%.3f tW=%d tH=%d viewBoxW=%.1f viewBoxH=%.1f\n",
+                                       sW, sH, ds, tW, tH, evt.rawFrame->svg->viewBoxW, evt.rawFrame->svg->viewBoxH); fclose(f); } }
+
                             std::vector<uint8_t> bgra;
                             uint32_t rW = 0, rH = 0;
                             HRESULT hr = QuickView::QvRasterizeSvgFrameToBgra(
                                 *evt.rawFrame->svg, bgra, rW, rH, true, true, 16384, tW, tH);
-                            if (FAILED(hr) || rW == 0 || rH == 0) return false;
+                            if (FAILED(hr) || rW == 0 || rH == 0) {
+                                // [DIAG] Log failure
+                                { FILE* f = nullptr; fopen_s(&f, "E:\\qv_cdr_diag.txt", "a");
+                                  if (f) { fprintf(f, "[CDR-DIAG] resvg FAILED hr=0x%X rW=%u rH=%u\n", (unsigned)hr, rW, rH); fclose(f); } }
+                                return false;
+                            }
+                            // [DIAG] Log success
+                            { FILE* f = nullptr; fopen_s(&f, "E:\\qv_cdr_diag.txt", "a");
+                              if (f) { fprintf(f, "[CDR-DIAG] resvg OK: rW=%u rH=%u (target tW=%d tH=%d)\n", rW, rH, tW, tH); fclose(f); } }
                             QuickView::RawImageFrame frame;
                             frame.pixels = bgra.data();
                             frame.width = (int)rW;
@@ -11915,6 +11938,9 @@ void ProcessEngineEvents(HWND hwnd) {
                             resourceReady = true;
                             hr = S_OK;
                             OutputDebugStringA("[CDR-DIAG] CDR routed through resvg directly\n");
+                            // [DIAG] Write to file
+                            { FILE* f = nullptr; fopen_s(&f, "E:\\qv_cdr_diag.txt", "a");
+                              if (f) { fprintf(f, "[CDR-DIAG] main.cpp: resvg render OK, svgW=%.1f svgH=%.1f\n", svgW, svgH); fclose(f); } }
                         } else {
                             hr = E_FAIL;
                             char db[128];

@@ -12081,6 +12081,12 @@ HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
              hasStyleAttr ? 1 : 0, hasImage ? 1 : 0, hasDataImage ? 1 : 0,
              xml.data());
     OutputDebugStringA(diag);
+    // [DIAG] Write to file for debugging
+    {
+      FILE* f = nullptr;
+      fopen_s(&f, "E:\\qv_cdr_diag.txt", "a");
+      if (f) { fprintf(f, "%s", diag); fclose(f); }
+    }
   }
 
   if (pLoaderName)
