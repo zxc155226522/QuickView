@@ -4439,16 +4439,13 @@ HRESULT QvRasterizeSvgFrameToBgra(const RawImageFrame::SvgData& svgData,
   }
 
   if (haveBBox) {
-    fprintf(stderr, "[svg-render] page=%.1f,%.1f,%.1f,%.1f contentBbox=%.1f,%.1f,%.1f,%.1f final=%.1f,%.1f,%.1f,%.1f\n",
-            pageX, pageY, pageW, pageH,
-            cb.x, cb.y, cb.width, cb.height,
-            rx, ry, rw, rh);
     // Heuristic: if the content bbox is wildly larger than the page rect,
     // some hidden/guide element has inflated it. Fall back to page rect
     // so the main design isn't shrunk to a few pixels.
-    if (rw > pageW * 8.0 || rh > pageH * 8.0) {
-      fprintf(stderr, "[svg-render] content bbox too large (%.1fx%.1f vs page %.1fx%.1f), falling back to page rect\n",
-              rw, rh, pageW, pageH);
+    // [CDR Fix] Raised from 8x to 200x: many CDR files have legitimate content
+    // (bleed, registration marks, off-page artwork) 50-100x the page size.
+    // Only truly extreme inflation (>200x) is treated as a parsing anomaly.
+    if (rw > pageW * 200.0 || rh > pageH * 200.0) {
       rx = pageX; ry = pageY; rw = pageW; rh = pageH;
     }
   }
