@@ -1905,12 +1905,13 @@ static bool UseSvgViewportRendering(const ImageResource& res) {
     return res.isSvg && res.svgDoc;
 }
 
-// [resvg Fix] Surface-based rendering applies to both D2D SVG vector path and
-// resvg rasterized path (CDR/CMX). Both use ComputeSvgSurfaceSize for backing
-// surface sizing and need Image-layer repaints on pan/zoom to trigger
-// re-rasterization (resvg) or re-render (SVG vector).
+// [resvg Fix] Surface-based rendering only applies to D2D SVG vector path.
+// resvg (CDR/CMX) uses the standard bitmap displayZoom path: the bitmap is
+// rasterized at fit-to-window resolution and DComp stretches it with
+// displayZoom. Re-rasterization only happens on zoom END (not during
+// interaction), so dragging is smooth.
 static bool UseSurfaceBasedRendering(const ImageResource& res) {
-    return UseSvgViewportRendering(res) || res.isResvg;
+    return UseSvgViewportRendering(res);
 }
 
 static float ComputeBaseFitScaleForVisual(const VisualState& vs, float winW, float winH);
@@ -2198,18 +2199,14 @@ static void TryUpgradeBitmapSurface(HWND hwnd) {
     // [resvg] When the zoom changes the whole-image surface size, re-rasterize
     // the resvg bitmap at the new resolution (mirrors the SVG vector path's
     // re-render on zoom). Threshold avoids re-raster on tiny interaction steps.
+    // [resvg Fix] Skip during active interaction (dragging) to avoid stutter;
+    // re-rasterization happens on IDT_INTERACTION timeout (interaction end).
     if (GetPaneContext(PaneSlot::Primary).resource.isResvg) {
-        RECT rc; GetClientRect(hwnd, &rc);
-        if (rc.right <= 0 || rc.bottom <= 0) return;
-        float sW = 0.0f, sH = 0.0f, ds = 1.0f;
-        ComputeSvgSurfaceSize((float)rc.right, (float)rc.bottom, sW, sH, ds);
-        UINT tw = (UINT)std::max(1L, (long)std::round(sW));
-        UINT th = (UINT)std::max(1L, (long)std::round(sH));
-        auto& rres = GetPaneContext(PaneSlot::Primary).resource;
-        if (std::abs((int)rres.resvgRasterW - (int)tw) > 64 ||
-            std::abs((int)rres.resvgRasterH - (int)th) > 64) {
-            RenderImageToDComp(hwnd, rres, true);
-        }
+        if (GetPaneContext(PaneSlot::Primary).view.IsInteracting) return;
+        // [resvg Fix] RenderImageToDComp internally checks if the raster
+        // size needs updating (desiredW/desiredH vs resvgRasterW/H) and
+        // re-rasterizes only when the difference exceeds 64px.
+        RenderImageToDComp(hwnd, GetPaneContext(PaneSlot::Primary).resource, true);
         return;
     }
 
@@ -2305,13 +2302,10 @@ bool RenderImageToDComp(HWND hwnd, ImageResource& res, bool isFastUpgrade) {
         surfW = (UINT)std::max(1L, (long)std::round(sW));
         surfH = (UINT)std::max(1L, (long)std::round(sH));
     } else if (!res.isSvg && res.isResvg) {
-        // [resvg] Use the same whole-image-at-zoom surface sizing as the SVG
-        // vector path, so the rasterized bitmap matches display resolution at
-        // any zoom level. The bitmap is re-rasterized below when the size moves.
-        float sW = 0.0f, sH = 0.0f, ds = 1.0f;
-        ComputeSvgSurfaceSize((float)winW, (float)winH, sW, sH, ds);
-        surfW = (UINT)std::max(1L, (long)std::round(sW));
-        surfH = (UINT)std::max(1L, (long)std::round(sH));
+        // [resvg Fix] Use standard bitmap surface sizing (window size), not
+        // ComputeSvgSurfaceSize. resvg bitmap is rasterized at fit-to-window
+        // resolution and displayed via displayZoom like a normal photo.
+        // surfW/surfH stay as targetWinW/targetWinH (set above).
     }
 
     // [Titan Detection]
@@ -2391,17 +2385,31 @@ bool RenderImageToDComp(HWND hwnd, ImageResource& res, bool isFastUpgrade) {
         // === Bitmap Path (Legacy) ===
         if (!res.bitmap) return false;
 
-        // [resvg] Re-rasterize at the new surface size when the zoom changes
-        // the whole-image surface by more than a threshold, so the preview
-        // stays sharp (no stretched low-res bitmap). Threshold avoids
-        // re-rasterizing on every tiny interaction step.
+        // [resvg Fix] Re-rasterize at the zoomed display resolution so the
+        // preview stays sharp after zoom. Uses the same fit-to-window-zoom
+        // logic as the initial rasterization. Threshold avoids re-rasterizing
+        // on every tiny interaction step.
         if (res.isResvg && res.resvgSrc) {
-            if (std::abs((int)res.resvgRasterW - (int)surfW) > 64 ||
-                std::abs((int)res.resvgRasterH - (int)surfH) > 64) {
+            // Compute desired raster size = SVG intrinsic size * fitScale * zoom
+            float svgW = res.svgW;
+            float svgH = res.svgH;
+            if (svgW <= 0) svgW = 512;
+            if (svgH <= 0) svgH = 512;
+            const ImageViewportLayout layout2 =
+                ComputeImageViewportLayout((float)winW, (float)winH);
+            float paneW2 = (std::max)(0.0f, layout2.Right - layout2.Left);
+            float paneH2 = (std::max)(0.0f, layout2.Bottom - layout2.Top);
+            float fitScale2 = (std::min)(paneW2 / svgW, paneH2 / svgH);
+            if (fitScale2 < 0.01f) fitScale2 = 0.01f;
+            float zoomVal = GetPaneContext(PaneSlot::Primary).view.Zoom;
+            int desiredW = (int)std::max(1L, (long)std::round(svgW * fitScale2 * zoomVal));
+            int desiredH = (int)std::max(1L, (long)std::round(svgH * fitScale2 * zoomVal));
+            if (std::abs((int)res.resvgRasterW - desiredW) > 64 ||
+                std::abs((int)res.resvgRasterH - desiredH) > 64) {
                 std::vector<uint8_t> bgra;
                 uint32_t rW = 0, rH = 0;
                 if (SUCCEEDED(QuickView::QvRasterizeSvgFrameToBgra(
-                        *res.resvgSrc, bgra, rW, rH, true, true, 16384, (int)surfW, (int)surfH))) {
+                        *res.resvgSrc, bgra, rW, rH, true, true, 16384, desiredW, desiredH))) {
                     QuickView::RawImageFrame frame;
                     frame.pixels = bgra.data();
                     frame.width = (int)rW;
@@ -5565,12 +5573,12 @@ if (g_config.CanvasColor == 5 && g_config.SwatchColorIndex >= 0 && g_config.Swat
             displayPanX += viewport.CenterOffsetX;
             displayPanY += viewport.CenterOffsetY;
 
-            // [resvg Fix] resvg-rasterized SVGs (CDR/CMX) also use the SVG surface
-            // transform path: the backing surface already holds the FULL zoomed image
-            // at display resolution (re-rasterized on zoom change), so DComp should
-            // apply 1:1 + pan (ds) instead of stretching a fixed bitmap with displayZoom.
-            if (UseSvgViewportRendering(GetPaneContext(PaneSlot::Primary).resource) ||
-                GetPaneContext(PaneSlot::Primary).resource.isResvg) {
+            // [resvg Fix] resvg-rasterized SVGs (CDR/CMX) use the standard bitmap
+            // displayZoom path: the bitmap is rasterized at fit-to-window resolution
+            // and DComp stretches it with displayZoom (like a normal photo).
+            // Re-rasterization only happens on zoom END (not during interaction),
+            // so dragging is smooth (no per-frame SVG parse + rasterize).
+            if (UseSvgViewportRendering(GetPaneContext(PaneSlot::Primary).resource)) {
                 VisualState surfaceVs{};
                 float sW = 0.0f, sH = 0.0f, ds = 1.0f;
                 ComputeSvgSurfaceSize(winW, winH, sW, sH, ds);
@@ -11865,16 +11873,30 @@ void ProcessEngineEvents(HWND hwnd) {
                             if (!g_renderEngine || !evt.rawFrame || !evt.rawFrame->svg) {
                                 return false;
                             }
-                            // [resvg] Rasterize at the current view's surface size
-                            // (whole image at current zoom) so the preview is as
-                            // sharp as an exported high-res PNG, instead of a
-                            // fixed 4096px bitmap that gets stretched when zoomed.
+                            // [resvg Fix] Rasterize at the window's display resolution
+                            // (fit-to-window pixel size) so the preview is sharp.
+                            // resvg output must match display pixels; using SVG
+                            // intrinsic size (e.g. 378x378) would be stretched by
+                            // DComp to window size -> blurry.
                             RECT rcClient{};
                             GetClientRect(hwnd, &rcClient);
-                            float sW = 0.0f, sH = 0.0f, ds = 1.0f;
-                            ComputeSvgSurfaceSize((float)rcClient.right, (float)rcClient.bottom, sW, sH, ds);
-                            int tW = (int)std::max(1L, (long)std::round(sW));
-                            int tH = (int)std::max(1L, (long)std::round(sH));
+                            float winW = (float)rcClient.right;
+                            float winH = (float)rcClient.bottom;
+                            if (winW < 1.0f) winW = 512.0f;
+                            if (winH < 1.0f) winH = 512.0f;
+                            const ImageViewportLayout layout =
+                                ComputeImageViewportLayout(winW, winH);
+                            float paneW = (std::max)(0.0f, layout.Right - layout.Left);
+                            float paneH = (std::max)(0.0f, layout.Bottom - layout.Top);
+                            float svgW = evt.rawFrame->svg->viewBoxW;
+                            float svgH = evt.rawFrame->svg->viewBoxH;
+                            if (svgW <= 0) svgW = 512;
+                            if (svgH <= 0) svgH = 512;
+                            // Fit-to-window scale
+                            float fitScale = (std::min)(paneW / svgW, paneH / svgH);
+                            if (fitScale < 0.01f) fitScale = 0.01f;
+                            int tW = (int)std::max(1L, (long)std::round(svgW * fitScale));
+                            int tH = (int)std::max(1L, (long)std::round(svgH * fitScale));
 
                             std::vector<uint8_t> bgra;
                             uint32_t rW = 0, rH = 0;
