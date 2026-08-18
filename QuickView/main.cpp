@@ -11821,6 +11821,15 @@ void ProcessEngineEvents(HWND hwnd) {
                             svgContains("xlink:href=\"data:image") ||
                             svgContains("href=\"data:image");
 
+                        // [DIAG] 诊断 CDR SVG 渲染路径
+                        {
+                            char diag[256];
+                            snprintf(diag, sizeof(diag),
+                                "[CDR-DIAG] main.cpp SVG path: xmlSize=%zu svgW=%.1f svgH=%.1f hasEmbeddedImage=%d\n",
+                                xml.size(), svgW, svgH, hasEmbeddedImage ? 1 : 0);
+                            OutputDebugStringA(diag);
+                        }
+
                         // [resvg] Render the SVG via the resvg library into a D2D
                         // bitmap. Used for embedded-bitmap SVGs and as a safety
                         // net when D2D's SVG subset fails. isSvg stays false so
@@ -11918,10 +11927,16 @@ void ProcessEngineEvents(HWND hwnd) {
 
                          if (SUCCEEDED(hr)) {
                              resourceReady = true;
+                             OutputDebugStringA("[CDR-DIAG] D2D CreateSvgDocument succeeded\n");
                          } else if (renderSvgViaResvg()) {
                              // [resvg] D2D SVG subset failed -> safety net.
                              resourceReady = true;
                              hr = S_OK;
+                             OutputDebugStringA("[CDR-DIAG] D2D failed, resvg safety net succeeded\n");
+                         } else {
+                             char db[128];
+                             snprintf(db, sizeof(db), "[CDR-DIAG] D2D failed (0x%X), resvg also failed\n", (unsigned)hr);
+                             OutputDebugStringA(db);
                          }
                         } // end else (D2D vector path)
                      } else hr = E_NOINTERFACE;

@@ -11696,7 +11696,11 @@ static void ConvertBmpDataUrisToPng(std::string &svg) {
     "data:image/x-tiff;base64,",
   };
 
-  // 懒初始化 WIC 工厂（线程安全：每次调用各自创建）
+  // 确保 COM 已初始化（FastLane 线程可能未初始化 COM）
+  HRESULT coInit = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+  (void)coInit; // S_OK=本次初始化, S_FALSE=已初始化, RPC_E_CHANGED_MODE=模式冲突（忽略）
+
+  // 懒初始化 WIC 工厂
   ComPtr<IWICImagingFactory> wicFactory;
   HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr,
                                 CLSCTX_INPROC_SERVER,
@@ -11829,9 +11833,9 @@ static void ConvertBmpDataUrisToPng(std::string &svg) {
 // crop → style inlining → page boundary rect insertion → out-of-canvas
 // viewBox expansion.
 // Returns one processed CdrPageData per input page.
-// fastMode=true: 只做 data URI 前缀重写 + 尺寸解析，跳过所有耗时后处理。
-//   用于看图渲染（MuPDF 原生支持 CSS style 属性，不需要 InlineSvgStyleAttrs）。
-// fastMode=false: 完整后处理，用于 CLI 导出 PDF/SVG/PNG。
+// fastMode=true: BMP→PNG真编码 + style inlining + 尺寸解析，跳过裁白边/页面矩形/viewBox扩展。
+//   用于看图渲染（D2D/resvg 渲染，需要 PNG data URI 和 inline style 属性）。
+// fastMode=false: 完整后处理，用于 CLI 导出 PDF/SVG/PNG（MuPDF 渲染）。
 // ----------------------------------------------------------------------------
 std::vector<CdrPageData> ProcessCdrSvgPages(
     const std::vector<std::string>& rawSvgPages, bool fastMode) {
@@ -11847,11 +11851,13 @@ std::vector<CdrPageData> ProcessCdrSvgPages(
     else
       RewriteUnsupportedDataUriPrefixes(svgContent);
 
-    if (fastMode) {
-      // 快速模式：解析尺寸后直接返回，跳过所有耗时后处理。
-      // MuPDF 的 SVG 渲染器原生支持 CSS style 属性，不需要 InlineSvgStyleAttrs。
-      // CropSvgWhitespace / 页面矩形 / viewBox 扩展只是视觉优化，对渲染本身非必要。
-      float svgW = 0.0f, svgH = 0.0f;
+if (fastMode) {
+// 快速模式：BMP→PNG + style inlining + 尺寸解析，跳过裁白边/页面矩形/viewBox 扩展。
+// D2D ID2D1SvgDocument 不支持 CSS style 属性，必须 InlineSvgStyleAttrs。
+// CropSvgWhitespace / 页面矩形 / viewBox 扩展只是视觉优化，对渲染本身非必要。
+InlineSvgStyleAttrs(svgContent);
+
+float svgW = 0.0f, svgH = 0.0f;
       const std::string wStr = GetSvgRootAttrVal(svgContent, "width");
       const std::string hStr = GetSvgRootAttrVal(svgContent, "height");
       const bool hasWidth = TryParseSvgLengthToDip(wStr, &svgW);
@@ -12049,6 +12055,33 @@ HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
   outFrame->svg->viewBoxH = svgH;
   outFrame->formatDetails = isCdr ? L"CDR" : L"CMX";
   outFrame->quality = QuickView::DecodeQuality::Full;
+
+  // [DIAG] 诊断 CDR SVG 内容
+  {
+    char diag[512];
+    const auto& xml = firstPage.xmlData;
+    // 搜索前 1000 字节中是否有 style=
+    bool hasStyleAttr = false;
+    size_t checkLen = (xml.size() < 1000) ? xml.size() : 1000;
+    for (size_t i = 0; i + 6 < checkLen; ++i) {
+      if (memcmp(xml.data() + i, "style=", 6) == 0) { hasStyleAttr = true; break; }
+    }
+    bool hasImage = false;
+    for (size_t i = 0; i + 6 < checkLen; ++i) {
+      if (memcmp(xml.data() + i, "<image", 6) == 0) { hasImage = true; break; }
+    }
+    bool hasDataImage = false;
+    for (size_t i = 0; i + 10 < checkLen; ++i) {
+      if (memcmp(xml.data() + i, "data:image", 10) == 0) { hasDataImage = true; break; }
+    }
+    snprintf(diag, sizeof(diag),
+             "[CDR-DIAG] LoadCDR: svgSize=%zu svgW=%.1f svgH=%.1f "
+             "hasStyle=%d hasImage=%d hasDataImage=%d first300chars:\n%.300s\n",
+             xml.size(), svgW, svgH,
+             hasStyleAttr ? 1 : 0, hasImage ? 1 : 0, hasDataImage ? 1 : 0,
+             xml.data());
+    OutputDebugStringA(diag);
+  }
 
   if (pLoaderName)
     *pLoaderName = isCdr ? L"libcdr+SVG (CDR)" : L"libcdr+SVG (CMX)";
