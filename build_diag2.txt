@@ -235,38 +235,36 @@ libwebp provides CMake targets:
     # for sharp RGB to YUV conversion
     target_link_libraries(main PRIVATE WebP::sharpyuv)
 
-All requested installations completed successfully in: 1.59 ms
+All requested installations completed successfully in: 1.95 ms
 -- Running vcpkg install - done
 -- unrar-mini: Google Highway SIMD enabled.
 -- Build Matrix: Enabling Full LTO (Release-LTO Mode)
--- Configuring done (205.6s)
+-- Configuring done (196.2s)
 -- Generating done (0.1s)
 -- Build files have been written to: E:/qv_build_tmp/out/build/Release-LTO
   CMake 配置完成
 
 [4/5] 编译 QuickView...
-[1/16] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGMemoryStream.cpp.obj
-[2/16] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGStringVector.cpp.obj
-[3/16] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGPropertyListVector.cpp.obj
-[4/16] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGStreamImplementation.cpp.obj
-[5/16] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGProperty.cpp.obj
-[6/16] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGString.cpp.obj
-[7/16] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGZipStream.cpp.obj
-[8/16] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGBinaryData.cpp.obj
-[9/16] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGOLEStream.cpp.obj
-[10/16] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGDirectoryStream.cpp.obj
-[11/16] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGSVGDrawingGenerator.cpp.obj
-[12/16] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGPropertyList.cpp.obj
-[13/16] Linking CXX static library third_party\librevenge\librevenge.lib
-[14/16] Building CXX object CMakeFiles\QuickView.dir\QuickView\main.cpp.obj
-[15/16] Building CXX object CMakeFiles\QuickView.dir\QuickView\ImageLoader.cpp.obj
-[16/16] Linking CXX executable QuickView.exe
-FAILED: [code=4294967295] QuickView.exe 
-C:\Windows\system32\cmd.exe /C "cd . && "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E vs_link_exe --msvc-ver=1933 --intdir=CMakeFiles\QuickView.dir --rc=llvm-rc --mt=C:\PROGRA~1\LLVM\bin\llvm-mt.exe --manifests  -- E:\qv_build_tmp\cmake\lld-link-wrapper.bat /nologo @CMakeFiles\QuickView.rsp  /out:QuickView.exe /implib:QuickView.lib /pdb:QuickView.pdb /version:0.0 /machine:x64 /MANIFEST:NO /INCREMENTAL:NO /subsystem:windows /SUBSYSTEM:WINDOWS /machine:x64  /DELAYLOAD:Windows.Data.Pdf.dll /DELAYLOAD:runtimeobject.dll /DEBUG /OPT:REF /OPT:ICF /opt:lldlto=3 /MAP:E:/qv_build_tmp/out/build/Release-LTO/QuickView.map && C:\Windows\system32\cmd.exe /C "cd /D E:\qv_build_tmp\out\build\Release-LTO && E:\qv_build_tmp\third_party\vcpkg\vcpkg.exe z-applocal --target-binary=E:/qv_build_tmp/out/build/Release-LTO/QuickView.exe --installed-bin-dir=E:/qv_build_tmp/out/build/Release-LTO/vcpkg_installed/x64-windows-static-clang/bin""
-LINK: command "E:\qv_build_tmp\cmake\lld-link-wrapper.bat /nologo @CMakeFiles\QuickView.rsp /out:QuickView.exe /implib:QuickView.lib /pdb:QuickView.pdb /version:0.0 /machine:x64 /MANIFEST:NO /INCREMENTAL:NO /subsystem:windows /SUBSYSTEM:WINDOWS /machine:x64 /DELAYLOAD:Windows.Data.Pdf.dll /DELAYLOAD:runtimeobject.dll /DEBUG /OPT:REF /OPT:ICF /opt:lldlto=3 /MAP:E:/qv_build_tmp/out/build/Release-LTO/QuickView.map" failed (exit code 1) with the following output:
-[QuickViewLinker] LIB Before = "" 
-[QuickViewLinker] Target arch is x64, calling vcvarsall.bat x64... 
-[QuickViewLinker] LIB After = "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\ATLMFC\lib\x64;C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\lib\x64;C:\Program Files (x86)\Windows Kits\NETFXSDK\4.8\lib\um\x64;D:\Windows Kits\10\lib\10.0.26100.0\ucrt\x64;D:\Windows Kits\10\\lib\10.0.26100.0\\um\x64" 
-lld-link: error: failed to write output 'QuickView.exe': permission denied
-ninja: build stopped: subcommand failed.
-编译失败！
+[1/14] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGMemoryStream.cpp.obj
+[2/14] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGStringVector.cpp.obj
+[3/14] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGPropertyListVector.cpp.obj
+[4/14] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGStreamImplementation.cpp.obj
+[5/14] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGString.cpp.obj
+[6/14] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGProperty.cpp.obj
+[7/14] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGZipStream.cpp.obj
+[8/14] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGBinaryData.cpp.obj
+[9/14] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGDirectoryStream.cpp.obj
+[10/14] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGOLEStream.cpp.obj
+[11/14] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGSVGDrawingGenerator.cpp.obj
+[12/14] Building CXX object third_party\librevenge\CMakeFiles\librevenge.dir\src\lib\RVNGPropertyList.cpp.obj
+[13/14] Linking CXX static library third_party\librevenge\librevenge.lib
+[14/14] Linking CXX executable QuickView.exe
+  编译成功！
+
+[5/5] 启动 QuickView...
+  E:\项目\看图软件\out\build\Release-LTO\QuickView.exe
+  临时路径已清理
+
+========================================
+  QuickView 已启动！
+========================================
