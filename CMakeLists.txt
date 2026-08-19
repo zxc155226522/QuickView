@@ -114,6 +114,7 @@ set(QUICKVIEW_SOURCES
     QuickView/WinRtPdfDocument.cpp
     QuickView/DocumentRenderController.cpp
     QuickView/VectorLoader.cpp
+    QuickView/DwgLoader.cpp
     QuickView/ThumbDiskCache.cpp
     QuickView/ThumbDiskCache.h
     
@@ -311,8 +312,8 @@ find_package(ZLIB REQUIRED)
 # libmupdf (MuPDF - PDF/AI rendering)
 find_package(unofficial-libmupdf CONFIG REQUIRED)
 
-# libdxfrw (DXF/DWG vector format support)
-find_package(libdxfrw CONFIG REQUIRED)
+# libredwg (DXF/DWG vector format support, GNU LibreDWG)
+find_package(unofficial-libredwg CONFIG REQUIRED)
 
 # Create targets for Brotli and Dav1d
 add_library(brotli::common STATIC IMPORTED)
@@ -355,7 +356,7 @@ target_link_libraries(QuickView PRIVATE
     libcdr
     resvg_static
     unofficial::libmupdf::libmupdf
-    libdxfrw::libdxfrw
+    unofficial::libredwg::libredwg
     # Windows system libraries
     imm32.lib
     dwrite.lib
