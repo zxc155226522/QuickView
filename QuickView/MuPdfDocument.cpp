@@ -321,4 +321,92 @@ HRESULT MuPdfDocument::RenderPage(uint32_t pageIndex,
     return S_OK;
 }
 
+// [CDR/CMX] Render SVG XML buffer → BGRA bitmap via MuPDF display list.
+// Replaces the resvg rasterization path for CDR/CMX files.
+// MuPDF supports BMP data URIs (via file header detection), unlike resvg/D2D.
+HRESULT MuPdfDocument::RenderSvgBufferToFrame(const uint8_t* data, size_t size,
+                                              int targetW, int targetH,
+                                              uint8_t*& outPixels, int& outW, int& outH,
+                                              int& outStride) noexcept {
+    outPixels = nullptr;
+    outW = outH = outStride = 0;
+    if (!m_context || !data || size == 0 || targetW <= 0 || targetH <= 0)
+        return E_INVALIDARG;
+
+    // Open the SVG XML as a MuPDF document.
+    std::wstring errorMessage;
+    HRESULT hr = OpenFromBuffer(data, size, "image/svg+xml", L"<cdr-svg>", errorMessage);
+    if (FAILED(hr)) return hr;
+
+    // Build display list for page 0 (one-time vector construction).
+    float pageW = 0.0f, pageH = 0.0f;
+    hr = EnsureDisplayList(0, pageW, pageH, errorMessage);
+    if (FAILED(hr)) return hr;
+
+    // Calculate render scale to hit target resolution.
+    const float scaleX = static_cast<float>(targetW) / pageW;
+    const float scaleY = static_cast<float>(targetH) / pageH;
+    float renderScale = std::min(scaleX, scaleY);
+    // Cap to 16384px max dimension.
+    const float maxScale = 16384.0f / std::max(pageW, pageH);
+    renderScale = std::min(renderScale, std::max(maxScale, 0.05f));
+    renderScale = std::max(renderScale, 0.05f);
+
+    fz_pixmap* pixmap = nullptr;
+    fz_device* device = nullptr;
+    fz_try(m_context) {
+        const fz_matrix ctm = fz_scale(renderScale, renderScale);
+        const fz_rect bounds = fz_bound_display_list(m_context, m_displayList);
+        const fz_irect irect = fz_round_rect(fz_transform_rect(bounds, ctm));
+        pixmap = fz_new_pixmap_with_bbox(
+            m_context,
+            fz_device_bgr(m_context),
+            irect,
+            nullptr,
+            1);
+        fz_clear_pixmap_with_value(m_context, pixmap, 0xFF); // opaque white
+        device = fz_new_draw_device(m_context, ctm, pixmap);
+        fz_run_display_list(m_context, m_displayList, device,
+                            fz_identity, fz_infinite_rect, nullptr);
+        fz_close_device(m_context, device);
+    }
+    fz_always(m_context) {
+        if (device) fz_drop_device(m_context, device);
+    }
+    fz_catch(m_context) {
+        if (pixmap) fz_drop_pixmap(m_context, pixmap);
+        return E_FAIL;
+    }
+
+    const int width = pixmap->w;
+    const int height = pixmap->h;
+    const int components = fz_pixmap_components(m_context, pixmap);
+    const int sourceStride = fz_pixmap_stride(m_context, pixmap);
+    const uint8_t* samples = fz_pixmap_samples(m_context, pixmap);
+    if (width <= 0 || height <= 0 || components != 4 || sourceStride < width * 4 || !samples) {
+        fz_drop_pixmap(m_context, pixmap);
+        return HRESULT_FROM_WIN32(ERROR_BAD_FORMAT);
+    }
+
+    // Allocate aligned output buffer and copy + premultiply.
+    outStride = CalculateAlignedStride(width, 4, 4);
+    const size_t bufferSize = static_cast<size_t>(outStride) * static_cast<size_t>(height);
+    outPixels = static_cast<uint8_t*>(std::malloc(bufferSize));
+    if (!outPixels) {
+        fz_drop_pixmap(m_context, pixmap);
+        return E_OUTOFMEMORY;
+    }
+    for (int y = 0; y < height; ++y) {
+        std::memcpy(outPixels + static_cast<size_t>(y) * outStride,
+                    samples + static_cast<size_t>(y) * sourceStride,
+                    static_cast<size_t>(width) * 4);
+    }
+    ImageLoaderSimd::PremultiplyAlpha(outPixels, width, height, outStride);
+
+    outW = width;
+    outH = height;
+    fz_drop_pixmap(m_context, pixmap);
+    return S_OK;
+}
+
 } // namespace QuickView

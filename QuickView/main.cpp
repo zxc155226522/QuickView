@@ -1911,7 +1911,7 @@ static bool UseSvgViewportRendering(const ImageResource& res) {
 // mismatch between SVG intrinsic size (e.g. 2079) and bitmap pixel size
 // (e.g. 765) that caused extreme blurriness.
 static bool UseSurfaceBasedRendering(const ImageResource& res) {
-    return UseSvgViewportRendering(res) || res.isResvg;
+    return UseSvgViewportRendering(res) || res.isResvg || res.isMupdf;
 }
 
 static float ComputeBaseFitScaleForVisual(const VisualState& vs, float winW, float winH);
@@ -2086,7 +2086,7 @@ static bool UpgradeSvgSurface(HWND hwnd, ImageResource& res) {
 
 static void RefreshSvgSurfaceAfterZoom(HWND hwnd) {
     const auto& zoomRes = GetPaneContext(PaneSlot::Primary).resource;
-    if ((!zoomRes.isSvg && !zoomRes.isResvg) || !g_compEngine || !g_compEngine->IsInitialized()) {
+    if ((!zoomRes.isSvg && !zoomRes.isResvg && !zoomRes.isMupdf) || !g_compEngine || !g_compEngine->IsInitialized()) {
         return;
     }
     KillTimer(hwnd, IDT_SVG_RERENDER);
@@ -2210,6 +2210,15 @@ static void TryUpgradeBitmapSurface(HWND hwnd) {
         return;
     }
 
+    // [MuPDF] Same re-rasterization path for CDR/CMX via MuPDF display list.
+    // RenderImageToDComp checks mupdfRasterW/H vs surfW/H and re-rasterizes
+    // when the difference exceeds 32px (MuPDF is faster than resvg).
+    if (GetPaneContext(PaneSlot::Primary).resource.isMupdf) {
+        if (GetPaneContext(PaneSlot::Primary).view.IsInteracting) return;
+        RenderImageToDComp(hwnd, GetPaneContext(PaneSlot::Primary).resource, true);
+        return;
+    }
+
     if (IsCompareModeActive()) return;
     if (g_isLoading) return;
     if (GetPaneContext(PaneSlot::Primary).metadata.Width > 8192 || GetPaneContext(PaneSlot::Primary).metadata.Height > 8192) return;
@@ -2263,12 +2272,12 @@ bool RenderImageToDComp(HWND hwnd, ImageResource& res, bool isFastUpgrade) {
             
             const auto& meta = GetPaneContext(PaneSlot::Primary).metadata;
             float contentW = res.isSvg ? res.svgW
-                            : (res.isResvg ? (meta.Width > 0 ? (float)meta.Width
+                            : ((res.isResvg || res.isMupdf) ? (meta.Width > 0 ? (float)meta.Width
                                                            : (res.bitmap ? res.bitmap->GetSize().width : 800.0f))
                                            : (res.bitmap ? res.bitmap->GetSize().width : 800.0f));
             float contentH = res.isSvg ? res.svgH
-                            : (res.isResvg ? (meta.Height > 0 ? (float)meta.Height
-                                                           : (res.bitmap ? res.bitmap->GetSize().height : 600.0f))
+                            : ((res.isResvg || res.isMupdf) ? (meta.Height > 0 ? (float)meta.Height
+                                                            : (res.bitmap ? res.bitmap->GetSize().height : 600.0f))
                                            : (res.bitmap ? res.bitmap->GetSize().height : 600.0f));
 
             // [v9.9 Fix] Must Swap Dimensions for Portrait Orientation when calculating target surface size!
@@ -2301,8 +2310,8 @@ bool RenderImageToDComp(HWND hwnd, ImageResource& res, bool isFastUpgrade) {
         ComputeSvgSurfaceSize((float)winW, (float)winH, sW, sH, ds);
         surfW = (UINT)std::max(1L, (long)std::round(sW));
         surfH = (UINT)std::max(1L, (long)std::round(sH));
-    } else if (!res.isSvg && res.isResvg) {
-        // [resvg Fix] Use ComputeSvgSurfaceSize so the surface matches the
+    } else if (!res.isSvg && (res.isResvg || res.isMupdf)) {
+        // [resvg/MuPDF Fix] Use ComputeSvgSurfaceSize so the surface matches the
         // rasterized bitmap size (SVG intrinsic * fitScale * zoom). DComp
         // displays the surface 1:1, so surface must equal bitmap size.
         float sW = 0.0f, sH = 0.0f, ds = 1.0f;
@@ -2340,7 +2349,7 @@ bool RenderImageToDComp(HWND hwnd, ImageResource& res, bool isFastUpgrade) {
          }
     }
 
-    if (!res.isSvg && !isTitan && !res.isResvg) {
+    if (!res.isSvg && !isTitan && !res.isResvg && !res.isMupdf) {
         D2D1_SIZE_U desired = ComputeDesiredBitmapSurfaceSize(targetWinW, targetWinH, res);
         if (desired.width > 0 && desired.height > 0) {
             surfW = desired.width;
@@ -2410,6 +2419,49 @@ bool RenderImageToDComp(HWND hwnd, ImageResource& res, bool isFastUpgrade) {
                         res.resvgRasterW = rW;
                         res.resvgRasterH = rH;
                     }
+                }
+            }
+        }
+
+        // [MuPDF] Re-rasterize CDR/CMX via MuPDF display list when zoom changes
+        // by more than 32px. MuPDF builds a display list once from SVG XML,
+        // then fz_run_display_list rasterizes at any resolution — no SVG
+        // re-parsing. Faster and sharper than resvg.
+        if (res.isMupdf && res.mupdfSrc) {
+            if (std::abs((int)res.mupdfRasterW - (int)surfW) > 32 ||
+                std::abs((int)res.mupdfRasterH - (int)surfH) > 32) {
+                fz_context* ctx = fz_new_context(nullptr, nullptr, FZ_STORE_DEFAULT);
+                if (ctx) {
+                    bool ok = true;
+                    fz_try(ctx) { fz_register_document_handlers(ctx); }
+                    fz_catch(ctx) { ok = false; }
+                    if (ok) {
+                        QuickView::MuPdfDocument mupdfDoc(ctx);
+                        uint8_t* pixels = nullptr;
+                        int rW = 0, rH = 0, stride = 0;
+                        HRESULT hr = mupdfDoc.RenderSvgBufferToFrame(
+                            res.mupdfSrc->xmlData.data(),
+                            res.mupdfSrc->xmlData.size(),
+                            (int)surfW, (int)surfH,
+                            pixels, rW, rH, stride);
+                        if (SUCCEEDED(hr) && pixels && rW > 0 && rH > 0) {
+                            QuickView::RawImageFrame frame;
+                            frame.pixels = pixels;
+                            frame.width = rW;
+                            frame.height = rH;
+                            frame.stride = stride;
+                            frame.format = QuickView::PixelFormat::BGRA8888;
+                            frame.memoryDeleter = QuickView::MemoryDeleter::FromFree();
+                            ComPtr<ID2D1Bitmap> bmp;
+                            if (SUCCEEDED(g_renderEngine->UploadRawFrameToGPU(frame, &bmp)) && bmp) {
+                                res.bitmap = bmp;
+                                res.mupdfRasterW = rW;
+                                res.mupdfRasterH = rH;
+                            }
+                            std::free(pixels);
+                        }
+                    }
+                    fz_drop_context(ctx);
                 }
             }
         }
@@ -3114,7 +3166,7 @@ static D2D1_SIZE_F GetLogicalImageSize() {
 // [CDR Fix] Do NOT use operator bool() — it requires svgDoc (D2D SVG) or
 // bitmap, but resvg path has neither (isResvg=true, bitmap set later).
 auto& res = GetPaneContext(PaneSlot::Primary).resource;
-if (res.isSvg || res.isResvg) {
+if (res.isSvg || res.isResvg || res.isMupdf) {
 if (res.svgW > 0.0f && res.svgH > 0.0f) {
 return res.GetSize();
 }
@@ -3518,7 +3570,8 @@ if (GetPaneContext(PaneSlot::Primary).resource.isSvg && !UseSvgViewportRendering
 maxScale = std::min(maxScale, GetSvgMaxSharpTotalScale(GetPaneContext(PaneSlot::Primary).resource));
 }
 // [resvg Fix] resvg bitmaps are also capped by the GPU surface size limit.
-if (GetPaneContext(PaneSlot::Primary).resource.isResvg) {
+if (GetPaneContext(PaneSlot::Primary).resource.isResvg ||
+    GetPaneContext(PaneSlot::Primary).resource.isMupdf) {
 maxScale = std::min(maxScale, GetSvgMaxSharpTotalScale(GetPaneContext(PaneSlot::Primary).resource));
 }
 
@@ -5567,7 +5620,8 @@ if (g_config.CanvasColor == 5 && g_config.SwatchColorIndex >= 0 && g_config.Swat
             // This avoids the displayZoom mismatch between SVG intrinsic size
             // (e.g. 2079) and bitmap pixel size (e.g. 765) that caused blur.
             if (UseSvgViewportRendering(GetPaneContext(PaneSlot::Primary).resource) ||
-                GetPaneContext(PaneSlot::Primary).resource.isResvg) {
+                GetPaneContext(PaneSlot::Primary).resource.isResvg ||
+                GetPaneContext(PaneSlot::Primary).resource.isMupdf) {
                 VisualState surfaceVs{};
                 float sW = 0.0f, sH = 0.0f, ds = 1.0f;
                 ComputeSvgSurfaceSize(winW, winH, sW, sH, ds);
@@ -11633,7 +11687,8 @@ if (GetPaneContext(PaneSlot::Primary).resource.isSvg && UseSvgViewportRendering(
 SetTimer(hwnd, IDT_SVG_RERENDER, 100, nullptr);
 }
 // [resvg Fix] resvg bitmaps also need re-rasterization after resize.
-if (GetPaneContext(PaneSlot::Primary).resource.isResvg) {
+if (GetPaneContext(PaneSlot::Primary).resource.isResvg ||
+    GetPaneContext(PaneSlot::Primary).resource.isMupdf) {
 SetTimer(hwnd, IDT_SVG_RERENDER, 100, nullptr);
 }
     }
@@ -11853,20 +11908,19 @@ void ProcessEngineEvents(HWND hwnd) {
                             OutputDebugStringA(diag);
                         }
 
-                        // [resvg] Render the SVG via the resvg library into a D2D
-                        // bitmap. Used for embedded-bitmap SVGs and as a safety
-                        // net when D2D's SVG subset fails. isSvg stays false so
-                        // the proven bitmap pipeline displays it (crisp via
-                        // supersampling; capped inside the helper).
-                        auto renderSvgViaResvg = [&]() -> bool {
+                        // [MuPDF] Render the SVG via MuPDF display list into a D2D
+                        // bitmap. MuPDF supports BMP data URIs (via file header
+                        // detection), CSS styles, filters, clips — full SVG support.
+                        // display list is built once; re-rasterization on zoom only
+                        // needs a new transform matrix (no SVG re-parsing).
+                        auto renderSvgViaMupdf = [&]() -> bool {
                             if (!g_renderEngine || !evt.rawFrame || !evt.rawFrame->svg) {
                                 return false;
                             }
-                            // [resvg Fix] Rasterize at the window's display resolution
+                            // Rasterize at the window's display resolution
                             // (fit-to-window pixel size) so the preview is sharp.
-                            // resvg output must match display pixels; using SVG
-                            // intrinsic size (e.g. 378x378) would be stretched by
-                            // DComp to window size -> blurry.
+                            // Include DPI correction: SVG units are pt (72dpi),
+                            // screen is 96dpi → multiply by 96/72 = 1.333.
                             RECT rcClient{};
                             GetClientRect(hwnd, &rcClient);
                             float winW = (float)rcClient.right;
@@ -11881,57 +11935,67 @@ void ProcessEngineEvents(HWND hwnd) {
                             float svgH = evt.rawFrame->svg->viewBoxH;
                             if (svgW <= 0) svgW = 512;
                             if (svgH <= 0) svgH = 512;
-                            // Fit-to-window scale
-                            float fitScale = (std::min)(paneW / svgW, paneH / svgH);
+                            // Fit-to-window scale with DPI correction
+                            constexpr float kDpiScale = 96.0f / 72.0f;
+                            float fitScale = (std::min)(paneW / svgW, paneH / svgH) * kDpiScale;
                             if (fitScale < 0.01f) fitScale = 0.01f;
                             int tW = (int)std::max(1L, (long)std::round(svgW * fitScale));
                             int tH = (int)std::max(1L, (long)std::round(svgH * fitScale));
 
-                            std::vector<uint8_t> bgra;
-                            uint32_t rW = 0, rH = 0;
-                            HRESULT hr = QuickView::QvRasterizeSvgFrameToBgra(
-                                *evt.rawFrame->svg, bgra, rW, rH, true, true, 16384, tW, tH);
-                            if (FAILED(hr) || rW == 0 || rH == 0) return false;
+                            // Create a MuPDF context and render.
+                            fz_context* ctx = fz_new_context(nullptr, nullptr, FZ_STORE_DEFAULT);
+                            if (!ctx) return false;
+                            fz_try(ctx) { fz_register_document_handlers(ctx); }
+                            fz_catch(ctx) { fz_drop_context(ctx); return false; }
+
+                            QuickView::MuPdfDocument mupdfDoc(ctx);
+                            uint8_t* pixels = nullptr;
+                            int rW = 0, rH = 0, stride = 0;
+                            HRESULT hr = mupdfDoc.RenderSvgBufferToFrame(
+                                evt.rawFrame->svg->xmlData.data(),
+                                evt.rawFrame->svg->xmlData.size(),
+                                tW, tH, pixels, rW, rH, stride);
+                            fz_drop_context(ctx);
+                            if (FAILED(hr) || !pixels || rW == 0 || rH == 0) return false;
+
                             QuickView::RawImageFrame frame;
-                            frame.pixels = bgra.data();
-                            frame.width = (int)rW;
-                            frame.height = (int)rH;
-                            frame.stride = (int)(rW * 4);
+                            frame.pixels = pixels;
+                            frame.width = rW;
+                            frame.height = rH;
+                            frame.stride = stride;
                             frame.format = QuickView::PixelFormat::BGRA8888;
+                            frame.memoryDeleter = QuickView::MemoryDeleter::FromFree();
                             ComPtr<ID2D1Bitmap> bmp;
                             hr = g_renderEngine->UploadRawFrameToGPU(frame, &bmp);
+                            // frame.Release() would free pixels; but UploadRawFrameToGPU
+                            // copies to GPU. Free the CPU buffer now.
+                            std::free(pixels);
                             if (FAILED(hr) || !bmp)
                                 return false;
-                            auto& resvgRes = GetPaneContext(PaneSlot::Primary).resource;
-                            resvgRes.Reset();
-                            resvgRes.bitmap = bmp;
-                            resvgRes.isResvg = true;
-                            // [resvg Fix] Set svgW/svgH so GetLogicalImageSize returns the
-                            // SVG's intrinsic dimensions (not bitmap pixels or 512x512
-                            // metadata default), enabling correct surface-size calculation.
-                            resvgRes.svgW = evt.rawFrame->svg->viewBoxW;
-                            resvgRes.svgH = evt.rawFrame->svg->viewBoxH;
-                            resvgRes.resvgSrc = std::make_shared<QuickView::RawImageFrame::SvgData>(*evt.rawFrame->svg);
-                            resvgRes.resvgRasterW = rW;
-                            resvgRes.resvgRasterH = rH;
+                            auto& mupdfRes = GetPaneContext(PaneSlot::Primary).resource;
+                            mupdfRes.Reset();
+                            mupdfRes.bitmap = bmp;
+                            mupdfRes.isMupdf = true;
+                            mupdfRes.svgW = evt.rawFrame->svg->viewBoxW;
+                            mupdfRes.svgH = evt.rawFrame->svg->viewBoxH;
+                            mupdfRes.mupdfSrc = std::make_shared<QuickView::RawImageFrame::SvgData>(*evt.rawFrame->svg);
+                            mupdfRes.mupdfRasterW = rW;
+                            mupdfRes.mupdfRasterH = rH;
                             return true;
                         };
 
-                        // [CDR Fix] D2D's ID2D1SvgDocument only supports a limited SVG
-                        // subset and cannot correctly render libcdr's SVG output (CSS
-                        // styles, complex paths, transforms). Route ALL CDR/CMX SVGs
-                        // through resvg for correct rendering. resvg re-rasterizes on
-                        // zoom via the surface-size transform in SyncDCompState, so the
-                        // preview stays sharp at any zoom level.
-                        if (renderSvgViaResvg()) {
+                        // [CDR Fix] Route ALL CDR/CMX SVGs through MuPDF display list.
+                        // MuPDF has full SVG support (BMP data URIs via file header
+                        // detection, CSS styles, filters, clips, masks) — unlike D2D's
+                        // ID2D1SvgDocument subset. display list is built once; zoom
+                        // re-rasterization only needs a new transform matrix.
+                        if (renderSvgViaMupdf()) {
                             resourceReady = true;
                             hr = S_OK;
-                            OutputDebugStringA("[CDR-DIAG] CDR routed through resvg directly\n");
+                            OutputDebugStringA("[CDR-DIAG] CDR routed through MuPDF display list\n");
                         } else {
                             hr = E_FAIL;
-                            char db[128];
-                            snprintf(db, sizeof(db), "[CDR-DIAG] resvg rendering failed for CDR\n");
-                            OutputDebugStringA(db);
+                            OutputDebugStringA("[CDR-DIAG] MuPDF rendering failed for CDR\n");
                         }
                      } else hr = E_NOINTERFACE;
                      
@@ -13676,7 +13740,8 @@ UpgradeSvgSurface(hwnd, GetPaneContext(PaneSlot::Primary).resource);
 
 // [resvg Fix] resvg bitmaps also need re-rasterization when the surface size
 // changes (e.g. zoom/resize), mirroring the SVG vector re-render above.
-if (imageWasDirty && GetPaneContext(PaneSlot::Primary).resource.isResvg) {
+if (imageWasDirty && (GetPaneContext(PaneSlot::Primary).resource.isResvg ||
+    GetPaneContext(PaneSlot::Primary).resource.isMupdf)) {
 TryUpgradeBitmapSurface(hwnd);
 }
 
@@ -14414,20 +14479,53 @@ void HandleCdrPageStep(HWND hwnd, uint32_t targetPage) {
 
     auto& pane = GetPaneContext(PaneSlot::Primary);
 
-    // [MuPDF] Render the cached SVG page via MuPDF into a BGRA bitmap.
-    QuickView::RawImageFrame bgraFrame;
-    HRESULT hr = CImageLoader::RenderCdrCachePageToFrame(
-        pageData, pane.metadata.SourcePath, &bgraFrame);
-    if (FAILED(hr)) {
+    // [MuPDF] Render the cached SVG page via MuPDF display list into BGRA.
+    RECT rcClient{};
+    GetClientRect(hwnd, &rcClient);
+    float winW = (float)rcClient.right;
+    float winH = (float)rcClient.bottom;
+    if (winW < 1.0f) winW = 512.0f;
+    if (winH < 1.0f) winH = 512.0f;
+    const ImageViewportLayout layout = ComputeImageViewportLayout(winW, winH);
+    float paneW = (std::max)(0.0f, layout.Right - layout.Left);
+    float paneH = (std::max)(0.0f, layout.Bottom - layout.Top);
+    constexpr float kDpiScale = 96.0f / 72.0f;
+    float fitScale = (std::min)(paneW / svgW, paneH / svgH) * kDpiScale;
+    if (fitScale < 0.01f) fitScale = 0.01f;
+    int tW = (int)std::max(1L, (long)std::round(svgW * fitScale));
+    int tH = (int)std::max(1L, (long)std::round(svgH * fitScale));
+
+    fz_context* ctx = fz_new_context(nullptr, nullptr, FZ_STORE_DEFAULT);
+    if (!ctx) {
+        g_osd.Show(hwnd, L"MuPDF 初始化失败", true);
+        return;
+    }
+    fz_try(ctx) { fz_register_document_handlers(ctx); }
+    fz_catch(ctx) { fz_drop_context(ctx); g_osd.Show(hwnd, L"MuPDF 初始化失败", true); return; }
+
+    QuickView::MuPdfDocument mupdfDoc(ctx);
+    uint8_t* pixels = nullptr;
+    int rW = 0, rH = 0, stride = 0;
+    HRESULT hr = mupdfDoc.RenderSvgBufferToFrame(
+        pageData.xmlData.data(), pageData.xmlData.size(),
+        tW, tH, pixels, rW, rH, stride);
+    fz_drop_context(ctx);
+    if (FAILED(hr) || !pixels || rW == 0 || rH == 0) {
         g_osd.Show(hwnd, L"SVG 页面渲染失败", true);
         return;
     }
 
     ComPtr<ID2D1Bitmap> bmp;
-    hr = g_renderEngine->UploadRawFrameToGPU(bgraFrame, &bmp);
-    // bgraFrame's pixel memory (new[]'d) is freed by its deleter on scope exit.
+    QuickView::RawImageFrame frame;
+    frame.pixels = pixels;
+    frame.width = rW;
+    frame.height = rH;
+    frame.stride = stride;
+    frame.format = QuickView::PixelFormat::BGRA8888;
+    frame.memoryDeleter = QuickView::MemoryDeleter::FromFree();
+    hr = g_renderEngine->UploadRawFrameToGPU(frame, &bmp);
+    std::free(pixels);
     if (FAILED(hr) || !bmp) {
-        bgraFrame.Release();
         g_osd.Show(hwnd, L"GPU 上传失败", true);
         return;
     }
@@ -14435,6 +14533,15 @@ void HandleCdrPageStep(HWND hwnd, uint32_t targetPage) {
     // Update pane resource
     pane.resource.Reset();
     pane.resource.bitmap = bmp;
+    pane.resource.isMupdf = true;
+    pane.resource.svgW = svgW;
+    pane.resource.svgH = svgH;
+    pane.resource.mupdfSrc = std::make_shared<QuickView::RawImageFrame::SvgData>();
+    pane.resource.mupdfSrc->xmlData.assign(pageData.xmlData.begin(), pageData.xmlData.end());
+    pane.resource.mupdfSrc->viewBoxW = svgW;
+    pane.resource.mupdfSrc->viewBoxH = svgH;
+    pane.resource.mupdfRasterW = rW;
+    pane.resource.mupdfRasterH = rH;
 
     // Update paged state
     g_pagedDoc.currentPage = targetPage;

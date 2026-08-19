@@ -39,6 +39,17 @@ public:
                        float zoom,
                        DocumentRenderResult& result) noexcept;
 
+    /// [CDR/CMX] Render an SVG XML buffer to a BGRA bitmap via MuPDF display list.
+    /// Builds a display list once (vector), then rasterizes at targetW×targetH.
+    /// Used for CDR/CMX rendering — replaces the resvg rasterization path.
+    /// data/size: SVG XML content (with RewriteUnsupportedDataUriPrefixes applied).
+    /// targetW/targetH: desired bitmap resolution in pixels.
+    /// outFrame: receives a BGRA8888 frame (caller owns pixel memory via deleter).
+    HRESULT RenderSvgBufferToFrame(const uint8_t* data, size_t size,
+                                   int targetW, int targetH,
+                                   uint8_t*& outPixels, int& outW, int& outH,
+                                   int& outStride) noexcept;
+
 private:
     HRESULT EnsureDisplayList(uint32_t pageIndex,
                               float& pageWidthPoints,

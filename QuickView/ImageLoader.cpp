@@ -11843,15 +11843,16 @@ std::vector<CdrPageData> ProcessCdrSvgPages(
   for (size_t i = 0; i < rawSvgPages.size(); ++i) {
     std::string svgContent(rawSvgPages[i]);
 
-    // [BMP→PNG] fastMode 用真编码（D2D/resvg 需要 PNG），完整模式只改前缀（MuPDF 靠文件头检测）。
+    // [BMP→PNG] fastMode(MuPDF 看图): 只改前缀（MuPDF 靠文件头检测格式，极快）。
+    // 完整模式(CLI 导出 PDF): 真编码 BMP→PNG（其他 PDF 阅读器可能不支持 BMP data URI）。
     if (fastMode)
-      ConvertBmpDataUrisToPng(svgContent);
-    else
       RewriteUnsupportedDataUriPrefixes(svgContent);
+    else
+      ConvertBmpDataUrisToPng(svgContent);
 
 if (fastMode) {
-// 快速模式：BMP→PNG + style inlining + 尺寸解析，跳过裁白边/页面矩形/viewBox 扩展。
-// D2D ID2D1SvgDocument 不支持 CSS style 属性，必须 InlineSvgStyleAttrs。
+// 快速模式：BMP前缀重写 + style inlining + 尺寸解析，跳过裁白边/页面矩形/viewBox 扩展。
+// MuPDF SVG 渲染器支持 CSS style 属性，InlineSvgStyleAttrs 仅为兼容保留。
 // CropSvgWhitespace / 页面矩形 / viewBox 扩展只是视觉优化，对渲染本身非必要。
 InlineSvgStyleAttrs(svgContent);
 

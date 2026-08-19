@@ -46,6 +46,15 @@ struct ImageResource {
     UINT resvgRasterW = 0;
     UINT resvgRasterH = 0;
 
+    // [MuPDF] CDR/CMX rendered via MuPDF display list (vector pipeline).
+    // display list is built once from SVG XML, then fz_run_display_list
+    // rasterizes at any resolution with just a new transform matrix.
+    // Replaces the resvg path for CDR/CMX — no SVG re-parsing on zoom.
+    bool isMupdf = false;
+    std::shared_ptr<QuickView::RawImageFrame::SvgData> mupdfSrc;  // SVG XML buffer
+    UINT mupdfRasterW = 0;  // current bitmap resolution
+    UINT mupdfRasterH = 0;
+
     QuickView::GpuBlendOp blendOp = QuickView::GpuBlendOp::None;
     QuickView::GpuShaderPayload shaderPayload = {};
     std::unique_ptr<QuickView::AuxLayer> auxLayer;
@@ -63,6 +72,10 @@ struct ImageResource {
         resvgSrc.reset();
         resvgRasterW = 0;
         resvgRasterH = 0;
+        isMupdf = false;
+        mupdfSrc.reset();
+        mupdfRasterW = 0;
+        mupdfRasterH = 0;
         blendOp = QuickView::GpuBlendOp::None;
         shaderPayload = {};
         auxLayer.reset();
@@ -87,6 +100,10 @@ struct ImageResource {
         cloned.resvgSrc = resvgSrc;
         cloned.resvgRasterW = resvgRasterW;
         cloned.resvgRasterH = resvgRasterH;
+        cloned.isMupdf = isMupdf;
+        cloned.mupdfSrc = mupdfSrc;
+        cloned.mupdfRasterW = mupdfRasterW;
+        cloned.mupdfRasterH = mupdfRasterH;
         cloned.blendOp = blendOp;
         cloned.shaderPayload = shaderPayload;
         if (auxLayer) {
@@ -98,8 +115,8 @@ struct ImageResource {
     }
 
     D2D1_SIZE_F GetSize() const {
-        // [resvg Fix] resvg-rasterized SVGs store intrinsic dimensions in svgW/svgH.
-        if (isSvg || isResvg) return D2D1::SizeF(svgW, svgH);
+        // [resvg/MuPDF] rasterized SVGs store intrinsic dimensions in svgW/svgH.
+        if (isSvg || isResvg || isMupdf) return D2D1::SizeF(svgW, svgH);
         if (bitmap) return bitmap->GetSize();
         return D2D1::SizeF(0.0f, 0.0f);
     }
