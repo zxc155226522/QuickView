@@ -1072,9 +1072,10 @@ private:
 } // namespace
 
 // ============================================================================
-// 统一入口: LibreDWG 同时解析 DXF 与 DWG (按文件内容自动识别)
+// 通用解析+渲染: 调用方指定 dxf_read_file 或 dwg_read_file
 // ============================================================================
-static std::string LoadCadToSVG(const uint8_t* data, size_t size) {
+static std::string LoadCadToSVG(const uint8_t* data, size_t size,
+                                 int (*readFn)(const char*, Dwg_Data*)) {
     if (!data || size == 0) return {};
 
     std::string tempPath = WriteTempFile(data, size, "qvcad");
@@ -1084,7 +1085,7 @@ static std::string LoadCadToSVG(const uint8_t* data, size_t size) {
     {
         Dwg_Data dwg;
         memset(&dwg, 0, sizeof(dwg));
-        int error = dwg_read_file(tempPath.c_str(), &dwg);
+        int error = readFn(tempPath.c_str(), &dwg);
         // DWG_ERR_CRITICAL=128, 所有 >=128 的位均为致命错误
         if (!(static_cast<unsigned>(error) & ~0x7Fu)) {
             DwgRenderer renderer(dwg);
@@ -1097,14 +1098,14 @@ static std::string LoadCadToSVG(const uint8_t* data, size_t size) {
     return result;
 }
 
-// DXF (AutoCAD) → SVG (via LibreDWG)
+// DXF (AutoCAD) → SVG (via LibreDWG dxf_read_file)
 std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
-    return LoadCadToSVG(data, size);
+    return LoadCadToSVG(data, size, dxf_read_file);
 }
 
-// DWG (AutoCAD) → SVG (via LibreDWG)
+// DWG (AutoCAD) → SVG (via LibreDWG dwg_read_file)
 std::string LoadDWGtoSVG(const uint8_t* data, size_t size) {
-    return LoadCadToSVG(data, size);
+    return LoadCadToSVG(data, size, dwg_read_file);
 }
 
 } // namespace QuickView
