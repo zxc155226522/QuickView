@@ -2444,6 +2444,7 @@ bool RenderImageToDComp(HWND hwnd, ImageResource& res, bool isFastUpgrade) {
                             res.mupdfSrc->xmlData.size(),
                             (int)surfW, (int)surfH,
                             pixels, rW, rH, stride);
+                        mupdfDoc.Close(); // [Use-After-Free Fix] close before fz_drop_context
                         if (SUCCEEDED(hr) && pixels && rW > 0 && rH > 0) {
                             QuickView::RawImageFrame frame;
                             frame.pixels = pixels;
@@ -2459,6 +2460,7 @@ bool RenderImageToDComp(HWND hwnd, ImageResource& res, bool isFastUpgrade) {
                                 res.mupdfRasterH = rH;
                             }
                             std::free(pixels);
+                            frame.pixels = nullptr; // prevent ~RawImageFrame double-free
                         }
                     }
                     fz_drop_context(ctx);
@@ -11948,13 +11950,17 @@ void ProcessEngineEvents(HWND hwnd) {
                             fz_try(ctx) { fz_register_document_handlers(ctx); }
                             fz_catch(ctx) { fz_drop_context(ctx); return false; }
 
-                            QuickView::MuPdfDocument mupdfDoc(ctx);
                             uint8_t* pixels = nullptr;
                             int rW = 0, rH = 0, stride = 0;
+                            QuickView::MuPdfDocument mupdfDoc(ctx);
                             HRESULT hr = mupdfDoc.RenderSvgBufferToFrame(
                                 evt.rawFrame->svg->xmlData.data(),
                                 evt.rawFrame->svg->xmlData.size(),
                                 tW, tH, pixels, rW, rH, stride);
+                            // [Use-After-Free Fix] Must close mupdfDoc BEFORE dropping
+                            // ctx. ~MuPdfDocument() calls Close() which uses m_context
+                            // to drop displayList/document/buffer.
+                            mupdfDoc.Close();
                             fz_drop_context(ctx);
                             if (FAILED(hr) || !pixels || rW == 0 || rH == 0) return false;
 
@@ -11968,8 +11974,10 @@ void ProcessEngineEvents(HWND hwnd) {
                             ComPtr<ID2D1Bitmap> bmp;
                             hr = g_renderEngine->UploadRawFrameToGPU(frame, &bmp);
                             // frame.Release() would free pixels; but UploadRawFrameToGPU
-                            // copies to GPU. Free the CPU buffer now.
+                            // copies to GPU. Free the CPU buffer now and null the pointer
+                            // to prevent ~RawImageFrame() from double-freeing it.
                             std::free(pixels);
+                            frame.pixels = nullptr;
                             if (FAILED(hr) || !bmp)
                                 return false;
                             auto& mupdfRes = GetPaneContext(PaneSlot::Primary).resource;
@@ -11989,13 +11997,12 @@ void ProcessEngineEvents(HWND hwnd) {
                         // detection, CSS styles, filters, clips, masks) — unlike D2D's
                         // ID2D1SvgDocument subset. display list is built once; zoom
                         // re-rasterization only needs a new transform matrix.
-                        if (renderSvgViaMupdf()) {
+                        bool mupdfOk = renderSvgViaMupdf();
+                        if (mupdfOk) {
                             resourceReady = true;
                             hr = S_OK;
-                            OutputDebugStringA("[CDR-DIAG] CDR routed through MuPDF display list\n");
                         } else {
                             hr = E_FAIL;
-                            OutputDebugStringA("[CDR-DIAG] MuPDF rendering failed for CDR\n");
                         }
                      } else hr = E_NOINTERFACE;
                      
@@ -14509,6 +14516,7 @@ void HandleCdrPageStep(HWND hwnd, uint32_t targetPage) {
     HRESULT hr = mupdfDoc.RenderSvgBufferToFrame(
         pageData.xmlData.data(), pageData.xmlData.size(),
         tW, tH, pixels, rW, rH, stride);
+    mupdfDoc.Close(); // [Use-After-Free Fix] close before fz_drop_context
     fz_drop_context(ctx);
     if (FAILED(hr) || !pixels || rW == 0 || rH == 0) {
         g_osd.Show(hwnd, L"SVG 页面渲染失败", true);
@@ -14525,6 +14533,7 @@ void HandleCdrPageStep(HWND hwnd, uint32_t targetPage) {
     frame.memoryDeleter = QuickView::MemoryDeleter::FromFree();
     hr = g_renderEngine->UploadRawFrameToGPU(frame, &bmp);
     std::free(pixels);
+    frame.pixels = nullptr; // prevent ~RawImageFrame double-free
     if (FAILED(hr) || !bmp) {
         g_osd.Show(hwnd, L"GPU 上传失败", true);
         return;
