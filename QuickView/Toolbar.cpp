@@ -447,6 +447,21 @@ void Toolbar::UpdateLayout(float winW, float winH) {
   } else {
     for (int i = 0; i < 9; ++i) m_swatchRects[i] = D2D1::RectF(0, 0, 0, 0);
   }
+
+  // [PDF/AI/CDR] Position page indicator floating above toolbar center
+  if (m_showPageIndicator) {
+    const float indicatorH = 20.0f * m_uiScale;
+    const float indicatorW = 80.0f * m_uiScale;
+    const float centerX = winW * 0.5f;
+    const float indicatorY = startY - indicatorH - 4.0f * m_uiScale;
+    m_pageIndicatorRect = D2D1::RectF(
+        centerX - indicatorW * 0.5f,
+        indicatorY,
+        centerX + indicatorW * 0.5f,
+        indicatorY + indicatorH);
+  } else {
+    m_pageIndicatorRect = D2D1::RectF(0, 0, 0, 0);
+  }
 }
 
 const wchar_t *GetTooltipText(const ToolbarButton &btn) {
@@ -772,6 +787,31 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
       GeekIconRenderer::DrawVectorIcon(pRT, *btn.iconGlyph, iconRect, pBrush);
     }
 
+    // [PDF/AI/CDR] Draw page indicator at toolbar center
+    if (m_showPageIndicator && m_pageIndicatorRect.right > m_pageIndicatorRect.left) {
+      // Pill background
+      D2D1_ROUNDED_RECT indicatorRect = D2D1::RoundedRect(
+          m_pageIndicatorRect, 8.0f * m_uiScale, 8.0f * m_uiScale);
+      ComPtr<ID2D1SolidColorBrush> pillBg;
+      D2D1_COLOR_F bgColor = isLight
+          ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.08f)
+          : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.1f);
+      if (m_pageIndicatorHover) {
+        bgColor = isLight
+            ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.15f)
+            : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.2f);
+      }
+      pRT->CreateSolidColorBrush(bgColor, &pillBg);
+      if (pillBg) {
+        pRT->FillRoundedRectangle(indicatorRect, pillBg.Get());
+      }
+      // Page text "current / total 页"
+      wchar_t pageBuf[32]{};
+      swprintf_s(pageBuf, L"%u / %u 页", m_currentPage + 1, m_totalPages);
+      pRT->DrawText(pageBuf, (UINT32)wcslen(pageBuf), m_textFormatUI.Get(),
+                    m_pageIndicatorRect, m_brushIcon.Get(),
+                    D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    }
 
     if (m_compareMode && m_compareStepRect.right > m_compareStepRect.left) {
       D2D1_ROUNDED_RECT stepRect = D2D1::RoundedRect(
@@ -1109,12 +1149,29 @@ bool Toolbar::OnMouseMove(float x, float y) {
     m_swatchHoverIndex = newSwatchHover;
     changed = true;
   }
-  
+
+  // [PDF/AI/CDR] Page indicator hover
+  bool pageHover = false;
+  if (m_showPageIndicator && m_pageIndicatorRect.right > m_pageIndicatorRect.left) {
+    pageHover = (x >= m_pageIndicatorRect.left && x <= m_pageIndicatorRect.right &&
+                 y >= m_pageIndicatorRect.top && y <= m_pageIndicatorRect.bottom);
+  }
+  if (pageHover != m_pageIndicatorHover) {
+    m_pageIndicatorHover = pageHover;
+    changed = true;
+  }
+
   return changed;
 }
 
 bool Toolbar::OnClick(float x, float y, ToolbarButtonID &outId) {
   if (m_windowTooNarrow || !IsVisible()) return false;
+
+  // [PDF/AI/CDR] Page indicator click
+  if (m_showPageIndicator && IsPageIndicatorHit(x, y)) {
+    outId = ToolbarButtonID::None;
+    return true;
+  }
 
   // Progress bar click
   if (m_animMode && m_animProgressHover) {

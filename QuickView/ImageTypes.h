@@ -396,6 +396,10 @@ struct RawImageFrame {
     AnimationFrameMeta frameMeta;
     std::shared_ptr<IAnimationDecoder> animator; // Hand-off for animation player
 
+    // [PDF/AI/CDR] Page count for multi-page documents (0 = single page or N/A)
+    // Stored in frame so cache-hit can recover it without re-decoding.
+    uint32_t pageCount = 0;
+
     // === Lifecycle Management ===
     // Callback to release memory when frame is destroyed.
     // - For Arena: empty (Arena manages memory)

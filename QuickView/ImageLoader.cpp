@@ -12092,6 +12092,7 @@ HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
     pMetadata->Height = (UINT)svgH;
     pMetadata->pageCount = static_cast<uint32_t>(
         m_bPopulateCdrCache ? g_cdrPageCache.size() : svgPages.size());
+    outFrame->pageCount = pMetadata->pageCount;
   }
 
   return S_OK;
@@ -15515,6 +15516,7 @@ HRESULT CImageLoader::LoadToFrame(
               pMetadata->Height = (UINT)outFrame->height;
               pMetadata->pageCount = winRtDoc.PageCount();
             }
+            outFrame->pageCount = winRtDoc.PageCount();
             return S_OK;
           }
         }
@@ -15574,6 +15576,7 @@ HRESULT CImageLoader::LoadToFrame(
               pMetadata->Height = (UINT)outFrame->height;
               pMetadata->pageCount = doc.PageCount();
             }
+            outFrame->pageCount = doc.PageCount();
             pdfHr = S_OK;
           }
         }

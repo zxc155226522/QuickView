@@ -145,6 +145,21 @@ public:
         m_bgTransform = transform;
     }
 
+    // [PDF/AI/CDR] Page indicator in toolbar center
+    void SetPageIndicator(uint32_t current, uint32_t total) {
+        m_currentPage = current;
+        m_totalPages = total;
+        m_showPageIndicator = (total > 1);
+    }
+    void ClearPageIndicator() { m_showPageIndicator = false; }
+    bool IsPageIndicatorVisible() const { return m_showPageIndicator; }
+    bool IsPageIndicatorHit(float x, float y) const {
+        if (!m_showPageIndicator) return false;
+        return x >= m_pageIndicatorRect.left && x <= m_pageIndicatorRect.right &&
+               y >= m_pageIndicatorRect.top && y <= m_pageIndicatorRect.bottom;
+    }
+    D2D1_RECT_F GetPageIndicatorRect() const { return m_pageIndicatorRect; }
+
 private:
     // Layout Constants
     const float BUTTON_SIZE = 24.0f;
@@ -204,6 +219,13 @@ private:
     D2D1_RECT_F m_swatchRects[9] = {};
     int m_swatchHoverIndex = -1;
     int m_swatchClickIndex = -1;
+
+    // [PDF/AI/CDR] Page indicator state
+    bool m_showPageIndicator = false;
+    uint32_t m_currentPage = 0;
+    uint32_t m_totalPages = 0;
+    D2D1_RECT_F m_pageIndicatorRect = {};
+    bool m_pageIndicatorHover = false;
     
     // Resources
     ComPtr<ID2D1SolidColorBrush> m_brushBg;

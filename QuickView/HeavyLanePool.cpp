@@ -1835,6 +1835,7 @@ tile_decode_done: ; // [P14] Jump target for fast path (skip legacy TJ decode)
                     safeFrame->formatDetails = rawFrame.formatDetails;
                     safeFrame->srcWidth = rawFrame.srcWidth;   // [v10.1] Preserve original resolution
                     safeFrame->srcHeight = rawFrame.srcHeight;
+                    safeFrame->pageCount = rawFrame.pageCount;  // [PDF/AI/CDR] Preserve page count for cache
                     safeFrame->exifOrientation = rawFrame.exifOrientation; // [Fix] Propagate Orientation to cache
                     safeFrame->memoryDeleter = QuickView::MemoryDeleter::FromDeleteArray();
 

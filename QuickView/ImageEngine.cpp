@@ -369,6 +369,8 @@ void ImageEngine::DispatchImageLoad(const std::wstring& path, ImageID imageId, u
 
                 // [Fix] Propagate EXIF Orientation from Cache (Critical for Rotation persistence)
                 e.metadata.ExifOrientation = cachedFrame->exifOrientation;
+                // [PDF/AI/CDR] Recover pageCount from cached frame
+                e.metadata.pageCount = cachedFrame->pageCount;
                 
                 // [Fix] Compute histogram from cached frame to prevent blank histogram on cache hit
                 if (cachedFrame->IsValid() && !cachedFrame->IsSvg()) {
@@ -1293,6 +1295,7 @@ void ImageEngine::FastLane::QueueWorker() {
                     safeFrame->svg->xmlData = rawFrame.svg->xmlData;
                     safeFrame->svg->viewBoxW = rawFrame.svg->viewBoxW;
                     safeFrame->svg->viewBoxH = rawFrame.svg->viewBoxH;
+                    safeFrame->pageCount = rawFrame.pageCount; // [PDF/AI/CDR] Preserve page count
                 } else {
                     size_t bufferSize = rawFrame.GetBufferSize();
                     uint8_t* heapPixels = new uint8_t[bufferSize];
@@ -1314,6 +1317,8 @@ void ImageEngine::FastLane::QueueWorker() {
                     safeFrame->hdrMetadata = rawFrame.hdrMetadata;
                     safeFrame->srcWidth = rawFrame.srcWidth;
                     safeFrame->srcHeight = rawFrame.srcHeight;
+                    // [PDF/AI/CDR] Propagate pageCount for cache recovery
+                    safeFrame->pageCount = rawFrame.pageCount;
 
                     // [GPU Pipeline] Deep copy blend operation and payload
                     safeFrame->blendOp = rawFrame.blendOp;
@@ -1337,6 +1342,8 @@ void ImageEngine::FastLane::QueueWorker() {
                 e.metadata.hdrMetadata = rawFrame.hdrMetadata;
                 // [Fix] Propagate hasAlpha from decoder result (critical for TIFF transparency)
                 e.metadata.hasAlpha = decodeMeta.hasAlpha;
+                // [PDF/AI/CDR] Propagate pageCount for multi-page document support
+                e.metadata.pageCount = decodeMeta.pageCount;
                 if (!e.metadata.HasEmbeddedColorProfile.has_value()) {
                     e.metadata.HasEmbeddedColorProfile =
                         rawFrame.colorInfo.hasEmbeddedIcc || !safeFrame->iccProfile.empty();

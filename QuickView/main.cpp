@@ -9413,6 +9413,19 @@ RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);  // OSD and Border ind
                         PerformAnimSeek(hwnd, prog);
                     }
                 }
+                // [PDF/AI/CDR] Page indicator click - show input dialog to jump to page
+                if (g_toolbar.IsPageIndicatorVisible() && g_toolbar.IsPageIndicatorHit((float)pt.x, (float)pt.y)) {
+                    wchar_t initBuf[32];
+                    swprintf_s(initBuf, L"%u", g_pagedDoc.currentPage + 1);
+                    std::wstring input = AppContext::GetInstance().DialogCtrl->ShowInputDialog(
+                        hwnd, L"跳转到页面", L"输入页码:", initBuf, L"跳转");
+                    if (!input.empty()) {
+                        int page = _wtoi(input.c_str());
+                        if (page >= 1 && page <= static_cast<int>(g_pagedDoc.totalPages)) {
+                            HandlePdfPageJump(hwnd, static_cast<uint32_t>(page - 1));
+                        }
+                    }
+                }
             }
             return 0; // Handled by LBUTTONUP (or LBUTTONDOWN for sliders)
         }
@@ -12372,6 +12385,10 @@ void ProcessEngineEvents(HWND hwnd) {
                         // Determine document type: CDR/CMX (vector) vs PDF/AI (bitmap)
                         const auto& fmt = evt.metadata.Format;
                         g_pagedDoc.isVector = (fmt == L"CDR" || fmt == L"CMX");
+                        g_toolbar.SetPageIndicator(0, pages);
+                        RECT rcPi; GetClientRect(hwnd, &rcPi);
+                        g_toolbar.UpdateLayout((float)rcPi.right, (float)rcPi.bottom);
+                        RequestRepaint(PaintLayer::Static);
                         wchar_t pageOsd[64];
                         swprintf_s(pageOsd, L"第 1 / %u 页", pages);
                         g_osd.Show(hwnd, pageOsd, false, false,
@@ -13094,6 +13111,10 @@ void StartNavigation(HWND hwnd, std::wstring path, [[maybe_unused]] bool showOSD
     if (g_pagedDoc.active) {
         g_pagedDoc.Reset();
     }
+    g_toolbar.ClearPageIndicator();
+    RECT rcClear; GetClientRect(hwnd, &rcClear);
+    g_toolbar.UpdateLayout((float)rcClear.right, (float)rcClear.bottom);
+    RequestRepaint(PaintLayer::Static);
     if (g_docRenderCtrl) {
         g_docRenderCtrl->Cancel();
     }
@@ -14431,6 +14452,10 @@ void HandlePdfPageResult(HWND hwnd) {
     g_pagedDoc.pageWidthPoints = result.pageWidthPoints;
     g_pagedDoc.pageHeightPoints = result.pageHeightPoints;
     g_pagedDoc.renderScale = result.renderScale;
+    g_toolbar.SetPageIndicator(result.pageIndex, g_pagedDoc.totalPages);
+    RECT rcResult; GetClientRect(hwnd, &rcResult);
+    g_toolbar.UpdateLayout((float)rcResult.right, (float)rcResult.bottom);
+    RequestRepaint(PaintLayer::Static);
 
     // Upload to GPU
     ComPtr<ID2D1Bitmap> newBitmap;
@@ -14554,6 +14579,10 @@ void HandleCdrPageStep(HWND hwnd, uint32_t targetPage) {
 
     // Update paged state
     g_pagedDoc.currentPage = targetPage;
+    g_toolbar.SetPageIndicator(targetPage, g_pagedDoc.totalPages);
+    RECT rcCdr; GetClientRect(hwnd, &rcCdr);
+    g_toolbar.UpdateLayout((float)rcCdr.right, (float)rcCdr.bottom);
+    RequestRepaint(PaintLayer::Static);
 
     // Update metadata for new page dimensions
     pane.metadata.Width = (UINT)svgW;
