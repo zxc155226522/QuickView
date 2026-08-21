@@ -12458,7 +12458,14 @@ void ProcessEngineEvents(HWND hwnd) {
                                    OSDPosition::Bottom, 1500);
 
                         // [PDF Sidebar] Initialize thumbnail panel
-                        if (g_docRenderCtrl) {
+                        // [Fix] g_docRenderCtrl was lazily initialized only on first page
+                        // navigation (HandlePdfPageStep/Jump), so it was nullptr when a
+                        // multi-page PDF was first opened, and the thumbnail sidebar never
+                        // appeared. Create it here if needed so the panel works immediately.
+                        if (!g_docRenderCtrl) {
+                            g_docRenderCtrl = std::make_unique<QuickView::DocumentRenderController>();
+                        }
+                        if (g_docRenderCtrl && g_docRenderCtrl->IsAvailable()) {
                             g_thumbnailPanel.Initialize(hwnd, g_docRenderCtrl.get());
                             g_thumbnailPanel.OnDocumentOpened(GetPaneContext(PaneSlot::Primary).path, pages);
                             RECT rcClient; GetClientRect(hwnd, &rcClient);
