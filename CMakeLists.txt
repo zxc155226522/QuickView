@@ -113,6 +113,7 @@ set(QUICKVIEW_SOURCES
     QuickView/MuPdfDocument.cpp
     QuickView/WinRtPdfDocument.cpp
     QuickView/DocumentRenderController.cpp
+    QuickView/PageThumbnailPanel.cpp
     QuickView/VectorLoader.cpp
     QuickView/DwgLoader.cpp
     QuickView/ThumbDiskCache.cpp

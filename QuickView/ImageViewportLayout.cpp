@@ -3,9 +3,11 @@
 #include "AppContext.h"
 #include "GalleryOverlay.h"
 #include "Toolbar.h"
+#include "PageThumbnailPanel.h"
 
 extern float g_uiScale;
 extern GalleryOverlay g_gallery;
+extern PageThumbnailPanel g_thumbnailPanel;  // [PDF Sidebar]
 
 ImageViewportLayout ComputeImageViewportLayout(float windowWidth, float windowHeight) {
     const float safeWidth = (std::max)(1.0f, windowWidth);
@@ -15,6 +17,9 @@ ImageViewportLayout ComputeImageViewportLayout(float windowWidth, float windowHe
     const float galleryHeight = (!g_isFullScreen && g_gallery.IsPinned() && g_gallery.IsVisible())
         ? g_gallery.GetVisualHeight(safeHeight)
         : 0.0f;
+
+    // [PDF Sidebar] Reserve left space when thumbnail panel is visible
+    const float sidebarWidth = g_thumbnailPanel.IsVisible() ? g_thumbnailPanel.GetWidth() : 0.0f;
 
     // Always reserve bottom space for toolbar (non-fullscreen only)
     float toolbarReservedHeight = 0.0f;
@@ -29,7 +34,7 @@ ImageViewportLayout ComputeImageViewportLayout(float windowWidth, float windowHe
     float bottomReserved = g_isFullScreen ? 0.0f : toolbarReservedHeight;
 
     ImageViewportLayout layout;
-    layout.Left = (std::min)(horizontalMargin, safeWidth - 1.0f);
+    layout.Left = (std::min)(horizontalMargin, safeWidth - 1.0f) + sidebarWidth;
     layout.Top = (std::min)(topMargin, safeHeight - 1.0f);
     layout.Right = (std::max)(layout.Left + 1.0f, safeWidth - horizontalMargin);
     layout.Bottom = (std::max)(layout.Top + 1.0f, safeHeight - bottomReserved);

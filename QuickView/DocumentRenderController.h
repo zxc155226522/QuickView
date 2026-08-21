@@ -8,13 +8,34 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <queue>
 #include <thread>
+#include <vector>
 
 namespace QuickView {
+
+// [PDF Sidebar] Thumbnail request for left-side page panel
+struct ThumbnailRequest {
+    uint64_t requestId = 0;
+    HWND notifyWindow = nullptr;
+    std::wstring path;
+    uint32_t pageIndex = 0;
+    int targetWidth = 200;
+    int targetHeight = 280;
+    int priority = 0;  // Lower = higher priority (distance from current page)
+};
+
+struct ThumbnailResult {
+    uint64_t requestId = 0;
+    uint32_t pageIndex = 0;
+    HRESULT status = E_FAIL;
+    std::shared_ptr<RawImageFrame> frame;
+};
 
 class DocumentRenderController {
 public:
     static constexpr UINT ResultMessage = WM_APP + 24;
+    static constexpr UINT ThumbnailResultMessage = WM_APP + 25;
 
     DocumentRenderController();
     ~DocumentRenderController();
@@ -27,9 +48,16 @@ public:
     void Cancel() noexcept;
     bool TakeLatestResult(DocumentRenderResult& result);
 
+    // [PDF Sidebar] Thumbnail request API
+    uint64_t RequestThumbnail(ThumbnailRequest request);
+    void CancelThumbnails() noexcept;
+    bool TakeThumbnailResult(ThumbnailResult& result);
+    void ClearThumbnailCache() noexcept;
+
 private:
     void WorkerMain() noexcept;
     HRESULT EnsureDocument(const std::wstring& path, std::wstring& errorMessage) noexcept;
+    void ProcessThumbnailRequest(const ThumbnailRequest& request, ThumbnailResult& result) noexcept;
 
     fz_context* m_context = nullptr;
     std::unique_ptr<MuPdfDocument> m_document;
@@ -42,6 +70,19 @@ private:
     uint64_t m_nextRequestId = 0;
     bool m_stopping = false;
     bool m_available = false;
+
+    // [PDF Sidebar] Thumbnail queue
+    struct ThumbnailQueueEntry {
+        ThumbnailRequest request;
+        int orderBy;  // For priority_queue ordering
+        bool operator<(const ThumbnailQueueEntry& other) const {
+            return orderBy > other.orderBy;  // min-heap by orderBy
+        }
+    };
+    std::priority_queue<ThumbnailQueueEntry> m_thumbQueue;
+    std::vector<ThumbnailResult> m_thumbResults;
+    uint64_t m_nextThumbId = 0;
+    std::optional<uint64_t> m_currentFullDocPathHash;  // Track current document to invalidate thumbnails
 };
 
 } // namespace QuickView

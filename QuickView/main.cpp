@@ -74,6 +74,7 @@ static UINT GetSvgSurfaceSizeLimit();
 #include "DebugMetrics.h"
 #include "DocumentRenderController.h"  // [PDF/AI] Multi-page async rendering
 #include "PagedDocument.h"             // [PDF/AI] Paged document state
+#include "PageThumbnailPanel.h"        // [PDF Sidebar] Left-side page thumbnails
 #include <psapi.h>  // For GetProcessMemoryInfo
 #pragma comment(lib, "psapi.lib")
 
@@ -391,6 +392,9 @@ SlideshowState g_slideshowState;
 // [PDF/AI] Multi-page document controller and state
 std::unique_ptr<QuickView::DocumentRenderController> g_docRenderCtrl;
 QuickView::PagedDocumentState g_pagedDoc;
+
+// [PDF Sidebar] Left-side embedded page thumbnail panel
+PageThumbnailPanel g_thumbnailPanel;
 static bool RestoreDeletedFile(HWND hwnd, const std::wstring& targetPath) {
     if (targetPath.empty()) return false;
 
@@ -6806,6 +6810,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, [[maybe_unused]] LPWSTR lpCm
     g_gallery.Initialize(&g_thumbMgr, &GetPaneContext(PaneSlot::Primary).navigator);
     g_settingsOverlay.Init(g_renderEngine->GetDeviceContext(), hwnd);
     g_helpOverlay.Init(g_renderEngine->GetDeviceContext(), hwnd);
+
+    // [PDF Sidebar] Initialize thumbnail panel (controller is lazily assigned)
+    g_thumbnailPanel.Initialize(hwnd, g_docRenderCtrl.get());
+
     DragAcceptFiles(hwnd, TRUE);
     
     // Apply Always on Top
@@ -7312,6 +7320,14 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
     // [PDF/AI] Multi-page document render result
     case QuickView::DocumentRenderController::ResultMessage: {
         HandlePdfPageResult(hwnd);
+        return 0;
+    }
+    // [PDF Sidebar] Thumbnail render result from worker thread
+    case QuickView::DocumentRenderController::ThumbnailResultMessage: {
+        if (g_thumbnailPanel.IsVisible()) {
+            g_thumbnailPanel.ProcessThumbnailResults();
+            ::InvalidateRect(hwnd, nullptr, FALSE);
+        }
         return 0;
     }
     // Print job finished
@@ -8358,7 +8374,14 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
           if (g_uiRenderer) {
               POINT lastPt = g_uiRenderer->GetLastMousePos();
               g_uiRenderer->UpdateHoverState(pt, -1);
-              
+
+              // [PDF Sidebar] Thumbnail panel hover tracking
+              if (g_thumbnailPanel.IsVisible()) {
+                  if (g_thumbnailPanel.OnMouseMove((float)pt.x, (float)pt.y)) {
+                      ::InvalidateRect(hwnd, nullptr, FALSE);
+                  }
+              }
+
               if (GetPaneContext(PaneSlot::Primary).path.empty() && !g_gallery.IsVisible()) {
                   auto hit = g_uiRenderer->HitTest((float)pt.x, (float)pt.y);
                   if (hit.type == UIHitResult::WelcomeOpenFile || hit.type == UIHitResult::WelcomeOpenFolder) {
@@ -9112,6 +9135,22 @@ RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);  // OSD and Border ind
 
         if (QuickView::PrintPreviewUI::GetInstance().IsVisible()) {
             if (QuickView::PrintPreviewUI::GetInstance().OnLButtonDown(pt.x, pt.y)) return 0;
+        }
+
+        // [PDF Sidebar] Thumbnail panel click - jump to page
+        if (g_thumbnailPanel.IsVisible()) {
+            int clickedPage = g_thumbnailPanel.OnLButtonDown((float)pt.x, (float)pt.y);
+            if (clickedPage >= 0) {
+                if (g_pagedDoc.active && g_pagedDoc.totalPages > 1) {
+                    if (clickedPage < static_cast<int>(g_pagedDoc.totalPages)) {
+                        HandlePdfPageJump(hwnd, static_cast<uint32_t>(clickedPage));
+                    }
+                } else {
+                    // CDR/CMX path - use existing page navigation
+                    HandleCdrPageStep(hwnd, static_cast<uint32_t>(clickedPage));
+                }
+                return 0;
+            }
         }
 
         auto miniHit = HitTestMinimaps(pt);
@@ -10082,6 +10121,18 @@ RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);
                   }
                   return 0;
              }
+        }
+
+        // [PDF Sidebar] Mouse wheel over thumbnail panel scrolls the panel
+        if (g_thumbnailPanel.IsVisible()) {
+            POINT ptScreen = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+            POINT ptClient = ptScreen;
+            ScreenToClient(hwnd, &ptClient);
+            int delta = GET_WHEEL_DELTA_WPARAM(wParam);
+            if (g_thumbnailPanel.OnMouseWheel(delta)) {
+                ::InvalidateRect(hwnd, nullptr, FALSE);
+                return 0;
+            }
         }
         
         float delta = GET_WHEEL_DELTA_WPARAM(wParam) / 120.0f;
@@ -11709,6 +11760,17 @@ SetTimer(hwnd, IDT_SVG_RERENDER, 100, nullptr);
     }
     if (g_uiRenderer) g_uiRenderer->OnResize(width, height);
     g_toolbar.UpdateLayout((float)width, (float)height);
+
+    // [PDF Sidebar] Update panel layout on window resize
+    if (g_thumbnailPanel.IsVisible()) {
+        RECT rcClient; GetClientRect(hwnd, &rcClient);
+        D2D1_RECT_F fullRect = D2D1::RectF(0.0f, 0.0f,
+                                             (float)(rcClient.right - rcClient.left),
+                                             (float)(rcClient.bottom - rcClient.top));
+        g_thumbnailPanel.UpdateLayout(fullRect);
+        g_thumbnailPanel.CreateDeviceResources(g_renderEngine->GetDeviceContext());
+    }
+
     if (IsCompareModeActive()) {
         MarkCompareDirty();
     }
@@ -12394,6 +12456,18 @@ void ProcessEngineEvents(HWND hwnd) {
                         g_osd.Show(hwnd, pageOsd, false, false,
                                    D2D1::ColorF(D2D1::ColorF::White),
                                    OSDPosition::Bottom, 1500);
+
+                        // [PDF Sidebar] Initialize thumbnail panel
+                        if (g_docRenderCtrl) {
+                            g_thumbnailPanel.Initialize(hwnd, g_docRenderCtrl.get());
+                            g_thumbnailPanel.OnDocumentOpened(GetPaneContext(PaneSlot::Primary).path, pages);
+                            RECT rcClient; GetClientRect(hwnd, &rcClient);
+                            D2D1_RECT_F fullRect = D2D1::RectF(0.0f, 0.0f,
+                                                                 (float)(rcClient.right - rcClient.left),
+                                                                 (float)(rcClient.bottom - rcClient.top));
+                            g_thumbnailPanel.UpdateLayout(fullRect);
+                            g_thumbnailPanel.CreateDeviceResources(g_renderEngine->GetDeviceContext());
+                        }
                     }
                 }
 
@@ -13111,6 +13185,12 @@ void StartNavigation(HWND hwnd, std::wstring path, [[maybe_unused]] bool showOSD
     if (g_pagedDoc.active) {
         g_pagedDoc.Reset();
     }
+
+    // [PDF Sidebar] Hide thumbnail panel when switching files
+    if (g_thumbnailPanel.IsVisible()) {
+        g_thumbnailPanel.OnDocumentClosed();
+    }
+
     g_toolbar.ClearPageIndicator();
     RECT rcClear; GetClientRect(hwnd, &rcClear);
     g_toolbar.UpdateLayout((float)rcClear.right, (float)rcClear.bottom);
@@ -14074,7 +14154,22 @@ TryUpgradeBitmapSurface(hwnd);
         
         g_uiRenderer->Render(hwnd, dt);
     }
-    
+
+    // [PDF Sidebar] Render thumbnail panel (after UI layers, before Commit)
+    if (g_thumbnailPanel.IsVisible() && g_compEngine) {
+        g_thumbnailPanel.UpdateThumbnailRequests();
+        g_thumbnailPanel.ProcessThumbnailResults();
+
+        RECT rcClient; GetClientRect(hwnd, &rcClient);
+        float panelW = g_thumbnailPanel.GetWidth();
+        RECT sidebarRc = {0, 0, (LONG)panelW, rcClient.bottom};
+        auto* dc = g_compEngine->BeginLayerUpdate(UILayer::Dynamic, &sidebarRc);
+        if (dc) {
+            g_thumbnailPanel.Render(dc);
+            g_compEngine->EndLayerUpdate(UILayer::Dynamic);
+        }
+    }
+
     // Commit DirectComposition (Required for UI layer visibility)
     if (g_compEngine) g_compEngine->Commit();
 }
@@ -14456,6 +14551,11 @@ void HandlePdfPageResult(HWND hwnd) {
     RECT rcResult; GetClientRect(hwnd, &rcResult);
     g_toolbar.UpdateLayout((float)rcResult.right, (float)rcResult.bottom);
     RequestRepaint(PaintLayer::Static);
+
+    // [PDF Sidebar] Update current page in thumbnail panel
+    if (g_thumbnailPanel.IsVisible()) {
+        g_thumbnailPanel.SetCurrentPage(result.pageIndex);
+    }
 
     // Upload to GPU
     ComPtr<ID2D1Bitmap> newBitmap;
