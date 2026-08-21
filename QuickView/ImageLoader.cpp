@@ -12313,7 +12313,7 @@ HRESULT CImageLoader::LoadDWG(LPCWSTR filePath,
   std::string svgContent = QuickView::LoadDWGtoSVG(fileData.data(), fileData.size());
   if (svgContent.empty()) {
     if (pMetadata)
-      pMetadata->Format = L"DWG (Parse Failed)";
+      pMetadata->Format = L"DWG (Parse Failed / Timed Out)";
     return E_FAIL;
   }
 

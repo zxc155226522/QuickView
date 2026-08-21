@@ -21,6 +21,9 @@
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
+#include <future>
+#include <chrono>
+#include <thread>
 
 namespace QuickView {
 namespace {
@@ -1103,9 +1106,39 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
     return LoadCadToSVG(data, size, dxf_read_file);
 }
 
-// DWG (AutoCAD) → SVG (via LibreDWG dwg_read_file)
+// ----------------------------------------------------------------------------
+// DWG 异步超时包装: dwg_read_file 对大文件/不兼容版本可能耗时数十秒甚至无限卡住
+// 策略: 在后台线程执行解析, 主线程等待最多 kDwgTimeoutMs 毫秒
+// 超时后返回空字符串(后台线程继续运行, 结果被忽略)
+// 注意: 项目禁用异常(/EHs-c-), 不使用 try/catch
+// ----------------------------------------------------------------------------
+static constexpr int kDwgTimeoutMs = 8000;  // DWG 解析超时阈值
+
 std::string LoadDWGtoSVG(const uint8_t* data, size_t size) {
-    return LoadCadToSVG(data, size, dwg_read_file);
+    // 快速路径: 空文件直接返回
+    if (!data || size == 0) return {};
+
+    // 使用 shared_future 避免 future 析构时阻塞
+    // std::async 返回的 future 析构会阻塞等待任务完成,
+    // 转为 shared_future 后析构不阻塞
+    std::future<std::string> asyncFuture = std::async(
+        std::launch::async, [data, size]() -> std::string {
+            return LoadCadToSVG(data, size, dwg_read_file);
+        });
+
+    // 转移共享状态到 shared_future (asyncFuture 变为空)
+    std::shared_future<std::string> future = asyncFuture.share();
+
+    // 等待结果或超时
+    if (future.wait_for(std::chrono::milliseconds(kDwgTimeoutMs)) ==
+        std::future_status::timeout) {
+        // 超时: 返回空字符串
+        // shared_future 析构不阻塞, 后台线程继续运行至完成
+        return {};
+    }
+
+    // 正常完成
+    return future.get();
 }
 
 } // namespace QuickView
