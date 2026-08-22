@@ -62,45 +62,7 @@ bool WantsTransparentBackground(const std::wstring& path) {
          QuickView::ExtEqualsIgnoreCase(ext, L".dwg");
 }
 
-// Write 32bpp BGRA top-down BMP. Alpha bytes are preserved verbatim (some
-// viewers ignore the alpha channel, but our provider DLL reads it back raw).
-bool WriteBmp32(const std::wstring& outPath, const uint8_t* pixels, int width,
-                int height, int stride) {
-  if (!pixels || width <= 0 || height <= 0 || stride < width * 4) return false;
 
-  BITMAPFILEHEADER bfh = {};
-  BITMAPINFOHEADER bih = {};
-  bih.biSize = sizeof(BITMAPINFOHEADER);
-  bih.biWidth = width;
-  bih.biHeight = -height; // top-down
-  bih.biPlanes = 1;
-  bih.biBitCount = 32;
-  bih.biCompression = BI_RGB;
-
-  const DWORD rowBytes = static_cast<DWORD>(width) * 4;
-  const DWORD imageBytes = rowBytes * static_cast<DWORD>(height);
-  bfh.bfType = 0x4D42; // 'BM'
-  bfh.bfOffBits = sizeof(bfh) + sizeof(bih);
-  bfh.bfSize = bfh.bfOffBits + imageBytes;
-
-  HANDLE hFile = CreateFileW(outPath.c_str(), GENERIC_WRITE, 0, nullptr,
-                             CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-  if (hFile == INVALID_HANDLE_VALUE) return false;
-
-  bool ok = false;
-  DWORD written = 0;
-  if (WriteFile(hFile, &bfh, sizeof(bfh), &written, nullptr) &&
-      WriteFile(hFile, &bih, sizeof(bih), &written, nullptr)) {
-    ok = true;
-    for (int y = 0; y < height && ok; ++y) {
-      ok = WriteFile(hFile, pixels + static_cast<size_t>(y) * stride, rowBytes,
-                     &written, nullptr) != FALSE;
-    }
-  }
-  CloseHandle(hFile);
-  if (!ok) DeleteFileW(outPath.c_str());
-  return ok;
-}
 
 // ---------------------------------------------------------------------------
 // Persistent server support (named-pipe IPC).

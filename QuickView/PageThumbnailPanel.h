@@ -105,6 +105,7 @@ private:
 
     HWND m_hwnd = nullptr;
     QuickView::DocumentRenderController* m_controller = nullptr;
+    ID2D1RenderTarget* m_currentRT = nullptr;
 
     bool m_visible = false;
     float m_panelWidth = kDefaultPanelWidth;

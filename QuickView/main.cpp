@@ -11768,7 +11768,6 @@ SetTimer(hwnd, IDT_SVG_RERENDER, 100, nullptr);
                                              (float)(rcClient.right - rcClient.left),
                                              (float)(rcClient.bottom - rcClient.top));
         g_thumbnailPanel.UpdateLayout(fullRect);
-        g_thumbnailPanel.CreateDeviceResources(g_renderEngine->GetDeviceContext());
     }
 
     if (IsCompareModeActive()) {
@@ -12495,7 +12494,6 @@ void ProcessEngineEvents(HWND hwnd) {
                                                                  (float)(rcClient.right - rcClient.left),
                                                                  (float)(rcClient.bottom - rcClient.top));
                             g_thumbnailPanel.UpdateLayout(fullRect);
-                            g_thumbnailPanel.CreateDeviceResources(g_renderEngine->GetDeviceContext());
                         }
                     }
                 }

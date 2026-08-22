@@ -121,8 +121,10 @@ void PageThumbnailPanel::UpdateLayout(const D2D1_RECT_F& clientRect) {
 
 void PageThumbnailPanel::CreateDeviceResources(ID2D1RenderTarget* pRT) {
     THUMB_DBG(L"CreateDeviceResources(pRT=%p)", pRT, 0);
+    DiscardDeviceResources();
     if (!pRT) return;
 
+    m_currentRT = pRT;
     pRT->CreateSolidColorBrush(D2D1::ColorF(0.12f, 0.12f, 0.12f), &m_brushBg);
     pRT->CreateSolidColorBrush(D2D1::ColorF(0.23f, 0.51f, 0.96f, 0.35f), &m_brushSelection);
     pRT->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.08f), &m_brushHover);
@@ -146,6 +148,7 @@ void PageThumbnailPanel::CreateDeviceResources(ID2D1RenderTarget* pRT) {
 }
 
 void PageThumbnailPanel::DiscardDeviceResources() {
+    m_currentRT = nullptr;
     m_brushBg.Reset();
     m_brushSelection.Reset();
     m_brushHover.Reset();
@@ -205,6 +208,17 @@ ComPtr<ID2D1Bitmap> PageThumbnailPanel::CreateBitmapFromFrame(ID2D1RenderTarget*
 void PageThumbnailPanel::Render(ID2D1RenderTarget* pRT) {
     if (!m_visible || !pRT || m_totalPages == 0) return;
     THUMB_DBG(L"Render(panelW=%.1f, pages=%u, current=%u, slots=%zu)", m_panelWidth, m_totalPages, m_currentPage, m_slots.size());
+
+    if (!m_brushBg || m_currentRT != pRT) {
+        if (m_currentRT != nullptr && m_currentRT != pRT) {
+            for (auto& slot : m_slots) {
+                slot.bitmap.Reset();
+                slot.needsRender = true;
+                slot.isRendering = false;
+            }
+        }
+        CreateDeviceResources(pRT);
+    }
 
     // Smooth scroll animation
     if (std::abs(m_scrollY - m_targetScrollY) > 0.5f) {
