@@ -35,39 +35,35 @@ static uint64_t HashPath(const std::wstring& path) noexcept {
 }
 
 DocumentRenderController::DocumentRenderController() {
-    m_context = fz_new_context(nullptr, nullptr, FZ_STORE_DEFAULT);
-    if (!m_context) {
-        OutputDebugStringW(L"[ThumbPanel] fz_new_context returned null!\n");
-        if (FILE* _fp = _wfopen(L"E:\\qv_thumb_debug.log", L"a")) {
-            fputws(L"[ThumbPanel] fz_new_context returned null!\n", _fp);
-            fflush(_fp); fclose(_fp);
-        }
-        return;
-    }
-
-    fz_try(m_context) {
-        fz_register_document_handlers(m_context);
-    }
-    fz_catch(m_context) {
-        fz_drop_context(m_context);
-        m_context = nullptr;
-        OutputDebugStringW(L"[ThumbPanel] fz_register_document_handlers threw!\n");
-        if (FILE* _fp = _wfopen(L"E:\\qv_thumb_debug.log", L"a")) {
-            fputws(L"[ThumbPanel] fz_register_document_handlers threw!\n", _fp);
-            fflush(_fp); fclose(_fp);
-        }
-        return;
-    }
-
-    m_document = std::make_unique<MuPdfDocument>(m_context);
+    // 1. [WinRT PDF] Try native Windows PDF engine first
     if (IsWinRtPdfAvailable()) {
-        m_winRtDoc = std::make_unique<WinRtPdfDocument>();  // [WinRT PDF] Native engine
+        m_winRtDoc = std::make_unique<WinRtPdfDocument>();
     }
-    m_available = true;
-    m_worker = std::thread(&DocumentRenderController::WorkerMain, this);
-    OutputDebugStringW(L"[ThumbPanel] DocumentRenderController constructed OK!\n");
+
+    // 2. [MuPDF] Try fallback engine
+    m_context = fz_new_context(nullptr, nullptr, FZ_STORE_DEFAULT);
+    if (m_context) {
+        fz_try(m_context) {
+            fz_register_document_handlers(m_context);
+        }
+        fz_catch(m_context) {
+            fz_drop_context(m_context);
+            m_context = nullptr;
+        }
+        if (m_context) {
+            m_document = std::make_unique<MuPdfDocument>(m_context);
+        }
+    }
+
+    // Controller is available if either WinRT PDF or MuPDF engine is initialized
+    m_available = (m_winRtDoc != nullptr) || (m_document != nullptr);
+    if (m_available) {
+        m_worker = std::thread(&DocumentRenderController::WorkerMain, this);
+    }
+    OutputDebugStringW(L"[ThumbPanel] DocumentRenderController constructed!\n");
     if (FILE* _fp = _wfopen(L"E:\\qv_thumb_debug.log", L"a")) {
-        fputws(L"[ThumbPanel] DocumentRenderController constructed OK!\n", _fp);
+        fwprintf(_fp, L"[ThumbPanel] DocumentRenderController constructed (winRt=%d, muPdf=%d, available=%d)\n",
+                 m_winRtDoc != nullptr, m_document != nullptr, m_available);
         fflush(_fp); fclose(_fp);
     }
 }
@@ -156,7 +152,7 @@ void DocumentRenderController::ClearThumbnailCache() noexcept {
 
 HRESULT DocumentRenderController::EnsureDocument(const std::wstring& path,
                                                   std::wstring& errorMessage) noexcept {
-    if (!m_document) return E_UNEXPECTED;
+    if (!m_winRtDoc && !m_document) return E_UNEXPECTED;
 
     // [WinRT PDF] Try native engine first (browser-quality vector rendering)
     if (m_winRtDoc) {
@@ -167,8 +163,12 @@ HRESULT DocumentRenderController::EnsureDocument(const std::wstring& path,
     }
 
     // [Fallback] MuPDF engine
-    if (m_document->IsOpen() && m_document->Path() == path) return S_OK;
-    return m_document->Open(path, errorMessage);
+    if (m_document) {
+        if (m_document->IsOpen() && m_document->Path() == path) return S_OK;
+        return m_document->Open(path, errorMessage);
+    }
+
+    return E_FAIL;
 }
 
 // [PDF Sidebar] Render a single thumbnail page and produce a ThumbnailResult
@@ -191,12 +191,12 @@ void DocumentRenderController::ProcessThumbnailRequest(const ThumbnailRequest& r
 
     if (m_winRtDoc && m_winRtDoc->IsOpen()) {
         hr = m_winRtDoc->RenderPage(request.pageIndex, w, h, 1.0f, fullResult);
-        if (FAILED(hr)) {
+        if (FAILED(hr) && m_document) {
             // Fallback to MuPDF
             fullResult = {};
             hr = m_document->RenderPage(request.pageIndex, w, h, 1.0f, fullResult);
         }
-    } else {
+    } else if (m_document) {
         hr = m_document->RenderPage(request.pageIndex, w, h, 1.0f, fullResult);
     }
 
