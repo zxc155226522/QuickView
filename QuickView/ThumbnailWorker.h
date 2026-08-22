@@ -11,7 +11,9 @@
 
 namespace QuickView {
 
-// One-shot: render a single thumbnail to a BMP file. Returns 0 = success, 2 = failure.
+// One-shot: render a single thumbnail and write BMP data to stdout (pipe).
+// No temp file is created. Returns 0 = success, 2 = failure.
+// Invocation: QuickView.exe --thumbnail --input <file> --size <px>
 int RunThumbnailWorker(int argc, LPWSTR* argv);
 
 // Persistent: a named-pipe server that renders thumbnails for the shell

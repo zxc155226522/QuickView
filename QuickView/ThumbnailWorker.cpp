@@ -488,10 +488,8 @@ static void LargeWorker() {
 
 int QuickView::RunThumbnailWorker(int argc, LPWSTR* argv) {
   std::wstring inputPath;
-  std::wstring outPath;
   int size = 0;
   if (!TryReadArgValue(argc, argv, L"--input", &inputPath) ||
-      !TryReadArgValue(argc, argv, L"--out", &outPath) ||
       !TryReadPositiveIntArg(argc, argv, L"--size", &size)) {
     return 2;
   }
@@ -524,9 +522,26 @@ int QuickView::RunThumbnailWorker(int argc, LPWSTR* argv) {
     HRESULT hr =
         loader.LoadThumbnail(inputPath.c_str(), size, &thumb, true, transparentBg);
 
-    ok = SUCCEEDED(hr) && thumb.isValid && !thumb.pixels.empty() &&
-         WriteBmp32(outPath, thumb.pixels.data(), thumb.width, thumb.height,
-                    thumb.stride);
+    // Write BMP data to stdout (pipe) instead of a temp file.
+    // Format: 4-byte status (0=OK, 1=FAIL) + 4-byte bmpLen + bmp data.
+    if (SUCCEEDED(hr) && thumb.isValid && !thumb.pixels.empty()) {
+      std::vector<BYTE> bmp;
+      if (BuildBmp32Memory(thumb.pixels.data(), thumb.width, thumb.height,
+                           thumb.stride, bmp)) {
+        uint32_t status = 0;
+        uint32_t bmpLen = static_cast<uint32_t>(bmp.size());
+        DWORD written = 0;
+        HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+        ok = WriteFile(hOut, &status, sizeof(status), &written, nullptr) &&
+             WriteFile(hOut, &bmpLen, sizeof(bmpLen), &written, nullptr) &&
+             WriteFile(hOut, bmp.data(), bmpLen, &written, nullptr);
+      }
+    } else {
+      uint32_t status = 1; // FAIL
+      DWORD written = 0;
+      HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+      WriteFile(hOut, &status, sizeof(status), &written, nullptr);
+    }
   }  // loader (m_wicFactory) released here while COM is still initialized
 
   if (SUCCEEDED(coHr)) CoUninitialize();

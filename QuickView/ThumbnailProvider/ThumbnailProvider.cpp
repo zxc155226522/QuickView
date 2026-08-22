@@ -3,12 +3,12 @@
 // COM DLL: Windows Shell IThumbnailProvider for QuickView vector/document
 // formats (.cdr .cmx .plt .dxf .dwg .pdf .ai).
 //
-// Architecture: thin out-of-process shim. GetThumbnail() launches
-//   QuickView.exe --thumbnail --input <file> --out <tmp.bmp> --size <px>
-// which reuses the FULL application rendering pipeline (libcdr / VectorLoader
-// / MuPDF via CImageLoader::LoadThumbnail), then converts the resulting
-// 32bpp BGRA BMP into an HBITMAP. This keeps the shell extension tiny and
-// guarantees Explorer thumbnails always match what the app itself renders.
+// Architecture: thin out-of-process shim. GetThumbnail() communicates with
+//   QuickView.exe via named pipe (persistent server) or stdout pipe (one-shot
+//   fallback), receiving 32bpp BGRA BMP data in memory — no temp files.
+//   This reuses the FULL application rendering pipeline (libcdr / VectorLoader
+//   / MuPDF via CImageLoader::LoadThumbnail), and keeps the shell extension
+//   tiny while guaranteeing Explorer thumbnails match the app's rendering.
 // ============================================================================
 #define INITGUID
 #include <windows.h>
@@ -243,105 +243,67 @@ static bool GetHostExePath(std::wstring& outExe) {
     return GetFileAttributesW(outExe.c_str()) != INVALID_FILE_ATTRIBUTES;
 }
 
-static std::wstring MakeTempBmpPath() {
-    wchar_t tempDir[MAX_PATH];
-    if (!GetTempPathW(MAX_PATH, tempDir)) return {};
-    wchar_t name[128];
-    StringCchPrintfW(name, 128, L"qvthumb_%lu_%lu_%ld.bmp",
-                     GetCurrentProcessId(), GetCurrentThreadId(),
-                     InterlockedIncrement(&g_tempCounter));
-    return std::wstring(tempDir) + name;
-}
+// Run "QuickView.exe --thumbnail" synchronously, reading the BMP result via
+// the child's stdout pipe (no temp file). Returns the HBITMAP on success.
+// Protocol: 4-byte status (0=OK, 1=FAIL) + 4-byte bmpLen + bmp data.
+static HBITMAP RunOneShotWorker(const std::wstring& exePath,
+                                 const std::wstring& inputPath, UINT size) {
+    // Create an anonymous pipe for the child's stdout.
+    HANDLE hReadPipe = nullptr, hWritePipe = nullptr;
+    SECURITY_ATTRIBUTES sa = {};
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE; // child inherits the write end
+    if (!CreatePipe(&hReadPipe, &hWritePipe, &sa, 0)) return nullptr;
+    // Ensure the read end is NOT inherited by the child.
+    SetHandleInformation(hReadPipe, HANDLE_FLAG_INHERIT, 0);
 
-// Run "QuickView.exe --thumbnail" synchronously. Returns true when the worker
-// exited with code 0 within the timeout.
-static bool RunThumbnailWorker(const std::wstring& exePath,
-                               const std::wstring& inputPath,
-                               const std::wstring& outBmp, UINT size) {
     std::wstring cmd = L"\"" + exePath + L"\" --thumbnail --input \"" + inputPath +
-                       L"\" --out \"" + outBmp + L"\" --size " + std::to_wstring(size);
+                       L"\" --size " + std::to_wstring(size);
 
     STARTUPINFOW si = {};
     si.cb = sizeof(si);
-    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.dwFlags = STARTF_USESHOWWINDOW | STARTF_USESTDHANDLES;
     si.wShowWindow = SW_HIDE;
+    si.hStdOutput = hWritePipe;
+    si.hStdError = hWritePipe;
     PROCESS_INFORMATION pi = {};
-    std::wstring mutableCmd = cmd; // CreateProcessW may write to this buffer
-    if (!CreateProcessW(nullptr, mutableCmd.data(), nullptr, nullptr, FALSE,
-                        CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
-        return false;
+    std::wstring mutableCmd = cmd;
+    BOOL launched = CreateProcessW(nullptr, mutableCmd.data(), nullptr, nullptr, TRUE,
+                        CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+    // Close the write end in the parent so the child's writes reach EOF.
+    CloseHandle(hWritePipe);
+    if (!launched) {
+        CloseHandle(hReadPipe);
+        return nullptr;
     }
 
+    // Read all stdout output into a buffer (status + bmpLen + bmp data).
+    std::vector<BYTE> buf;
+    BYTE chunk[65536];
+    for (;;) {
+        DWORD got = 0;
+        BOOL ok = ReadFile(hReadPipe, chunk, sizeof(chunk), &got, nullptr);
+        if (!ok || got == 0) break;
+        buf.insert(buf.end(), chunk, chunk + got);
+        if (buf.size() > 64 * 1024 * 1024) break; // sanity cap (64 MB)
+    }
+    CloseHandle(hReadPipe);
+
+    // Wait for the child to exit (bounded by kPipeTimeoutMs).
     DWORD wait = WaitForSingleObject(pi.hProcess, kPipeTimeoutMs);
-    bool ok = false;
-    if (wait == WAIT_OBJECT_0) {
-        DWORD exitCode = 1;
-        if (GetExitCodeProcess(pi.hProcess, &exitCode) && exitCode == 0) ok = true;
-    } else {
+    if (wait != WAIT_OBJECT_0) {
         TerminateProcess(pi.hProcess, 1);
     }
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
-    return ok;
-}
 
-// Read the 32bpp top-down BGRA BMP written by the worker into an HBITMAP
-// suitable for IThumbnailProvider (keeps the alpha channel verbatim).
-static HBITMAP LoadWorkerBmp(const std::wstring& bmpPath) {
-    HANDLE hFile = CreateFileW(bmpPath.c_str(), GENERIC_READ, FILE_SHARE_READ,
-                               nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (hFile == INVALID_HANDLE_VALUE) return nullptr;
-
-    HBITMAP result = nullptr;
-    do {
-        BITMAPFILEHEADER bfh;
-        BITMAPINFOHEADER bih;
-        DWORD read = 0;
-        if (!ReadFile(hFile, &bfh, sizeof(bfh), &read, nullptr) || read != sizeof(bfh)) break;
-        if (!ReadFile(hFile, &bih, sizeof(bih), &read, nullptr) || read != sizeof(bih)) break;
-        if (bfh.bfType != 0x4D42) break;
-        if (bih.biSize != sizeof(BITMAPINFOHEADER) || bih.biBitCount != 32 ||
-            bih.biCompression != BI_RGB || bih.biWidth <= 0 || bih.biHeight == 0) break;
-
-        const LONG w = bih.biWidth;
-        const LONG h = bih.biHeight < 0 ? -bih.biHeight : bih.biHeight;
-        const bool topDown = bih.biHeight < 0;
-        const DWORD rowBytes = (DWORD)w * 4;
-
-        BITMAPINFO bi = {};
-        bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-        bi.bmiHeader.biWidth = w;
-        bi.bmiHeader.biHeight = -h; // top-down DIB
-        bi.bmiHeader.biPlanes = 1;
-        bi.bmiHeader.biBitCount = 32;
-        bi.bmiHeader.biCompression = BI_RGB;
-
-        void* bits = nullptr;
-        HDC hdc = GetDC(nullptr);
-        HBITMAP hbmp = CreateDIBSection(hdc, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
-        ReleaseDC(nullptr, hdc);
-        if (!hbmp || !bits) break;
-
-        if (SetFilePointer(hFile, bfh.bfOffBits, nullptr, FILE_BEGIN) == INVALID_SET_FILE_POINTER) {
-            DeleteObject(hbmp);
-            break;
-        }
-
-        bool ok = true;
-        for (LONG y = 0; y < h && ok; ++y) {
-            LONG dstY = topDown ? y : (h - 1 - y);
-            ok = ReadFile(hFile, (BYTE*)bits + (size_t)dstY * rowBytes, rowBytes,
-                          &read, nullptr) && read == rowBytes;
-        }
-        if (!ok) {
-            DeleteObject(hbmp);
-            break;
-        }
-        result = hbmp;
-    } while (false);
-
-    CloseHandle(hFile);
-    return result;
+    // Parse the pipe output: 4-byte status + 4-byte bmpLen + bmp data.
+    if (buf.size() < 8) return nullptr;
+    uint32_t status = *reinterpret_cast<const uint32_t*>(buf.data());
+    if (status != 0) return nullptr; // FAIL
+    uint32_t bmpLen = *reinterpret_cast<const uint32_t*>(buf.data() + 4);
+    if (bmpLen == 0 || buf.size() < 8 + bmpLen) return nullptr;
+    return BmpBytesToHBITMAP(buf.data() + 8, bmpLen);
 }
 
 // ---------------------------------------------------------------------------
@@ -709,6 +671,10 @@ public:
     }
     virtual ~CThumbnailProvider() {
         if (m_spSite) m_spSite->Release();
+        // Clean up the IStream spill temp file (if any) to avoid accumulation.
+        if (!m_streamTempFile.empty()) {
+            DeleteFileW(m_streamTempFile.c_str());
+        }
         InterlockedDecrement(&g_cRefModule);
     }
 
@@ -843,6 +809,7 @@ public:
         CloseHandle(h);
 
         m_path = path;
+        m_streamTempFile = path; // track for cleanup on destruction
         DbgLog((std::wstring(L"  temp=") + m_path).c_str());
         return S_OK;
     }
@@ -944,13 +911,8 @@ public:
             if (cur < kOneShotMax &&
                 g_oneShotActive.compare_exchange_weak(cur, cur + 1,
                                                       std::memory_order_acq_rel)) {
-                DbgLog(L"  fallback one-shot worker");
-                std::wstring tmpBmp = MakeTempBmpPath();
-                if (!tmpBmp.empty()) {
-                    if (RunThumbnailWorker(exePath, inputPath, tmpBmp, cx))
-                        hbmp = LoadWorkerBmp(tmpBmp);
-                    DeleteFileW(tmpBmp.c_str());
-                }
+                DbgLog(L"  fallback one-shot worker (stdout pipe)");
+                hbmp = RunOneShotWorker(exePath, inputPath, cx);
                 --g_oneShotActive;
             } else {
                 DbgLog(L"  one-shot fallback skipped (concurrency cap reached)");
@@ -964,6 +926,11 @@ public:
         hbmp = ComposeSquareThumbnail(hbmp, GetExtUpper(m_realPath.empty() ? m_path : m_realPath), cx);
         *phbmp = hbmp;
         *pdwAlpha = WTSAT_ARGB;
+        // Clean up the IStream spill temp file immediately after use.
+        if (!m_streamTempFile.empty()) {
+            DeleteFileW(m_streamTempFile.c_str());
+            m_streamTempFile.clear();
+        }
         DbgLog((L"  OK (" + std::to_wstring(t1 - t0) + L"ms)").c_str());
         return S_OK;
     }
@@ -994,6 +961,7 @@ private:
     LONG m_cRef;
     std::wstring m_path;      // worker 解码输入（stream 落盘临时文件，或 IInitializeWithFile 真实路径）
     std::wstring m_realPath;  // 真实文件路径（角标扩展名来源：Stat / Site / IInitializeWithFile）
+    std::wstring m_streamTempFile; // IInitializeWithStream 创建的临时文件路径（析构时删除）
     IUnknown* m_spSite = nullptr;
 };
 
