@@ -24,6 +24,20 @@ file(MAKE_DIRECTORY "${SOURCE_PATH}/thirdparty/mujs")
 file(GLOB MUJS_SOURCES "${MUJS_SOURCE_PATH}/*.c" "${MUJS_SOURCE_PATH}/*.h")
 file(COPY ${MUJS_SOURCES} DESTINATION "${SOURCE_PATH}/thirdparty/mujs")
 
+# [lcms2mt] MuPDF's color-lcms.c with HAVE_LCMS2MT uses the Artifex multi-context
+# lcms2 fork. Stock lcms2 limits the process to a SINGLE fz_context (glo_ctx
+# singleton in color-lcms.c), which breaks any second engine instance (e.g. the
+# PDF thumbnail sidebar controller). The release tarball lacks the submodule, so
+# fetch the exact commit pinned by MuPDF 1.27.2 (.gitmodules: branch artifex).
+vcpkg_download_distfile(LCMS2MT_ARCHIVE
+    URLS "https://github.com/ArtifexSoftware/thirdparty-lcms2/archive/f75fad71d53efd58d7312bea21c2bedca0b9e6da.tar.gz"
+    FILENAME "thirdparty-lcms2-f75fad71d53efd58d7312bea21c2bedca0b9e6da.tar.gz"
+    SHA512 19b37872bc498a3bb55211ff506a029f8ae8c572d8f13b8beee6b2d3abe671807a87f06ee0917f84d97e25a320272a3e273f563af964ac88b8f765d5a2a26300
+)
+vcpkg_extract_source_archive_ex(OUT_SOURCE_PATH LCMS2MT_SOURCE_PATH ARCHIVE "${LCMS2MT_ARCHIVE}")
+file(COPY "${LCMS2MT_SOURCE_PATH}/include" DESTINATION "${SOURCE_PATH}/thirdparty/lcms2")
+file(COPY "${LCMS2MT_SOURCE_PATH}/src" DESTINATION "${SOURCE_PATH}/thirdparty/lcms2")
+
 file(COPY "${CMAKE_CURRENT_LIST_DIR}/CMakeLists.txt" DESTINATION "${SOURCE_PATH}")
 file(COPY "${CMAKE_CURRENT_LIST_DIR}/unofficial-libmupdf-config.cmake.in" DESTINATION "${SOURCE_PATH}")
 

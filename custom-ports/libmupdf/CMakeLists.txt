@@ -2,7 +2,6 @@ cmake_minimum_required(VERSION 3.25)
 project(libmupdf LANGUAGES C)
 
 find_package(freetype CONFIG REQUIRED)
-find_package(lcms2 CONFIG REQUIRED)
 find_package(JPEG REQUIRED)
 find_package(OpenJPEG CONFIG REQUIRED)
 find_package(ZLIB REQUIRED)
@@ -59,6 +58,13 @@ file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS
 
 list(FILTER SOURCES EXCLUDE REGEX "/fitz/tessocr\\.cpp$")
 
+# [lcms2mt] Build the Artifex multi-context lcms2 fork into libmupdf.
+# HAVE_LCMS2MT switches color-lcms.c from the stock-lcms2 single-context
+# singleton (glo_ctx) to per-fz_context lcms2mt instances, allowing multiple
+# fz_context objects in one process (required by the thumbnail engine).
+file(GLOB LCMS2MT_SOURCES CONFIGURE_DEPENDS "thirdparty/lcms2/src/*.c")
+list(APPEND SOURCES ${LCMS2MT_SOURCES})
+
 add_library(libmupdf STATIC ${SOURCES} ${FONT_SOURCES})
 set_target_properties(libmupdf PROPERTIES PREFIX "")
 
@@ -74,6 +80,7 @@ target_include_directories(libmupdf
         $<INSTALL_INTERFACE:include>
     PRIVATE
         ${JBIG2DEC_INCLUDE_DIR}
+        ${PROJECT_SOURCE_DIR}/thirdparty/lcms2/include
 )
 
 target_compile_definitions(libmupdf
@@ -97,6 +104,10 @@ target_compile_definitions(libmupdf
         FZ_ENABLE_IMG=1
         FZ_ENABLE_PDF=1
         FZ_ENABLE_ICC=1
+        HAVE_LCMS2MT=1
+        # Prefix every lcms2mt symbol so it cannot collide with the stock
+        # lcms2 (lcms2::lcms2) that QuickView itself links via find_package.
+        LCMS2MT_PREFIX=qvlcms2mt_
         FZ_ENABLE_JPX=1
         FZ_ENABLE_SPOT_RENDERING=1
         FZ_PLOTTERS_G=1
@@ -111,7 +122,6 @@ target_compile_definitions(libmupdf
 target_link_libraries(libmupdf
     PUBLIC
         freetype
-        lcms2::lcms2
         ${JBIG2DEC_LIBRARY}
         JPEG::JPEG
         openjp2

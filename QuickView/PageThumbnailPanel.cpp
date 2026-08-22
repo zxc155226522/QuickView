@@ -256,16 +256,19 @@ void PageThumbnailPanel::Render(ID2D1RenderTarget* pRT) {
     pRT->PushAxisAlignedClip(m_panelRect, D2D1_ANTIALIAS_MODE_ALIASED);
 
     const float itemHeight = kThumbnailTargetHeight * g_uiScale + kPageLabelHeight * g_uiScale + kItemSpacing;
-    const uint32_t startPage = static_cast<uint32_t>(std::max(0.0f, m_scrollY / itemHeight)) - 1;
-    const uint32_t endPage = std::min(m_totalPages,
-        static_cast<uint32_t>((m_scrollY + m_panelHeight) / itemHeight) + 2);
+    // [Fix] Use signed math: the old uint32_t "- 1" underflowed to UINT32_MAX
+    // when scrollY == 0, making the draw loop condition always false (black panel).
+    const int startPage = std::max(0, static_cast<int>(m_scrollY / itemHeight) - 1);
+    const int endPage = std::min(static_cast<int>(m_totalPages),
+        static_cast<int>((m_scrollY + m_panelHeight) / itemHeight) + 2);
 
-    for (uint32_t i = startPage; i < endPage; ++i) {
-        const D2D1_RECT_F itemRect = GetItemRect(i);
+    for (int i = startPage; i < endPage; ++i) {
+        const uint32_t pageIndex = static_cast<uint32_t>(i);
+        const D2D1_RECT_F itemRect = GetItemRect(pageIndex);
         if (itemRect.bottom < m_panelRect.top || itemRect.top > m_panelRect.bottom) continue;
 
-        const bool isCurrentPage = (i == m_currentPage);
-        const bool isHovered = (static_cast<int>(i) == m_hoverIndex);
+        const bool isCurrentPage = (pageIndex == m_currentPage);
+        const bool isHovered = (static_cast<int>(pageIndex) == m_hoverIndex);
 
         // Selection/hover background
         if (isCurrentPage && m_brushSelection) {
@@ -278,8 +281,8 @@ void PageThumbnailPanel::Render(ID2D1RenderTarget* pRT) {
 
         // Thumbnail image
         const D2D1_RECT_F thumbRect = GetThumbnailRect(itemRect);
-        if (m_slots[i].bitmap) {
-            pRT->DrawBitmap(m_slots[i].bitmap.Get(), thumbRect, 1.0f,
+        if (m_slots[pageIndex].bitmap) {
+            pRT->DrawBitmap(m_slots[pageIndex].bitmap.Get(), thumbRect, 1.0f,
                            D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
         } else if (m_brushThumbnailBg) {
             D2D1_ROUNDED_RECT bgRect = D2D1::RoundedRect(thumbRect, 3.0f * g_uiScale, 3.0f * g_uiScale);
@@ -295,7 +298,7 @@ void PageThumbnailPanel::Render(ID2D1RenderTarget* pRT) {
         // Page label
         if (m_textFormatPage && m_brushText) {
             wchar_t label[16];
-            swprintf_s(label, L"%u", i + 1);
+            swprintf_s(label, L"%u", pageIndex + 1);
             D2D1_RECT_F labelRect = D2D1::RectF(itemRect.left, thumbRect.bottom + 2.0f * g_uiScale,
                                                  itemRect.right, itemRect.bottom);
             pRT->DrawText(label, static_cast<UINT32>(wcslen(label)), m_textFormatPage.Get(),
