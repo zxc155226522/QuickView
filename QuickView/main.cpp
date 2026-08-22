@@ -4465,7 +4465,7 @@ void LoadConfig() {
     g_config.ThemeCustomTextG = (float)_wtof(bufTCTG);
     g_config.ThemeCustomTextB = (float)_wtof(bufTCTB);
 
-    g_config.EnableGeekGlass = GetPrivateProfileIntW(L"GeekGlass", L"EnableGeekGlass", 1, iniPath.c_str()) != 0;
+    g_config.EnableGeekGlass = GetPrivateProfileIntW(L"GeekGlass", L"EnableGeekGlass", 0, iniPath.c_str()) != 0;
     g_config.GlassShowBorders = GetPrivateProfileIntW(L"GeekGlass", L"GlassShowBorders", 1, iniPath.c_str()) != 0;
     g_config.GlassUIAnimations = GetPrivateProfileIntW(L"GeekGlass", L"GlassUIAnimations", 1, iniPath.c_str()) != 0;
     

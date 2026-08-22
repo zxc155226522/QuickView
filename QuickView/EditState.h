@@ -512,7 +512,7 @@ struct AppConfig {
 
     // --- Geek Glass Pipeline ---
     bool GlassShowBorders = true;         // Global toggle for UI Borders
-    bool EnableGeekGlass = true;           // Master switch (fallback to pure colors)
+    bool EnableGeekGlass = false;          // Master switch (fallback to pure colors)
     bool GlassUIAnimations = true;         // UI animations (0ms hard cut if false)
     float GlassBlurSigma = 3.0f;           // Blur radius (5.0f to 40.0f)
     float GlassTintAlpha = 0.65f;          // Tint layer opacity (0.05 - 1.0, floor at 5% for safety)

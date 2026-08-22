@@ -571,15 +571,6 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
     D2D1_LAYER_PARAMETERS params = D2D1::LayerParameters();
     params.contentBounds = m_bgRect.rect;
     
-    // [Fix] Expand layer bounds to accommodate shadow diffusion
-    // Gaussian shadow standard deviation is 12.0f * uiScale, 3-sigma is 36.0f. 
-    // We add a 60px margin to be safe.
-    float shadowMargin = 60.0f * m_uiScale;
-    params.contentBounds.left -= shadowMargin;
-    params.contentBounds.top -= shadowMargin;
-    params.contentBounds.right += shadowMargin;
-    params.contentBounds.bottom += shadowMargin;
-
     if (m_animMode) {
       params.contentBounds.top -= 10.0f * m_uiScale; // Extra room for progress bar
     }
