@@ -4,8 +4,33 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstdarg>
 
 extern float g_uiScale;
+
+// [Debug] Diagnostic tracing via file log
+static void ThumbDbgLog(const wchar_t* fmt, ...) {
+    wchar_t _buf[512];
+    va_list _args;
+    va_start(_args, fmt);
+    int _n = vswprintf_s(_buf, fmt, _args);
+    va_end(_args);
+    if (_n <= 0) return;
+    _buf[_n++] = L'\n';
+    _buf[_n] = 0;
+    OutputDebugStringW(_buf);
+    // Also write to file for debugging without DebugView
+    static FILE* _fp = nullptr;
+    if (!_fp) {
+        _wfopen_s(&_fp, L"E:\\qv_thumb_debug.log", L"a");
+    }
+    if (_fp) {
+        fputws(_buf, _fp);
+        fflush(_fp);
+    }
+}
+#define THUMB_DBG(fmt, ...) ThumbDbgLog(L"[ThumbPanel] " fmt, __VA_ARGS__)
 
 PageThumbnailPanel::~PageThumbnailPanel() {
     DiscardDeviceResources();
@@ -17,7 +42,9 @@ void PageThumbnailPanel::Initialize(HWND hwnd, QuickView::DocumentRenderControll
 }
 
 void PageThumbnailPanel::Show(uint32_t totalPages, uint32_t currentPage) {
+    THUMB_DBG(L"Show(totalPages=%u, currentPage=%u)", totalPages, currentPage);
     if (totalPages <= 1) {
+        THUMB_DBG(L"Show -> Hide (totalPages <= 1)", 0, 0);
         Hide();
         return;
     }
@@ -62,6 +89,7 @@ void PageThumbnailPanel::SetCurrentPage(uint32_t page) {
 }
 
 void PageThumbnailPanel::OnDocumentOpened(const std::wstring& path, uint32_t totalPages) {
+    THUMB_DBG(L"OnDocumentOpened(path=%ls, totalPages=%u)", path.c_str(), totalPages);
     m_currentPath = path;
     if (totalPages > 1) {
         Show(totalPages, 0);
@@ -92,6 +120,7 @@ void PageThumbnailPanel::UpdateLayout(const D2D1_RECT_F& clientRect) {
 }
 
 void PageThumbnailPanel::CreateDeviceResources(ID2D1RenderTarget* pRT) {
+    THUMB_DBG(L"CreateDeviceResources(pRT=%p)", pRT, 0);
     if (!pRT) return;
 
     pRT->CreateSolidColorBrush(D2D1::ColorF(0.12f, 0.12f, 0.12f), &m_brushBg);
@@ -175,6 +204,7 @@ ComPtr<ID2D1Bitmap> PageThumbnailPanel::CreateBitmapFromFrame(ID2D1RenderTarget*
 
 void PageThumbnailPanel::Render(ID2D1RenderTarget* pRT) {
     if (!m_visible || !pRT || m_totalPages == 0) return;
+    THUMB_DBG(L"Render(panelW=%.1f, pages=%u, current=%u, slots=%zu)", m_panelWidth, m_totalPages, m_currentPage, m_slots.size());
 
     // Smooth scroll animation
     if (std::abs(m_scrollY - m_targetScrollY) > 0.5f) {

@@ -12438,6 +12438,15 @@ void ProcessEngineEvents(HWND hwnd) {
                 // [PDF/AI/CDR] Activate multi-page mode for documents with >1 pages
                 if (!isPreview) {
                     const uint32_t pages = evt.metadata.pageCount;
+                    {
+                        wchar_t _dbg[256];
+                        swprintf_s(_dbg, L"[ThumbPanel] isPreview=0 pages=%u format=%ls loader=%ls\n",
+                            pages, evt.metadata.Format.c_str(), evt.metadata.LoaderName.c_str());
+                        OutputDebugStringW(_dbg);
+                        if (FILE* _fp = _wfopen(L"E:\\qv_thumb_debug.log", L"a")) {
+                            fputws(_dbg, _fp); fflush(_fp); fclose(_fp);
+                        }
+                    }
                     if (pages > 1) {
                         g_pagedDoc.active = true;
                         g_pagedDoc.currentPage = 0;
@@ -12464,6 +12473,19 @@ void ProcessEngineEvents(HWND hwnd) {
                         // appeared. Create it here if needed so the panel works immediately.
                         if (!g_docRenderCtrl) {
                             g_docRenderCtrl = std::make_unique<QuickView::DocumentRenderController>();
+                        }
+                        {
+                            wchar_t _dbg[256];
+                            swprintf_s(_dbg, L"[ThumbPanel] g_docRenderCtrl=%p available=%d pages=%u\n",
+                                (void*)g_docRenderCtrl.get(),
+                                g_docRenderCtrl ? g_docRenderCtrl->IsAvailable() : 0,
+                                pages);
+                            OutputDebugStringW(_dbg);
+                            if (FILE* _fp = _wfopen(L"E:\\qv_thumb_debug.log", L"a")) {
+                                fputws(_dbg, _fp);
+                                fflush(_fp);
+                                fclose(_fp);
+                            }
                         }
                         if (g_docRenderCtrl && g_docRenderCtrl->IsAvailable()) {
                             g_thumbnailPanel.Initialize(hwnd, g_docRenderCtrl.get());
@@ -14171,10 +14193,23 @@ TryUpgradeBitmapSurface(hwnd);
         float panelW = g_thumbnailPanel.GetWidth();
         RECT sidebarRc = {0, 0, (LONG)panelW, rcClient.bottom};
         auto* dc = g_compEngine->BeginLayerUpdate(UILayer::Dynamic, &sidebarRc);
+        {
+            wchar_t _dbg[256];
+            swprintf_s(_dbg, L"[ThumbPanel] OnPaint: visible=%d dc=%p panelW=%.1f\n",
+                g_thumbnailPanel.IsVisible() ? 1 : 0, (void*)dc, panelW);
+            OutputDebugStringW(_dbg);
+            if (FILE* _fp = _wfopen(L"E:\\qv_thumb_debug.log", L"a")) {
+                fputws(_dbg, _fp);
+                fflush(_fp);
+                fclose(_fp);
+            }
+        }
         if (dc) {
             g_thumbnailPanel.Render(dc);
             g_compEngine->EndLayerUpdate(UILayer::Dynamic);
         }
+        // Request next-frame repaint for thumbnail animation (scrolling, loading)
+        RequestRepaint(PaintLayer::Dynamic);
     }
 
     // Commit DirectComposition (Required for UI layer visibility)

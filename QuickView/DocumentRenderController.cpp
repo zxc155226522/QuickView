@@ -36,7 +36,14 @@ static uint64_t HashPath(const std::wstring& path) noexcept {
 
 DocumentRenderController::DocumentRenderController() {
     m_context = fz_new_context(nullptr, nullptr, FZ_STORE_DEFAULT);
-    if (!m_context) return;
+    if (!m_context) {
+        OutputDebugStringW(L"[ThumbPanel] fz_new_context returned null!\n");
+        if (FILE* _fp = _wfopen(L"E:\\qv_thumb_debug.log", L"a")) {
+            fputws(L"[ThumbPanel] fz_new_context returned null!\n", _fp);
+            fflush(_fp); fclose(_fp);
+        }
+        return;
+    }
 
     fz_try(m_context) {
         fz_register_document_handlers(m_context);
@@ -44,6 +51,11 @@ DocumentRenderController::DocumentRenderController() {
     fz_catch(m_context) {
         fz_drop_context(m_context);
         m_context = nullptr;
+        OutputDebugStringW(L"[ThumbPanel] fz_register_document_handlers threw!\n");
+        if (FILE* _fp = _wfopen(L"E:\\qv_thumb_debug.log", L"a")) {
+            fputws(L"[ThumbPanel] fz_register_document_handlers threw!\n", _fp);
+            fflush(_fp); fclose(_fp);
+        }
         return;
     }
 
@@ -53,6 +65,11 @@ DocumentRenderController::DocumentRenderController() {
     }
     m_available = true;
     m_worker = std::thread(&DocumentRenderController::WorkerMain, this);
+    OutputDebugStringW(L"[ThumbPanel] DocumentRenderController constructed OK!\n");
+    if (FILE* _fp = _wfopen(L"E:\\qv_thumb_debug.log", L"a")) {
+        fputws(L"[ThumbPanel] DocumentRenderController constructed OK!\n", _fp);
+        fflush(_fp); fclose(_fp);
+    }
 }
 
 DocumentRenderController::~DocumentRenderController() {
