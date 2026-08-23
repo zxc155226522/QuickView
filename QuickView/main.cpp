@@ -9125,6 +9125,21 @@ RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);  // OSD and Border ind
     case WM_LBUTTONDOWN: {
         POINT pt = { (short)LOWORD(lParam), (short)HIWORD(lParam) };
 
+        // [PDF] If page input is active and click is outside the indicator, auto-commit
+        if (g_toolbar.IsPageInputActive()) {
+            if (!g_toolbar.IsPageIndicatorHit((float)pt.x, (float)pt.y)) {
+                const auto& inputText = g_toolbar.GetPageInputText();
+                if (!inputText.empty()) {
+                    int page = _wtoi(inputText.c_str());
+                    if (page >= 1 && page <= static_cast<int>(g_pagedDoc.totalPages)) {
+                        HandlePdfPageJump(hwnd, static_cast<uint32_t>(page - 1));
+                    }
+                }
+                g_toolbar.SetPageInputActive(false);
+                RequestRepaint(PaintLayer::Static);
+            }
+        }
+
         // [加载环] 点击转圈环取消本次加载（环区域可点击）
         if (g_loadProgress.visibleAfterDelay.load() && g_loadProgress.cancellable.load()) {
             int dx = pt.x - g_spinnerCx;

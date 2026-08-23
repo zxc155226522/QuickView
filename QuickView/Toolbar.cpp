@@ -939,15 +939,6 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
                         inputTextRect, m_brushIcon.Get(),
                         D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
-        // Draw steady (non-blinking) cursor as a thin vertical line after the text
-        {
-          float cursorX = textStartX + offsetX + inputW + 1.0f * m_uiScale;
-          if (display.empty()) cursorX = textStartX + curW * 0.5f;
-          D2D1_RECT_F cursorRect = D2D1::RectF(
-              cursorX, textY + 3.0f * m_uiScale,
-              cursorX + 2.0f * m_uiScale, textY + indicatorH - 3.0f * m_uiScale);
-          pRT->FillRectangle(cursorRect, m_brushIcon.Get());
-        }
       } else {
         // Right-align the page number within the fixed box
         float numW = measureText(curStr);
