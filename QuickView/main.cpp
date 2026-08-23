@@ -12538,11 +12538,6 @@ void ProcessEngineEvents(HWND hwnd) {
                         RECT rcPi; GetClientRect(hwnd, &rcPi);
                         g_toolbar.UpdateLayout((float)rcPi.right, (float)rcPi.bottom);
                         RequestRepaint(PaintLayer::Static);
-                        wchar_t pageOsd[64];
-                        swprintf_s(pageOsd, L"第 1 / %u 页", pages);
-                        g_osd.Show(hwnd, pageOsd, false, false,
-                                   D2D1::ColorF(D2D1::ColorF::White),
-                                   OSDPosition::Bottom, 1500);
 
                         // [PDF Sidebar] Initialize thumbnail panel
                         // [Fix] g_docRenderCtrl was lazily initialized only on first page
@@ -14616,12 +14611,6 @@ void HandlePdfPageStep(HWND hwnd, bool forward) {
     req.zoom = 1.0f;
 
     g_pagedDoc.requestId = g_docRenderCtrl->Request(std::move(req));
-
-    // Show loading OSD
-    wchar_t buf[64];
-    swprintf_s(buf, L"加载第 %u / %u 页…", targetPage + 1, g_pagedDoc.totalPages);
-    g_osd.Show(hwnd, buf, false, false, D2D1::ColorF(D2D1::ColorF::White),
-               OSDPosition::Bottom, 2000);
 }
 
 // [PDF/AI] Jump to a specific page (for Home/End keys)
@@ -14645,11 +14634,6 @@ void HandlePdfPageJump(HWND hwnd, uint32_t targetPage) {
     req.zoom = 1.0f;
 
     g_pagedDoc.requestId = g_docRenderCtrl->Request(std::move(req));
-
-    wchar_t buf[64];
-    swprintf_s(buf, L"加载第 %u / %u 页…", targetPage + 1, g_pagedDoc.totalPages);
-    g_osd.Show(hwnd, buf, false, false, D2D1::ColorF(D2D1::ColorF::White),
-               OSDPosition::Bottom, 2000);
 }
 
 // [PDF/AI] Process async page render result (called from WM_APP+24 handler)
