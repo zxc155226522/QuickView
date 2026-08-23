@@ -1712,6 +1712,7 @@ void ImageEngine::AddToCache(int index, const std::wstring& path, std::shared_pt
             cachedFrame->svg->viewBoxH = frame->svg->viewBoxH;
             cachedFrame->srcWidth = frame->srcWidth;
             cachedFrame->srcHeight = frame->srcHeight;
+            cachedFrame->pageCount = frame->pageCount; // [PDF/AI/CDR] Preserve page count for cache
             
             // [CMS] Propagate color profile and HDR metadata
             cachedFrame->iccProfile = frame->iccProfile;
@@ -1733,6 +1734,7 @@ void ImageEngine::AddToCache(int index, const std::wstring& path, std::shared_pt
             cachedFrame->exifOrientation = frame->exifOrientation;
             cachedFrame->srcWidth = frame->srcWidth;
             cachedFrame->srcHeight = frame->srcHeight;
+            cachedFrame->pageCount = frame->pageCount; // [PDF/AI/CDR] Preserve page count for cache
             cachedFrame->memoryDeleter = QuickView::MemoryDeleter::FromDeleteArray(); // Heap cleanup
             
             // [CMS] Propagate color profile and HDR metadata
