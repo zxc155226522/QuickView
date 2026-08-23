@@ -404,36 +404,17 @@ void Toolbar::UpdateLayout(float winW, float winH) {
     const float indicatorW = 80.0f * m_uiScale;
     const float indicatorH = buttonSize * 0.82f;
 
-    // Count left-side and right-side buttons
-    int leftCount = 0, rightCount = 0;
-    for (const auto &btn : m_buttons) {
-      if (!isVisibleButton(btn)) continue;
-      if (isPageNavGroup(btn.id)) continue; // skip page nav buttons
-      // PageFirst/Prev come before Next/PageLast in m_buttons order,
-      // but we need to know which side they're on.
-      // Actually: all non-pagenav buttons are split by position relative
-      // to the pagenav group in m_buttons array order.
-      // Buttons before PageFirst → left, buttons after PageLast → right.
-      // But since PageFirst is first in array, everything before it is left=0.
-      // Let's just count: buttons appearing before the page nav group → left,
-      // buttons after → right.
-      rightCount++; // all non-pagenav are right-side (since PageFirst is first)
-    }
+    // All non-pagenav buttons go to the right side (since PageFirst is first in m_buttons array)
 
     // Calculate widths
     // Center group: PageFirst + Prev + indicator + Next + PageLast
     const float centerW = buttonSize * 4 + indicatorW + gap * 4; // 4 buttons + indicator + 4 gaps
     const float centerX = winW * 0.5f;
     float centerStartX = centerX - centerW * 0.5f;
-    float leftEndX = centerStartX - gap; // gap between left group and center group
     float rightStartX = centerStartX + centerW + gap;
 
     // Layout right-side buttons from rightStartX going right
     float rx = rightStartX;
-    // Layout left-side buttons ending at leftEndX going left
-    // Since all non-pagenav buttons are right-side, left group is empty
-    // But we still place from rightStartX
-
     // Place center group buttons
     float ccx = centerStartX;
     for (auto &btn : m_buttons) {
