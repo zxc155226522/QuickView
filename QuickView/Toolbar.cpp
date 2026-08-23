@@ -924,8 +924,6 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
 
       // Draw current page text (or input text with cursor)
       // Use fixed width (curW) so the text area doesn't shrink/grow
-      D2D1_RECT_F curTextRect = D2D1::RectF(
-          textStartX, textY, textStartX + curW, textY + indicatorH);
       if (m_pageInputActive) {
         // Show input text, right-aligned within the fixed-width box
         std::wstring display = m_pageInputText;
