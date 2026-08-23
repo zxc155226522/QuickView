@@ -302,9 +302,9 @@ void Toolbar::UpdateLayout(float winW, float winH) {
 
     float w = padX * 2 + (count * buttonSize);
     if (count > 1) w += (count - 1) * gap;
-    // [PDF] Page indicator width
+    // [PDF] Page indicator width — inline between Prev and Next (part of the flow)
     if (m_showPageIndicator) {
-      w += 72.0f * m_uiScale; // page indicator pill width
+      w += 80.0f * m_uiScale; // page indicator pill width
     }
     if (m_compareMode && hasZoom) {
       const float zoomGap = 2.0f * m_uiScale;
@@ -367,6 +367,14 @@ void Toolbar::UpdateLayout(float winW, float winH) {
                         0.0f, 0.0f // Sharp corners for docked bar
       );
 
+  // Helper: check if a button is part of the page navigation group
+  auto isPageNavGroup = [](ToolbarButtonID id) {
+    return id == ToolbarButtonID::PageFirst ||
+           id == ToolbarButtonID::Prev ||
+           id == ToolbarButtonID::Next ||
+           id == ToolbarButtonID::PageLast;
+  };
+
   // Layout Buttons
   float cx = startX + padX;
   float cy = startY + padY;
@@ -389,74 +397,145 @@ void Toolbar::UpdateLayout(float winW, float winH) {
       m_animProgressRect = D2D1::RectF(m_bgRect.rect.left + 20.0f * m_uiScale, m_bgRect.rect.top - 28.0f * m_uiScale, m_bgRect.rect.right - 20.0f * m_uiScale, m_bgRect.rect.top + 2.0f * m_uiScale);
   }
 
-  for (auto &btn : m_buttons) {
-    bool visible = isVisibleButton(btn);
-    // Sync Pin State
-    if (btn.id == ToolbarButtonID::Pin) {
-      btn.isToggled = m_isPinned;
-      btn.iconGlyph = m_isPinned ? Icons::Unpin : Icons::Pin;
-    }
-    if (btn.id == ToolbarButtonID::LockSize) {
-        btn.isToggled = g_runtime.LockWindowSize;
-        btn.iconGlyph = g_runtime.LockWindowSize ? Icons::Lock : Icons::Unlock;
+  // [PDF] When page indicator is visible, use three-segment layout:
+  // Left buttons | [PageFirst][Prev] [页码] [Next][PageLast] | Right buttons
+  // The page nav group is centered in the window.
+  if (m_showPageIndicator && !m_compareMode && !m_animMode && !m_slideshowMode) {
+    const float indicatorW = 80.0f * m_uiScale;
+    const float indicatorH = buttonSize * 0.82f;
+
+    // Count left-side and right-side buttons
+    int leftCount = 0, rightCount = 0;
+    for (const auto &btn : m_buttons) {
+      if (!isVisibleButton(btn)) continue;
+      if (isPageNavGroup(btn.id)) continue; // skip page nav buttons
+      // PageFirst/Prev come before Next/PageLast in m_buttons order,
+      // but we need to know which side they're on.
+      // Actually: all non-pagenav buttons are split by position relative
+      // to the pagenav group in m_buttons array order.
+      // Buttons before PageFirst → left, buttons after PageLast → right.
+      // But since PageFirst is first in array, everything before it is left=0.
+      // Let's just count: buttons appearing before the page nav group → left,
+      // buttons after → right.
+      rightCount++; // all non-pagenav are right-side (since PageFirst is first)
     }
 
-    if (btn.id == ToolbarButtonID::CompareToggle) {
-      btn.iconGlyph = Icons::CompareToggle;
-    }
+    // Calculate widths
+    // Center group: PageFirst + Prev + indicator + Next + PageLast
+    const float centerW = buttonSize * 4 + indicatorW + gap * 4; // 4 buttons + indicator + 4 gaps
+    const float centerX = winW * 0.5f;
+    float centerStartX = centerX - centerW * 0.5f;
+    float leftEndX = centerStartX - gap; // gap between left group and center group
+    float rightStartX = centerStartX + centerW + gap;
 
-    if (visible) {
-      btn.rect = D2D1::RectF(cx, cy, cx + buttonSize, cy + buttonSize);
-      cx += buttonSize + gap;
+    // Layout right-side buttons from rightStartX going right
+    float rx = rightStartX;
+    // Layout left-side buttons ending at leftEndX going left
+    // Since all non-pagenav buttons are right-side, left group is empty
+    // But we still place from rightStartX
 
-      // [PDF] Insert page indicator between Prev and Next
-      if (m_showPageIndicator && btn.id == ToolbarButtonID::Prev) {
-        const float indicatorW = 72.0f * m_uiScale;
-        const float indicatorH = buttonSize * 0.82f;
-        const float indicatorY = cy + (buttonSize - indicatorH) * 0.5f;
-        m_pageIndicatorRect = D2D1::RectF(cx, indicatorY, cx + indicatorW, indicatorY + indicatorH);
-        cx += indicatorW; // No gap after indicator (it's visually grouped)
+    // Place center group buttons
+    float ccx = centerStartX;
+    for (auto &btn : m_buttons) {
+      bool visible = isVisibleButton(btn);
+      // Sync Pin State
+      if (btn.id == ToolbarButtonID::Pin) {
+        btn.isToggled = m_isPinned;
+        btn.iconGlyph = m_isPinned ? Icons::Unpin : Icons::Pin;
+      }
+      if (btn.id == ToolbarButtonID::LockSize) {
+          btn.isToggled = g_runtime.LockWindowSize;
+          btn.iconGlyph = g_runtime.LockWindowSize ? Icons::Lock : Icons::Unlock;
+      }
+      if (btn.id == ToolbarButtonID::CompareToggle) {
+        btn.iconGlyph = Icons::CompareToggle;
       }
 
-      if (m_compareMode && btn.id == ToolbarButtonID::CompareZoomIn && !stepInserted) {
-        cx -= gap; // Backtrack to remove standard gap
-        cx += zoomGap; // Padding before capsule
-        m_compareStepRect = D2D1::RectF(cx, stepY, cx + stepW, stepY + stepH);
-        const float stepBtnW = 14.0f * m_uiScale;
-        m_compareStepUpRect = D2D1::RectF(m_compareStepRect.right - stepBtnW,
-                                          m_compareStepRect.top,
-                                          m_compareStepRect.right,
-                                          m_compareStepRect.top +
-                                              (stepH * 0.5f));
-        m_compareStepDownRect = D2D1::RectF(
-            m_compareStepRect.right - stepBtnW,
-            m_compareStepRect.top + (stepH * 0.5f),
-            m_compareStepRect.right, m_compareStepRect.bottom);
-        cx += stepW + zoomGap; // Capsule width + padding after
-        stepInserted = true;
+      if (!visible) {
+        btn.rect = D2D1::RectF(0, 0, 0, 0);
+        continue;
       }
-      
-      if ((m_animMode || m_slideshowMode) && btn.id == ToolbarButtonID::AnimNextFrame &&
-          !speedInserted) {
-        cx -= gap; // Backtrack standard gap
-        const float speedGap = 2.0f * m_uiScale;
-        cx += speedGap;
-        m_animSpeedRect = D2D1::RectF(cx, stepY, cx + stepW, stepY + stepH);
-        const float sBtnW = 14.0f * m_uiScale;
-        m_animSpeedUpRect = D2D1::RectF(m_animSpeedRect.right - sBtnW,
-                                        m_animSpeedRect.top,
-                                        m_animSpeedRect.right,
-                                        m_animSpeedRect.top + (stepH * 0.5f));
-        m_animSpeedDownRect = D2D1::RectF(
-            m_animSpeedRect.right - sBtnW,
-            m_animSpeedRect.top + (stepH * 0.5f),
-            m_animSpeedRect.right, m_animSpeedRect.bottom);
-        cx += stepW + speedGap;
-        speedInserted = true;
+
+      if (isPageNavGroup(btn.id)) {
+        // Place in center group
+        btn.rect = D2D1::RectF(ccx, cy, ccx + buttonSize, cy + buttonSize);
+        ccx += buttonSize + gap;
+        // Insert page indicator after Prev
+        if (btn.id == ToolbarButtonID::Prev) {
+          const float indicatorY = cy + (buttonSize - indicatorH) * 0.5f;
+          m_pageIndicatorRect = D2D1::RectF(ccx, indicatorY, ccx + indicatorW, indicatorY + indicatorH);
+          ccx += indicatorW + gap;
+        }
+      } else {
+        // Right-side button
+        btn.rect = D2D1::RectF(rx, cy, rx + buttonSize, cy + buttonSize);
+        rx += buttonSize + gap;
       }
-    } else {
-      btn.rect = D2D1::RectF(0, 0, 0, 0); // Hide
     }
+  } else {
+    // Standard linear layout (no page indicator or compare/anim/slideshow mode)
+    for (auto &btn : m_buttons) {
+      bool visible = isVisibleButton(btn);
+      // Sync Pin State
+      if (btn.id == ToolbarButtonID::Pin) {
+        btn.isToggled = m_isPinned;
+        btn.iconGlyph = m_isPinned ? Icons::Unpin : Icons::Pin;
+      }
+      if (btn.id == ToolbarButtonID::LockSize) {
+          btn.isToggled = g_runtime.LockWindowSize;
+          btn.iconGlyph = g_runtime.LockWindowSize ? Icons::Lock : Icons::Unlock;
+      }
+
+      if (btn.id == ToolbarButtonID::CompareToggle) {
+        btn.iconGlyph = Icons::CompareToggle;
+      }
+
+      if (visible) {
+        btn.rect = D2D1::RectF(cx, cy, cx + buttonSize, cy + buttonSize);
+        cx += buttonSize + gap;
+
+        if (m_compareMode && btn.id == ToolbarButtonID::CompareZoomIn && !stepInserted) {
+          cx -= gap; // Backtrack to remove standard gap
+          cx += zoomGap; // Padding before capsule
+          m_compareStepRect = D2D1::RectF(cx, stepY, cx + stepW, stepY + stepH);
+          const float stepBtnW = 14.0f * m_uiScale;
+          m_compareStepUpRect = D2D1::RectF(m_compareStepRect.right - stepBtnW,
+                                            m_compareStepRect.top,
+                                            m_compareStepRect.right,
+                                            m_compareStepRect.top +
+                                                (stepH * 0.5f));
+          m_compareStepDownRect = D2D1::RectF(
+              m_compareStepRect.right - stepBtnW,
+              m_compareStepRect.top + (stepH * 0.5f),
+              m_compareStepRect.right, m_compareStepRect.bottom);
+          cx += stepW + zoomGap; // Capsule width + padding after
+          stepInserted = true;
+        }
+        
+        if ((m_animMode || m_slideshowMode) && btn.id == ToolbarButtonID::AnimNextFrame &&
+            !speedInserted) {
+          cx -= gap; // Backtrack standard gap
+          const float speedGap = 2.0f * m_uiScale;
+          cx += speedGap;
+          m_animSpeedRect = D2D1::RectF(cx, stepY, cx + stepW, stepY + stepH);
+          const float sBtnW = 14.0f * m_uiScale;
+          m_animSpeedUpRect = D2D1::RectF(m_animSpeedRect.right - sBtnW,
+                                          m_animSpeedRect.top,
+                                          m_animSpeedRect.right,
+                                          m_animSpeedRect.top + (stepH * 0.5f));
+          m_animSpeedDownRect = D2D1::RectF(
+              m_animSpeedRect.right - sBtnW,
+              m_animSpeedRect.top + (stepH * 0.5f),
+              m_animSpeedRect.right, m_animSpeedRect.bottom);
+          cx += stepW + speedGap;
+          speedInserted = true;
+        }
+      } else {
+        btn.rect = D2D1::RectF(0, 0, 0, 0); // Hide
+      }
+    }
+    // Page indicator not shown in this mode
+    m_pageIndicatorRect = D2D1::RectF(0, 0, 0, 0);
   }
 
   // [Swatch] Position swatches within the toolbar capsule (right-aligned)
@@ -471,8 +550,8 @@ void Toolbar::UpdateLayout(float winW, float winH) {
     for (int i = 0; i < 9; ++i) m_swatchRects[i] = D2D1::RectF(0, 0, 0, 0);
   }
 
-  // [PDF/AI/CDR] Page indicator is now positioned inline in the button layout loop
-  // (between Prev and Next). No absolute positioning needed.
+  // [PDF] Page indicator position is set during button layout loop
+  // (three-segment layout places it between Prev and Next at window center)
 }
 
 const wchar_t *GetTooltipText(const ToolbarButton &btn) {
@@ -794,41 +873,103 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
     }
 
     // [PDF/AI/CDR] Draw page indicator at toolbar center
+    // Layout: [当前页(input box)] / [总页数]
     if (m_showPageIndicator && m_pageIndicatorRect.right > m_pageIndicatorRect.left) {
-      // Pill background
-      D2D1_ROUNDED_RECT indicatorRect = D2D1::RoundedRect(
-          m_pageIndicatorRect, 8.0f * m_uiScale, 8.0f * m_uiScale);
-      ComPtr<ID2D1SolidColorBrush> pillBg;
-      D2D1_COLOR_F bgColor = isLight
-          ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.08f)
-          : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.1f);
-      if (m_pageIndicatorHover || m_pageInputActive) {
-        bgColor = isLight
-            ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.15f)
-            : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.2f);
-      }
-      pRT->CreateSolidColorBrush(bgColor, &pillBg);
-      if (pillBg) {
-        pRT->FillRoundedRectangle(indicatorRect, pillBg.Get());
-      }
-      // Page text: show input box when active, otherwise "current / total"
+      const float indicatorW = m_pageIndicatorRect.right - m_pageIndicatorRect.left;
+      const float indicatorH = m_pageIndicatorRect.bottom - m_pageIndicatorRect.top;
+
+      // Measure total text to center it within the indicator rect
+      // Format: "123 / 456" — we split into input part and total part
+
+      // Build display strings
+      std::wstring curStr, totalStr;
       if (m_pageInputActive) {
-        // Draw input text with cursor
+        curStr = m_pageInputText;
+        if (curStr.empty()) curStr = L"0";
+      } else {
+        curStr = std::to_wstring(m_currentPage + 1);
+      }
+      totalStr = std::to_wstring(m_totalPages);
+      std::wstring sepStr = L"/";
+
+      // Measure each part using IDWriteTextLayout
+      auto measureText = [&](const std::wstring &text) -> float {
+        ComPtr<IDWriteTextLayout> layout;
+        if (SUCCEEDED(m_dwriteFactory->CreateTextLayout(
+                text.c_str(), (UINT32)text.size(), m_textFormatUI.Get(),
+                9999.0f, indicatorH, &layout))) {
+          DWRITE_TEXT_METRICS metrics{};
+          layout->GetMetrics(&metrics);
+          return metrics.widthIncludingTrailingWhitespace;
+        }
+        return 0.0f;
+      };
+      float curW = measureText(curStr);
+      float sepW = measureText(sepStr);
+      float totalW = measureText(totalStr);
+      float totalTextW = curW + sepW + totalW;
+      // Add small gaps between parts
+      const float partGap = 6.0f * m_uiScale;
+      totalTextW += partGap * 2.0f;
+
+      // Center the text block within indicator rect
+      float textStartX = m_pageIndicatorRect.left + (indicatorW - totalTextW) * 0.5f;
+      float textY = m_pageIndicatorRect.top;
+
+      // Draw input box background for current page number
+      const float inputBoxPad = 4.0f * m_uiScale;
+      D2D1_RECT_F inputBoxRect = D2D1::RectF(
+          textStartX - inputBoxPad,
+          textY + 2.0f * m_uiScale,
+          textStartX + curW + inputBoxPad,
+          textY + indicatorH - 2.0f * m_uiScale);
+      D2D1_ROUNDED_RECT inputBoxRounded = D2D1::RoundedRect(inputBoxRect, 4.0f * m_uiScale, 4.0f * m_uiScale);
+      ComPtr<ID2D1SolidColorBrush> inputBg;
+      D2D1_COLOR_F inputBgColor = isLight
+          ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.10f)
+          : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.12f);
+      if (m_pageIndicatorHover || m_pageInputActive) {
+        inputBgColor = isLight
+            ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.18f)
+            : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.22f);
+      }
+      pRT->CreateSolidColorBrush(inputBgColor, &inputBg);
+      if (inputBg) {
+        pRT->FillRoundedRectangle(inputBoxRounded, inputBg.Get());
+      }
+
+      // Draw current page text (or input text with cursor)
+      D2D1_RECT_F curTextRect = D2D1::RectF(
+          textStartX, textY, textStartX + curW, textY + indicatorH);
+      if (m_pageInputActive) {
         std::wstring display = m_pageInputText;
-        // Blink cursor
         m_pageInputCursorBlink = (m_pageInputCursorBlink + 1) % 60;
-        if (m_pageInputCursorBlink < 30) display += L"_";
-        if (display.empty()) display = L"_";
+        if (m_pageInputCursorBlink < 30) display += L"|";
+        if (display.empty()) display = L"|";
         pRT->DrawText(display.c_str(), (UINT32)display.size(), m_textFormatUI.Get(),
-                      m_pageIndicatorRect, m_brushIconActive.Get(),
+                      curTextRect, m_brushIconActive.Get(),
                       D2D1_DRAW_TEXT_OPTIONS_CLIP);
       } else {
-        wchar_t pageBuf[32]{};
-        swprintf_s(pageBuf, L"%u / %u 页", m_currentPage + 1, m_totalPages);
-        pRT->DrawText(pageBuf, (UINT32)wcslen(pageBuf), m_textFormatUI.Get(),
-                      m_pageIndicatorRect, m_brushIcon.Get(),
+        pRT->DrawText(curStr.c_str(), (UINT32)curStr.size(), m_textFormatUI.Get(),
+                      curTextRect, m_brushIcon.Get(),
                       D2D1_DRAW_TEXT_OPTIONS_CLIP);
       }
+
+      // Draw separator "/"
+      float sepX = textStartX + curW + partGap;
+      D2D1_RECT_F sepTextRect = D2D1::RectF(
+          sepX, textY, sepX + sepW, textY + indicatorH);
+      pRT->DrawText(sepStr.c_str(), (UINT32)sepStr.size(), m_textFormatUI.Get(),
+                    sepTextRect, m_brushIcon.Get(),
+                    D2D1_DRAW_TEXT_OPTIONS_CLIP);
+
+      // Draw total page count
+      float totalX = sepX + sepW + partGap;
+      D2D1_RECT_F totalTextRect = D2D1::RectF(
+          totalX, textY, totalX + totalW, textY + indicatorH);
+      pRT->DrawText(totalStr.c_str(), (UINT32)totalStr.size(), m_textFormatUI.Get(),
+                    totalTextRect, m_brushIcon.Get(),
+                    D2D1_DRAW_TEXT_OPTIONS_CLIP);
     }
 
     if (m_compareMode && m_compareStepRect.right > m_compareStepRect.left) {
