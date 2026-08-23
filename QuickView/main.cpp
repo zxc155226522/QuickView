@@ -8349,7 +8349,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
                   if (IsCompareModeActive() && !g_config.DisableEdgeNavInCompare) {
                       hoverEdge = AppContext::GetInstance().CompareCtrl->HitTestEdgeNav(hwnd, pt);
                   } else if (!IsCompareModeActive()) {
-                      D2D1_RECT_F fullRect = D2D1::RectF(0.0f, 0.0f, winW, winH);
+                      // [Fix] Exclude thumbnail sidebar from nav hit area
+                      float sbW = g_thumbnailPanel.IsVisible() ? g_thumbnailPanel.GetWidth() : 0.0f;
+                      D2D1_RECT_F fullRect = D2D1::RectF(sbW, 0.0f, winW, winH);
                       hoverEdge = (HitTestNavButtonInPane(pt, fullRect) != 0);
                   }
               } else {
@@ -8524,7 +8526,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
                     int oldState = GetPaneContext(PaneSlot::Primary).view.EdgeHoverState; // Record old state
                     if (w > 50 && h > 100) {
                         float edgeMargin = 64.0f * g_uiScale;
-                        bool inHRange = (pt.x < edgeMargin) || (pt.x > w - edgeMargin);
+                        // [Fix] Exclude thumbnail sidebar area from edge detection
+                        float sidebarW = g_thumbnailPanel.IsVisible() ? g_thumbnailPanel.GetWidth() : 0.0f;
+                        bool inHRange = (pt.x >= sidebarW && pt.x < sidebarW + edgeMargin) || (pt.x > w - edgeMargin);
                         bool inVRange;
 
                         if (g_config.NavIndicator == 0) {
@@ -8534,7 +8538,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
                         }
 
                         if (inHRange && inVRange) {
-                            GetPaneContext(PaneSlot::Primary).view.EdgeHoverState = (pt.x < edgeMargin) ? -1 : 1;
+                            GetPaneContext(PaneSlot::Primary).view.EdgeHoverState = (pt.x < sidebarW + edgeMargin && pt.x >= sidebarW) ? -1 : 1;
                         } else {
                             GetPaneContext(PaneSlot::Primary).view.EdgeHoverState = 0;
                         }
@@ -9482,11 +9486,13 @@ RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);  // OSD and Border ind
                 }
             } else if (w > 50 && h > 100) {
                 if (g_config.NavIndicator == 0) {
-                    D2D1_RECT_F fullRect = D2D1::RectF(0.0f, 0.0f, (float)w, (float)h);
+                    float sbW = g_thumbnailPanel.IsVisible() ? g_thumbnailPanel.GetWidth() : 0.0f;
+                    D2D1_RECT_F fullRect = D2D1::RectF(sbW, 0.0f, (float)w, (float)h);
                     inEdgeZone = (HitTestNavButtonInPane(pt, fullRect) != 0);
                 } else {
                     float edgeMargin = 64.0f * g_uiScale;
-                    bool inHRange = (pt.x < edgeMargin) || (pt.x > w - edgeMargin);
+                    float sbW3 = g_thumbnailPanel.IsVisible() ? g_thumbnailPanel.GetWidth() : 0.0f;
+                    bool inHRange = (pt.x >= sbW3 && pt.x < sbW3 + edgeMargin) || (pt.x > w - edgeMargin);
                     bool inVRange = (pt.y > h * 0.30) && (pt.y < h * 0.70);
                     inEdgeZone = inHRange && inVRange;
                 }
@@ -9984,12 +9990,14 @@ RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);  // OSD and Border ind
                     bool clickValid = false;
                     int direction = 0;
                     if (g_config.NavIndicator == 0) {
-                        D2D1_RECT_F fullRect = D2D1::RectF(0.0f, 0.0f, (float)width, (float)height);
+                        float sbW = g_thumbnailPanel.IsVisible() ? g_thumbnailPanel.GetWidth() : 0.0f;
+                        D2D1_RECT_F fullRect = D2D1::RectF(sbW, 0.0f, (float)width, (float)height);
                         direction = HitTestNavButtonInPane(pt, fullRect);
                         clickValid = (direction != 0);
                     } else {
                         float edgeMargin = 64.0f * g_uiScale;
-                        bool inHRange = (pt.x < edgeMargin) || (pt.x > width - edgeMargin);
+                        float sbW2 = g_thumbnailPanel.IsVisible() ? g_thumbnailPanel.GetWidth() : 0.0f;
+                        bool inHRange = (pt.x >= sbW2 && pt.x < sbW2 + edgeMargin) || (pt.x > width - edgeMargin);
                         bool inVRange = (pt.y > height * 0.30) && (pt.y < height * 0.70);
                         if (inHRange && inVRange) {
                             clickValid = true;
