@@ -304,7 +304,7 @@ void Toolbar::UpdateLayout(float winW, float winH) {
     if (count > 1) w += (count - 1) * gap;
     // [PDF] Page indicator width — inline between Prev and Next (part of the flow)
     if (m_showPageIndicator) {
-      w += 80.0f * m_uiScale; // page indicator pill width
+      w += 100.0f * m_uiScale; // page indicator pill width (input box + separator + total)
     }
     if (m_compareMode && hasZoom) {
       const float zoomGap = 2.0f * m_uiScale;
@@ -401,7 +401,7 @@ void Toolbar::UpdateLayout(float winW, float winH) {
   // Left buttons | [PageFirst][Prev] [页码] [Next][PageLast] | Right buttons
   // The page nav group is centered in the window.
   if (m_showPageIndicator && !m_compareMode && !m_animMode && !m_slideshowMode) {
-    const float indicatorW = 80.0f * m_uiScale;
+    const float indicatorW = 100.0f * m_uiScale;
     const float indicatorH = buttonSize * 0.82f;
 
     // All non-pagenav buttons go to the right side (since PageFirst is first in m_buttons array)
@@ -888,6 +888,9 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
       float curW = measureText(curStr);
       float sepW = measureText(sepStr);
       float totalW = measureText(totalStr);
+      // Use fixed minimum width for current page area (fit 3 digits)
+      const float minCurW = measureText(L"000");
+      if (curW < minCurW) curW = minCurW;
       float totalTextW = curW + sepW + totalW;
       // Add small gaps between parts
       const float partGap = 6.0f * m_uiScale;
@@ -898,13 +901,13 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
       float textY = m_pageIndicatorRect.top;
 
       // Draw input box background for current page number
-      const float inputBoxPad = 4.0f * m_uiScale;
+      const float inputBoxPad = 6.0f * m_uiScale;
       D2D1_RECT_F inputBoxRect = D2D1::RectF(
           textStartX - inputBoxPad,
-          textY + 2.0f * m_uiScale,
+          textY + 1.0f * m_uiScale,
           textStartX + curW + inputBoxPad,
-          textY + indicatorH - 2.0f * m_uiScale);
-      D2D1_ROUNDED_RECT inputBoxRounded = D2D1::RoundedRect(inputBoxRect, 4.0f * m_uiScale, 4.0f * m_uiScale);
+          textY + indicatorH - 1.0f * m_uiScale);
+      D2D1_ROUNDED_RECT inputBoxRounded = D2D1::RoundedRect(inputBoxRect, 5.0f * m_uiScale, 5.0f * m_uiScale);
       ComPtr<ID2D1SolidColorBrush> inputBg;
       D2D1_COLOR_F inputBgColor = isLight
           ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.10f)
@@ -920,19 +923,44 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
       }
 
       // Draw current page text (or input text with cursor)
+      // Use fixed width (curW) so the text area doesn't shrink/grow
       D2D1_RECT_F curTextRect = D2D1::RectF(
           textStartX, textY, textStartX + curW, textY + indicatorH);
       if (m_pageInputActive) {
+        // Show input text, right-aligned within the fixed-width box
         std::wstring display = m_pageInputText;
+        float inputW = measureText(display);
+        // If input text wider than box, it will be clipped on the left (natural scroll)
+        float offsetX = 0.0f;
+        if (inputW < curW) offsetX = (curW - inputW) * 0.5f; // center if small
+        D2D1_RECT_F inputTextRect = D2D1::RectF(
+            textStartX + offsetX, textY, textStartX + curW, textY + indicatorH);
+        // Blink cursor — increment counter on each render
         m_pageInputCursorBlink = (m_pageInputCursorBlink + 1) % 60;
-        if (m_pageInputCursorBlink < 30) display += L"|";
-        if (display.empty()) display = L"|";
-        pRT->DrawText(display.c_str(), (UINT32)display.size(), m_textFormatUI.Get(),
-                      curTextRect, m_brushIconActive.Get(),
-                      D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        bool showCursor = (m_pageInputCursorBlink < 30);
+        // Draw text first (without cursor)
+        if (!display.empty()) {
+          pRT->DrawText(display.c_str(), (UINT32)display.size(), m_textFormatUI.Get(),
+                        inputTextRect, m_brushIconActive.Get(),
+                        D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        }
+        // Draw cursor as a thin vertical line after the text
+        if (showCursor) {
+          float cursorX = textStartX + offsetX + inputW + 1.0f * m_uiScale;
+          if (display.empty()) cursorX = textStartX + curW * 0.5f;
+          D2D1_RECT_F cursorRect = D2D1::RectF(
+              cursorX, textY + 3.0f * m_uiScale,
+              cursorX + 2.0f * m_uiScale, textY + indicatorH - 3.0f * m_uiScale);
+          pRT->FillRectangle(cursorRect, m_brushIconActive.Get());
+        }
       } else {
+        // Right-align the page number within the fixed box
+        float numW = measureText(curStr);
+        float offsetX = (curW - numW) * 0.5f;
+        D2D1_RECT_F numTextRect = D2D1::RectF(
+            textStartX + offsetX, textY, textStartX + offsetX + numW, textY + indicatorH);
         pRT->DrawText(curStr.c_str(), (UINT32)curStr.size(), m_textFormatUI.Get(),
-                      curTextRect, m_brushIcon.Get(),
+                      numTextRect, m_brushIcon.Get(),
                       D2D1_DRAW_TEXT_OPTIONS_CLIP);
       }
 

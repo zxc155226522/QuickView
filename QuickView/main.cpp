@@ -666,6 +666,7 @@ static constexpr UINT_PTR IDT_NAVIGATOR_SAVE = 1002; // Navigator position/scale
 static constexpr UINT_PTR IDT_SMOOTH_WINDOW_ZOOM = 1002;
 
 static constexpr UINT_PTR IDT_SMOOTH_ZOOM = 1003; // Drive transform-only smooth zoom animation
+static constexpr UINT_PTR IDT_CURSOR_BLINK = 1004; // [PDF] Cursor blink timer for page input
 
 
 // Phase 2: Queue Drop Debounce (single-slot sliding window)
@@ -7604,6 +7605,16 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
             return 0;
         }
 
+        if (wParam == IDT_CURSOR_BLINK) {
+            // [PDF] Cursor blink for inline page input
+            if (g_toolbar.IsPageInputActive()) {
+                RequestRepaint(PaintLayer::Static);
+            } else {
+                KillTimer(hwnd, IDT_CURSOR_BLINK);
+            }
+            return 0;
+        }
+
         // Debug HUD Refresh (996)
         if (wParam == 996) {
              RequestRepaint(PaintLayer::Dynamic);
@@ -9461,6 +9472,7 @@ RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);  // OSD and Border ind
                     if (!g_toolbar.IsPageInputActive()) {
                         g_toolbar.SetPageInputActive(true);
                         g_toolbar.ClearPageInput();
+                        SetTimer(hwnd, IDT_CURSOR_BLINK, 500, nullptr); // Cursor blink timer
                         RequestRepaint(PaintLayer::Static);
                     }
                 }
@@ -10459,10 +10471,12 @@ RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);
                     }
                 }
                 g_toolbar.SetPageInputActive(false);
+                KillTimer(hwnd, IDT_CURSOR_BLINK);
                 RequestRepaint(PaintLayer::Static);
                 return 0;
             } else if (wParam == VK_ESCAPE) {
                 g_toolbar.SetPageInputActive(false);
+                KillTimer(hwnd, IDT_CURSOR_BLINK);
                 RequestRepaint(PaintLayer::Static);
                 return 0;
             } else if (wParam == VK_BACK) {
