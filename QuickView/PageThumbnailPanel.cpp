@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "PageThumbnailPanel.h"
 #include "ImageEngine.h"
+#include "AppContext.h"
 
 #include <algorithm>
 #include <cmath>
@@ -105,10 +106,15 @@ void PageThumbnailPanel::UpdateLayout(const D2D1_RECT_F& clientRect) {
     m_panelWidth = kDefaultPanelWidth * g_uiScale;
     m_panelWidth = std::clamp(m_panelWidth, kMinPanelWidth, kMaxPanelWidth);
 
+    // [Fix] Panel should fit between title bar (top) and toolbar (bottom),
+    // same as the image viewport — not covering either bar.
+    const float titleBarH = g_isFullScreen ? 0.0f : 36.0f * g_uiScale;
+    const float toolbarH  = g_isFullScreen ? 0.0f : 36.0f * g_uiScale;
+
     m_panelRect.left = 0.0f;
-    m_panelRect.top = 0.0f;
+    m_panelRect.top = titleBarH;
     m_panelRect.right = m_panelWidth;
-    m_panelRect.bottom = clientRect.bottom - clientRect.top;
+    m_panelRect.bottom = (clientRect.bottom - clientRect.top) - toolbarH;
     m_panelHeight = m_panelRect.bottom - m_panelRect.top;
 
     const float itemHeight = kThumbnailTargetHeight * g_uiScale + kPageLabelHeight * g_uiScale + kItemSpacing;
