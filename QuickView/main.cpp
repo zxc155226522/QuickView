@@ -14695,12 +14695,6 @@ void HandlePdfPageResult(HWND hwnd) {
         g_compEngine->Commit();
     }
 
-    // Show page OSD
-    wchar_t buf[64];
-    swprintf_s(buf, L"第 %u / %u 页", result.pageIndex + 1, g_pagedDoc.totalPages);
-    g_osd.Show(hwnd, buf, false, false, D2D1::ColorF(D2D1::ColorF::White),
-               OSDPosition::Bottom, 1500);
-
     RequestRepaint(PaintLayer::Image | PaintLayer::Dynamic | PaintLayer::Static);
 }
 
@@ -14808,12 +14802,6 @@ void HandleCdrPageStep(HWND hwnd, uint32_t targetPage) {
         SyncDCompState(hwnd, (float)rc.right, (float)rc.bottom, false);
         g_compEngine->Commit();
     }
-
-    // Show page OSD
-    wchar_t buf[64];
-    swprintf_s(buf, L"第 %u / %u 页", targetPage + 1, g_pagedDoc.totalPages);
-    g_osd.Show(hwnd, buf, false, false, D2D1::ColorF(D2D1::ColorF::White),
-               OSDPosition::Bottom, 1500);
 
     RequestRepaint(PaintLayer::Image | PaintLayer::Dynamic | PaintLayer::Static);
 }
