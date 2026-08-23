@@ -18,8 +18,10 @@ namespace Icons = GeekIcons;
 Toolbar::Toolbar() {
   // Define Buttons — each uses a pointer to vector icon data
   m_buttons = {
+      {ToolbarButtonID::PageFirst, Icons::SkipBack, {}, true},
       {ToolbarButtonID::Prev, Icons::ChevronLeft, {}, true},
       {ToolbarButtonID::Next, Icons::Chevron, {}, true},
+      {ToolbarButtonID::PageLast, Icons::SkipFwd, {}, true},
       {ToolbarButtonID::RotateL, Icons::Transform, {}, true},
       {ToolbarButtonID::RotateR, Icons::Transform, {}, true},
       {ToolbarButtonID::FlipH, Icons::Flip, {}, true},
@@ -139,6 +141,11 @@ void Toolbar::UpdateLayout(float winW, float winH) {
         return true;
     }
     return false;
+  };
+
+  // [PDF] PageFirst/PageLast buttons are only visible in paged mode
+  auto isPageNavButton = [](ToolbarButtonID id) {
+    return id == ToolbarButtonID::PageFirst || id == ToolbarButtonID::PageLast;
   };
 
 
@@ -265,6 +272,9 @@ void Toolbar::UpdateLayout(float winW, float winH) {
       return true;
     }
 
+    // [PDF] Page nav buttons: only visible when page indicator is shown
+    if (isPageNavButton(btn.id)) return m_showPageIndicator;
+
     if (isCompareButton(btn.id) || isAnimButton(btn.id))
       return false;
     if (btn.id == ToolbarButtonID::RawToggle && !btn.isEnabled)
@@ -292,6 +302,10 @@ void Toolbar::UpdateLayout(float winW, float winH) {
 
     float w = padX * 2 + (count * buttonSize);
     if (count > 1) w += (count - 1) * gap;
+    // [PDF] Page indicator width
+    if (m_showPageIndicator) {
+      w += 72.0f * m_uiScale; // page indicator pill width
+    }
     if (m_compareMode && hasZoom) {
       const float zoomGap = 2.0f * m_uiScale;
       w += (56.0f * m_uiScale) + (zoomGap * 2.0f) - gap;
@@ -395,6 +409,15 @@ void Toolbar::UpdateLayout(float winW, float winH) {
       btn.rect = D2D1::RectF(cx, cy, cx + buttonSize, cy + buttonSize);
       cx += buttonSize + gap;
 
+      // [PDF] Insert page indicator between Prev and Next
+      if (m_showPageIndicator && btn.id == ToolbarButtonID::Prev) {
+        const float indicatorW = 72.0f * m_uiScale;
+        const float indicatorH = buttonSize * 0.82f;
+        const float indicatorY = cy + (buttonSize - indicatorH) * 0.5f;
+        m_pageIndicatorRect = D2D1::RectF(cx, indicatorY, cx + indicatorW, indicatorY + indicatorH);
+        cx += indicatorW; // No gap after indicator (it's visually grouped)
+      }
+
       if (m_compareMode && btn.id == ToolbarButtonID::CompareZoomIn && !stepInserted) {
         cx -= gap; // Backtrack to remove standard gap
         cx += zoomGap; // Padding before capsule
@@ -448,20 +471,8 @@ void Toolbar::UpdateLayout(float winW, float winH) {
     for (int i = 0; i < 9; ++i) m_swatchRects[i] = D2D1::RectF(0, 0, 0, 0);
   }
 
-  // [PDF/AI/CDR] Page indicator embedded inside toolbar center (same row as buttons)
-  if (m_showPageIndicator) {
-    const float indicatorH = buttonSize * 0.82f;
-    const float indicatorW = 80.0f * m_uiScale;
-    const float centerX = winW * 0.5f;
-    const float indicatorY = startY + padY + (buttonSize - indicatorH) * 0.5f;
-    m_pageIndicatorRect = D2D1::RectF(
-        centerX - indicatorW * 0.5f,
-        indicatorY,
-        centerX + indicatorW * 0.5f,
-        indicatorY + indicatorH);
-  } else {
-    m_pageIndicatorRect = D2D1::RectF(0, 0, 0, 0);
-  }
+  // [PDF/AI/CDR] Page indicator is now positioned inline in the button layout loop
+  // (between Prev and Next). No absolute positioning needed.
 }
 
 const wchar_t *GetTooltipText(const ToolbarButton &btn) {
@@ -474,6 +485,10 @@ const wchar_t *GetTooltipText(const ToolbarButton &btn) {
     return AppStrings::Toolbar_Tooltip_Prev;
   case ToolbarButtonID::Next:
     return AppStrings::Toolbar_Tooltip_Next;
+  case ToolbarButtonID::PageFirst:
+    return L"首页";
+  case ToolbarButtonID::PageLast:
+    return L"尾页";
   case ToolbarButtonID::RotateL:
     return AppStrings::Toolbar_Tooltip_RotateL;
   case ToolbarButtonID::RotateR:
@@ -787,7 +802,7 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
       D2D1_COLOR_F bgColor = isLight
           ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.08f)
           : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.1f);
-      if (m_pageIndicatorHover) {
+      if (m_pageIndicatorHover || m_pageInputActive) {
         bgColor = isLight
             ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.15f)
             : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.2f);
@@ -796,12 +811,24 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
       if (pillBg) {
         pRT->FillRoundedRectangle(indicatorRect, pillBg.Get());
       }
-      // Page text "current / total 页"
-      wchar_t pageBuf[32]{};
-      swprintf_s(pageBuf, L"%u / %u 页", m_currentPage + 1, m_totalPages);
-      pRT->DrawText(pageBuf, (UINT32)wcslen(pageBuf), m_textFormatUI.Get(),
-                    m_pageIndicatorRect, m_brushIcon.Get(),
-                    D2D1_DRAW_TEXT_OPTIONS_CLIP);
+      // Page text: show input box when active, otherwise "current / total"
+      if (m_pageInputActive) {
+        // Draw input text with cursor
+        std::wstring display = m_pageInputText;
+        // Blink cursor
+        m_pageInputCursorBlink = (m_pageInputCursorBlink + 1) % 60;
+        if (m_pageInputCursorBlink < 30) display += L"_";
+        if (display.empty()) display = L"_";
+        pRT->DrawText(display.c_str(), (UINT32)display.size(), m_textFormatUI.Get(),
+                      m_pageIndicatorRect, m_brushIconActive.Get(),
+                      D2D1_DRAW_TEXT_OPTIONS_CLIP);
+      } else {
+        wchar_t pageBuf[32]{};
+        swprintf_s(pageBuf, L"%u / %u 页", m_currentPage + 1, m_totalPages);
+        pRT->DrawText(pageBuf, (UINT32)wcslen(pageBuf), m_textFormatUI.Get(),
+                      m_pageIndicatorRect, m_brushIcon.Get(),
+                      D2D1_DRAW_TEXT_OPTIONS_CLIP);
+      }
     }
 
     if (m_compareMode && m_compareStepRect.right > m_compareStepRect.left) {

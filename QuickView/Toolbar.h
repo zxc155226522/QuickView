@@ -9,7 +9,8 @@
 // IDs for button actions
 enum class ToolbarButtonID {
     None,
-    Prev, Next, 
+    Prev, Next,
+    PageFirst, PageLast, 
     RotateL, RotateR, FlipH, 
     LockSize, Gallery, 
     Exif, RawToggle,
@@ -150,8 +151,9 @@ public:
         m_currentPage = current;
         m_totalPages = total;
         m_showPageIndicator = (total > 1);
+        if (!m_showPageIndicator) m_pageInputActive = false;
     }
-    void ClearPageIndicator() { m_showPageIndicator = false; }
+    void ClearPageIndicator() { m_showPageIndicator = false; m_pageInputActive = false; }
     bool IsPageIndicatorVisible() const { return m_showPageIndicator; }
     bool IsPageIndicatorHit(float x, float y) const {
         if (!m_showPageIndicator) return false;
@@ -159,6 +161,22 @@ public:
                y >= m_pageIndicatorRect.top && y <= m_pageIndicatorRect.bottom;
     }
     D2D1_RECT_F GetPageIndicatorRect() const { return m_pageIndicatorRect; }
+
+    // [PDF] Inline page input
+    bool IsPageInputActive() const { return m_pageInputActive; }
+    void SetPageInputActive(bool active) {
+        if (!active) m_pageInputText.clear();
+        m_pageInputActive = active;
+    }
+    const std::wstring& GetPageInputText() const { return m_pageInputText; }
+    void AppendPageInputChar(wchar_t c) {
+        if (m_pageInputText.size() < 8) m_pageInputText += c;
+    }
+    void BackspacePageInput() {
+        if (!m_pageInputText.empty()) m_pageInputText.pop_back();
+    }
+    void ClearPageInput() { m_pageInputText.clear(); }
+    D2D1_RECT_F GetPageInputRect() const { return m_pageIndicatorRect; }
 
 private:
     // Layout Constants
@@ -226,6 +244,11 @@ private:
     uint32_t m_totalPages = 0;
     D2D1_RECT_F m_pageIndicatorRect = {};
     bool m_pageIndicatorHover = false;
+
+    // [PDF] Inline page input state
+    bool m_pageInputActive = false;
+    std::wstring m_pageInputText;
+    int m_pageInputCursorBlink = 0;
     
     // Resources
     ComPtr<ID2D1SolidColorBrush> m_brushBg;

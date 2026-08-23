@@ -9456,17 +9456,12 @@ RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);  // OSD and Border ind
                         PerformAnimSeek(hwnd, prog);
                     }
                 }
-                // [PDF/AI/CDR] Page indicator click - show input dialog to jump to page
+                // [PDF/AI/CDR] Page indicator click - activate inline page input
                 if (g_toolbar.IsPageIndicatorVisible() && g_toolbar.IsPageIndicatorHit((float)pt.x, (float)pt.y)) {
-                    wchar_t initBuf[32];
-                    swprintf_s(initBuf, L"%u", g_pagedDoc.currentPage + 1);
-                    std::wstring input = AppContext::GetInstance().DialogCtrl->ShowInputDialog(
-                        hwnd, L"跳转到页面", L"输入页码:", initBuf, L"跳转");
-                    if (!input.empty()) {
-                        int page = _wtoi(input.c_str());
-                        if (page >= 1 && page <= static_cast<int>(g_pagedDoc.totalPages)) {
-                            HandlePdfPageJump(hwnd, static_cast<uint32_t>(page - 1));
-                        }
+                    if (!g_toolbar.IsPageInputActive()) {
+                        g_toolbar.SetPageInputActive(true);
+                        g_toolbar.ClearPageInput();
+                        RequestRepaint(PaintLayer::Static);
                     }
                 }
             }
@@ -9658,8 +9653,26 @@ RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);  // OSD and Border ind
         ToolbarButtonID tbId = ToolbarButtonID::None;
         if (g_toolbar.OnClick((float)pt.x, (float)pt.y, tbId)) {
             switch (tbId) {
-                case ToolbarButtonID::Prev: if (CheckUnsavedChanges(hwnd)) Navigate(hwnd, -1); break;
-                case ToolbarButtonID::Next: if (CheckUnsavedChanges(hwnd)) Navigate(hwnd, 1); break;
+                case ToolbarButtonID::Prev:
+                    if (g_pagedDoc.active && g_pagedDoc.totalPages > 1) {
+                        HandlePdfPageStep(hwnd, false);
+                    } else if (CheckUnsavedChanges(hwnd)) Navigate(hwnd, -1);
+                    break;
+                case ToolbarButtonID::Next:
+                    if (g_pagedDoc.active && g_pagedDoc.totalPages > 1) {
+                        HandlePdfPageStep(hwnd, true);
+                    } else if (CheckUnsavedChanges(hwnd)) Navigate(hwnd, 1);
+                    break;
+                case ToolbarButtonID::PageFirst:
+                    if (g_pagedDoc.active && g_pagedDoc.totalPages > 1) {
+                        HandlePdfPageJump(hwnd, 0);
+                    }
+                    break;
+                case ToolbarButtonID::PageLast:
+                    if (g_pagedDoc.active && g_pagedDoc.totalPages > 1) {
+                        HandlePdfPageJump(hwnd, g_pagedDoc.totalPages - 1);
+                    }
+                    break;
                 case ToolbarButtonID::RotateL: PerformTransform(hwnd, TransformType::Rotate90CCW); break;
                 case ToolbarButtonID::RotateR: PerformTransform(hwnd, TransformType::Rotate90CW); break;
                 case ToolbarButtonID::FlipH:   PerformTransform(hwnd, TransformType::FlipHorizontal); break;
@@ -10434,6 +10447,42 @@ RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);
 
     case WM_SYSKEYDOWN:
     case WM_KEYDOWN: {
+        // [PDF] Handle inline page input
+        if (g_toolbar.IsPageInputActive()) {
+            if (wParam == VK_RETURN) {
+                // Commit: jump to page
+                const auto& inputText = g_toolbar.GetPageInputText();
+                if (!inputText.empty()) {
+                    int page = _wtoi(inputText.c_str());
+                    if (page >= 1 && page <= static_cast<int>(g_pagedDoc.totalPages)) {
+                        HandlePdfPageJump(hwnd, static_cast<uint32_t>(page - 1));
+                    }
+                }
+                g_toolbar.SetPageInputActive(false);
+                RequestRepaint(PaintLayer::Static);
+                return 0;
+            } else if (wParam == VK_ESCAPE) {
+                g_toolbar.SetPageInputActive(false);
+                RequestRepaint(PaintLayer::Static);
+                return 0;
+            } else if (wParam == VK_BACK) {
+                g_toolbar.BackspacePageInput();
+                RequestRepaint(PaintLayer::Static);
+                return 0;
+            }
+            // Digit keys (0-9) and numpad
+            if ((wParam >= '0' && wParam <= '9') ||
+                (wParam >= VK_NUMPAD0 && wParam <= VK_NUMPAD9)) {
+                wchar_t digit = (wParam >= VK_NUMPAD0 && wParam <= VK_NUMPAD9)
+                    ? static_cast<wchar_t>('0' + (wParam - VK_NUMPAD0))
+                    : static_cast<wchar_t>(wParam);
+                g_toolbar.AppendPageInputChar(digit);
+                RequestRepaint(PaintLayer::Static);
+                return 0;
+            }
+            // Swallow other keys while input is active
+            return 0;
+        }
         if (QuickView::PrintPreviewUI::GetInstance().IsVisible()) {
             bool wasPrintVisible = true;
             if (QuickView::PrintPreviewUI::GetInstance().OnKeyDown(wParam)) {
@@ -14216,6 +14265,11 @@ TryUpgradeBitmapSurface(hwnd);
         }
         // Request next-frame repaint for thumbnail animation (scrolling, loading)
         RequestRepaint(PaintLayer::Dynamic);
+    }
+
+    // [PDF] Request repaint for cursor blink during inline page input
+    if (g_toolbar.IsPageInputActive()) {
+        RequestRepaint(PaintLayer::Static);
     }
 
     // Commit DirectComposition (Required for UI layer visibility)
