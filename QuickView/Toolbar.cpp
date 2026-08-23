@@ -933,23 +933,20 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
         if (inputW < curW) offsetX = (curW - inputW) * 0.5f; // center if small
         D2D1_RECT_F inputTextRect = D2D1::RectF(
             textStartX + offsetX, textY, textStartX + curW, textY + indicatorH);
-        // Blink cursor — increment counter on each render
-        m_pageInputCursorBlink = (m_pageInputCursorBlink + 1) % 60;
-        bool showCursor = (m_pageInputCursorBlink < 30);
-        // Draw text first (without cursor)
+        // Draw text (same color as normal mode)
         if (!display.empty()) {
           pRT->DrawText(display.c_str(), (UINT32)display.size(), m_textFormatUI.Get(),
-                        inputTextRect, m_brushIconActive.Get(),
+                        inputTextRect, m_brushIcon.Get(),
                         D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
-        // Draw cursor as a thin vertical line after the text
-        if (showCursor) {
+        // Draw steady (non-blinking) cursor as a thin vertical line after the text
+        {
           float cursorX = textStartX + offsetX + inputW + 1.0f * m_uiScale;
           if (display.empty()) cursorX = textStartX + curW * 0.5f;
           D2D1_RECT_F cursorRect = D2D1::RectF(
               cursorX, textY + 3.0f * m_uiScale,
               cursorX + 2.0f * m_uiScale, textY + indicatorH - 3.0f * m_uiScale);
-          pRT->FillRectangle(cursorRect, m_brushIconActive.Get());
+          pRT->FillRectangle(cursorRect, m_brushIcon.Get());
         }
       } else {
         // Right-align the page number within the fixed box

@@ -7606,12 +7606,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
         }
 
         if (wParam == IDT_CURSOR_BLINK) {
-            // [PDF] Cursor blink for inline page input
-            if (g_toolbar.IsPageInputActive()) {
-                RequestRepaint(PaintLayer::Static);
-            } else {
-                KillTimer(hwnd, IDT_CURSOR_BLINK);
-            }
+            // [PDF] Cursor blink for inline page input (no longer needed, but clean up if somehow active)
+            KillTimer(hwnd, IDT_CURSOR_BLINK);
             return 0;
         }
 
@@ -9472,7 +9468,6 @@ RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);  // OSD and Border ind
                     if (!g_toolbar.IsPageInputActive()) {
                         g_toolbar.SetPageInputActive(true);
                         g_toolbar.ClearPageInput();
-                        SetTimer(hwnd, IDT_CURSOR_BLINK, 500, nullptr); // Cursor blink timer
                         RequestRepaint(PaintLayer::Static);
                     }
                 }
@@ -10471,12 +10466,10 @@ RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);
                     }
                 }
                 g_toolbar.SetPageInputActive(false);
-                KillTimer(hwnd, IDT_CURSOR_BLINK);
                 RequestRepaint(PaintLayer::Static);
                 return 0;
             } else if (wParam == VK_ESCAPE) {
                 g_toolbar.SetPageInputActive(false);
-                KillTimer(hwnd, IDT_CURSOR_BLINK);
                 RequestRepaint(PaintLayer::Static);
                 return 0;
             } else if (wParam == VK_BACK) {
