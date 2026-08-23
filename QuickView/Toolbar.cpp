@@ -448,12 +448,12 @@ void Toolbar::UpdateLayout(float winW, float winH) {
     for (int i = 0; i < 9; ++i) m_swatchRects[i] = D2D1::RectF(0, 0, 0, 0);
   }
 
-  // [PDF/AI/CDR] Position page indicator floating above toolbar center
+  // [PDF/AI/CDR] Page indicator embedded inside toolbar center (same row as buttons)
   if (m_showPageIndicator) {
-    const float indicatorH = 20.0f * m_uiScale;
+    const float indicatorH = buttonSize * 0.82f;
     const float indicatorW = 80.0f * m_uiScale;
     const float centerX = winW * 0.5f;
-    const float indicatorY = startY - indicatorH - 4.0f * m_uiScale;
+    const float indicatorY = startY + padY + (buttonSize - indicatorH) * 0.5f;
     m_pageIndicatorRect = D2D1::RectF(
         centerX - indicatorW * 0.5f,
         indicatorY,
