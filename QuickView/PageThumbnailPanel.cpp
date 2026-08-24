@@ -282,10 +282,17 @@ ComPtr<ID2D1Bitmap> PageThumbnailPanel::LoadImageThumbnail(ID2D1RenderTarget* pR
     if (!pRT || path.empty()) return nullptr;
 
     // Use the existing LoadThumbnail function to get a shell thumbnail
-    // allowSlow=false: use shell cache only, never full decode (prevents UI freeze)
+    // allowSlow=true: allow full decode for reliable thumbnail generation
     CImageLoader::ThumbData thumbData;
-    HRESULT hr = g_imageLoader->LoadThumbnail(path.c_str(), kThumbnailTargetWidth, &thumbData, false, false);
-    if (FAILED(hr) || !thumbData.isValid || thumbData.pixels.empty()) return nullptr;
+    HRESULT hr = g_imageLoader->LoadThumbnail(path.c_str(), kThumbnailTargetWidth, &thumbData, true, false);
+    if (FAILED(hr) || !thumbData.isValid || thumbData.pixels.empty()) {
+        THUMB_DBG(L"LoadImageThumbnail FAIL path=%ls hr=0x%08X valid=%d pixSize=%zu",
+                  path.c_str(), (unsigned)hr, (int)thumbData.isValid, thumbData.pixels.size());
+        return nullptr;
+    }
+
+    THUMB_DBG(L"LoadImageThumbnail OK path=%ls w=%d h=%d stride=%d pixSize=%zu",
+              path.c_str(), thumbData.width, thumbData.height, thumbData.stride, thumbData.pixels.size());
 
     // Create D2D bitmap from BGRA pixel data
     D2D1_BITMAP_PROPERTIES props = D2D1::BitmapProperties(
@@ -294,6 +301,9 @@ ComPtr<ID2D1Bitmap> PageThumbnailPanel::LoadImageThumbnail(ID2D1RenderTarget* pR
 
     ComPtr<ID2D1Bitmap> bmp;
     hr = pRT->CreateBitmap(size, thumbData.pixels.data(), thumbData.stride, &props, &bmp);
+    if (FAILED(hr)) {
+        THUMB_DBG(L"CreateBitmap FAIL hr=0x%08X w=%d h=%d stride=%d", (unsigned)hr, thumbData.width, thumbData.height, thumbData.stride);
+    }
     return SUCCEEDED(hr) ? bmp : nullptr;
 }
 
@@ -408,11 +418,19 @@ void PageThumbnailPanel::Render(ID2D1RenderTarget* pRT) {
         }
 
         if (pBitmap && pBitmap->Get()) {
+            D2D1_SIZE_F bmpSize = pBitmap->Get()->GetSize();
             pRT->DrawBitmap(pBitmap->Get(), thumbRect, 1.0f,
                            D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
-        } else if (m_brushThumbnailBg) {
-            D2D1_ROUNDED_RECT bgRect = D2D1::RoundedRect(thumbRect, 3.0f * g_uiScale, 3.0f * g_uiScale);
-            pRT->FillRoundedRectangle(bgRect, m_brushThumbnailBg.Get());
+            THUMB_DBG(L"DrawBitmap page=%u bmpW=%.0f bmpH=%.0f thumbRect=(%.0f,%.0f,%.0f,%.0f)",
+                      pageIndex, bmpSize.width, bmpSize.height,
+                      thumbRect.left, thumbRect.top, thumbRect.right, thumbRect.bottom);
+        } else {
+            THUMB_DBG(L"No bitmap for page=%u (imageMode=%d, cacheSize=%zu, slotsSize=%zu)",
+                      pageIndex, m_isImageMode, m_imageThumbCache.size(), m_slots.size());
+            if (m_brushThumbnailBg) {
+                D2D1_ROUNDED_RECT bgRect = D2D1::RoundedRect(thumbRect, 3.0f * g_uiScale, 3.0f * g_uiScale);
+                pRT->FillRoundedRectangle(bgRect, m_brushThumbnailBg.Get());
+            }
         }
 
         // Current page border
@@ -574,33 +592,34 @@ bool PageThumbnailPanel::IsLoading() const {
 void PageThumbnailPanel::UpdateThumbnailRequests() {
     if (!m_visible || m_totalPages == 0) return;
 
-        // [Image Mode] Lazy-load shell thumbnails for visible range
-        // Limit to 1 thumbnail per frame to prevent UI stutter
-        if (m_isImageMode && m_currentRT && m_navigator) {
-            const float itemHeight = kThumbnailTargetHeight * g_uiScale + kPageLabelHeight * g_uiScale + kItemSpacing;
-            const int visibleStart = std::max(0, static_cast<int>(m_scrollY / itemHeight)) - 2;
-            const int visibleEnd = std::min(static_cast<int>(m_totalImages),
-                static_cast<int>((m_scrollY + m_panelHeight) / itemHeight) + 3);
+    // [Image Mode] Lazy-load shell thumbnails for visible range
+    // Limit to 1 thumbnail per frame to prevent UI stutter
+    if (m_isImageMode && m_currentRT && m_navigator) {
+        const float itemHeight = kThumbnailTargetHeight * g_uiScale + kPageLabelHeight * g_uiScale + kItemSpacing;
+        const int visibleStart = std::max(0, static_cast<int>(m_scrollY / itemHeight)) - 2;
+        const int visibleEnd = std::min(static_cast<int>(m_totalImages),
+            static_cast<int>((m_scrollY + m_panelHeight) / itemHeight) + 3);
 
-            int loadedThisFrame = 0;
-            for (int i = visibleStart; i < visibleEnd && loadedThisFrame < 1; ++i) {
-                if (i < 0 || i >= (int)m_totalImages) continue;
-                uint32_t idx = (uint32_t)i;
-                if (m_imageThumbCache.find(idx) == m_imageThumbCache.end()) {
-                    // Load thumbnail synchronously (small, from shell cache)
-                    if (idx < m_imagePaths.size()) {
-                        auto bmp = LoadImageThumbnail(m_currentRT, m_imagePaths[idx]);
-                        if (bmp) {
-                            m_imageThumbCache[idx] = std::move(bmp);
-                            loadedThisFrame++;
-                        } else {
-                            // Mark as checked to avoid retrying every frame
-                            m_imageThumbCache[idx] = nullptr;
-                            loadedThisFrame++;
-                        }
+        int loadedThisFrame = 0;
+        for (int i = visibleStart; i < visibleEnd && loadedThisFrame < 1; ++i) {
+            if (i < 0 || i >= (int)m_totalImages) continue;
+            uint32_t idx = (uint32_t)i;
+            if (m_imageThumbCache.find(idx) == m_imageThumbCache.end()) {
+                // Load thumbnail (allowSlow=true for reliable decoding)
+                if (idx < m_imagePaths.size()) {
+                    auto bmp = LoadImageThumbnail(m_currentRT, m_imagePaths[idx]);
+                    if (bmp) {
+                        m_imageThumbCache[idx] = std::move(bmp);
+                        loadedThisFrame++;
+                        m_needsRepaint = true;
+                    } else {
+                        // Mark as checked to avoid retrying every frame
+                        m_imageThumbCache[idx] = nullptr;
+                        loadedThisFrame++;
                     }
                 }
             }
+        }
 
         // Clean up off-screen cache entries to limit memory
         if (m_imageThumbCache.size() > kMaxCacheSize) {
@@ -685,6 +704,7 @@ void PageThumbnailPanel::ProcessThumbnailResults() {
 
                 if (!slot.bitmap) {
                     m_pendingFrames[result.pageIndex] = std::move(result.frame);
+                    m_needsRepaint = true;
                 }
             }
         } else {

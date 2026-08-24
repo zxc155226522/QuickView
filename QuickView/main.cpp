@@ -14428,10 +14428,11 @@ TryUpgradeBitmapSurface(hwnd);
     if (g_thumbnailPanel.IsVisible()) {
         g_thumbnailPanel.UpdateThumbnailRequests();
         g_thumbnailPanel.ProcessThumbnailResults();
-        // Request repaint only if scrolling animation is active or thumbnails are loading
+        // Request repaint if scrolling animation, loading, or just loaded new thumbnails
         bool hasAnimation = std::abs(g_thumbnailPanel.GetScrollY() - g_thumbnailPanel.GetTargetScrollY()) > 0.5f;
         bool hasLoadingSlots = g_thumbnailPanel.IsLoading();
-        if (hasAnimation || hasLoadingSlots) {
+        bool needsRepaint = g_thumbnailPanel.ConsumeNeedsRepaint();
+        if (hasAnimation || hasLoadingSlots || needsRepaint) {
             RequestRepaint(PaintLayer::Static);
         }
     }

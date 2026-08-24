@@ -890,7 +890,6 @@ void UIRenderer::RenderStaticLayer(ID2D1DeviceContext* dc, HWND hwnd) {
     
     // [PDF Sidebar] Render thumbnail panel on Static layer (before title bar)
     if (g_thumbnailPanel.IsVisible()) {
-        g_thumbnailPanel.CreateDeviceResources(dc);
         g_thumbnailPanel.Render(dc);
     }
 

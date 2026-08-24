@@ -69,6 +69,7 @@ public:
     [[nodiscard]] float GetScrollY() const { return m_scrollY; }
     [[nodiscard]] float GetTargetScrollY() const { return m_targetScrollY; }
     [[nodiscard]] bool IsLoading() const;
+    [[nodiscard]] bool ConsumeNeedsRepaint() { bool v = m_needsRepaint; m_needsRepaint = false; return v; }
     void UpdateLayout(const D2D1_RECT_F& clientRect);
 
     // Device resources
@@ -174,6 +175,9 @@ private:
 
     // Hover state
     int m_hoverIndex = -1;
+
+    // Flag: new thumbnails loaded, need one more repaint to show them
+    bool m_needsRepaint = false;
 
     // Pending frames waiting for bitmap conversion (main thread, during Render)
     std::unordered_map<uint32_t, std::shared_ptr<QuickView::RawImageFrame>> m_pendingFrames;
