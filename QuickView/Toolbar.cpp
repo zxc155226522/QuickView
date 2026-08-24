@@ -143,9 +143,12 @@ void Toolbar::UpdateLayout(float winW, float winH) {
     return false;
   };
 
-  // [PDF] PageFirst/PageLast buttons are only visible in paged mode
-  auto isPageNavButton = [](ToolbarButtonID id) {
-    return id == ToolbarButtonID::PageFirst || id == ToolbarButtonID::PageLast;
+  // [PDF] PageFirst/PageLast buttons are visible in paged mode or image mode
+  auto isPageNavButton = [&](ToolbarButtonID id) {
+    if (id == ToolbarButtonID::PageFirst || id == ToolbarButtonID::PageLast) {
+      return m_showPageIndicator; // Visible whenever indicator is shown (PDF or image mode)
+    }
+    return false;
   };
 
 
@@ -301,10 +304,19 @@ void Toolbar::UpdateLayout(float winW, float winH) {
     if (hasSpeed && isResponsiveHidden(ToolbarButtonID::AnimNextFrame)) hasSpeed = false;
 
     float w = padX * 2 + (count * buttonSize);
-    if (count > 1) w += (count - 1) * gap;
+    // Count gaps: (count-1) standard gaps + 1 group gap if PageLast is visible
+    int gapCount = (count > 1) ? (count - 1) : 0;
+    bool hasPageLast = false;
+    for (const auto &btn : m_buttons) {
+      if (isVisibleButton(btn) && btn.id == ToolbarButtonID::PageLast) { hasPageLast = true; break; }
+    }
+    w += gapCount * gap;
+    if (hasPageLast) {
+      w += (GROUP_GAP - GAP) * m_uiScale; // Replace one GAP with GROUP_GAP
+    }
     // [PDF] Page indicator width — inline between Prev and Next (part of the flow)
     if (m_showPageIndicator) {
-      w += 100.0f * m_uiScale; // page indicator pill width (input box + separator + total)
+      w += 80.0f * m_uiScale; // page indicator pill width (reduced from 100)
     }
     if (m_compareMode && hasZoom) {
       const float zoomGap = 2.0f * m_uiScale;
@@ -401,14 +413,16 @@ void Toolbar::UpdateLayout(float winW, float winH) {
   // Left buttons | [PageFirst][Prev] [页码] [Next][PageLast] | Right buttons
   // The page nav group is centered in the window.
   if (m_showPageIndicator && !m_compareMode && !m_animMode && !m_slideshowMode) {
-    const float indicatorW = 100.0f * m_uiScale;
+    const float indicatorW = 80.0f * m_uiScale;
     const float indicatorH = buttonSize * 0.82f;
+    const float indicatorGap = 1.0f * m_uiScale; // Tight gap between nav buttons and page indicator
 
     // All non-pagenav buttons go to the right side (since PageFirst is first in m_buttons array)
 
     // Calculate widths
     // Center group: PageFirst + Prev + indicator + Next + PageLast
-    const float centerW = buttonSize * 4 + indicatorW + gap * 4; // 4 buttons + indicator + 4 gaps
+    // Use indicatorGap (tighter) between Prev/Next and indicator, standard gap elsewhere
+    const float centerW = buttonSize * 4 + indicatorW + gap * 2 + indicatorGap * 2;
     const float centerX = winW * 0.5f;
     float centerStartX = centerX - centerW * 0.5f;
     float rightStartX = centerStartX + centerW + gap;
@@ -440,12 +454,16 @@ void Toolbar::UpdateLayout(float winW, float winH) {
       if (isPageNavGroup(btn.id)) {
         // Place in center group
         btn.rect = D2D1::RectF(ccx, cy, ccx + buttonSize, cy + buttonSize);
-        ccx += buttonSize + gap;
+        // Use tighter gap between Prev->indicator and indicator->Next
+        bool beforeIndicator = (btn.id == ToolbarButtonID::Prev);
+        bool afterIndicator = (btn.id == ToolbarButtonID::Next);
+        float navGap = (beforeIndicator || afterIndicator) ? indicatorGap : gap;
+        ccx += buttonSize + navGap;
         // Insert page indicator after Prev
         if (btn.id == ToolbarButtonID::Prev) {
           const float indicatorY = cy + (buttonSize - indicatorH) * 0.5f;
           m_pageIndicatorRect = D2D1::RectF(ccx, indicatorY, ccx + indicatorW, indicatorY + indicatorH);
-          ccx += indicatorW + gap;
+          ccx += indicatorW + indicatorGap; // indicator width + tight gap before Next
         }
       } else {
         // Right-side button
@@ -473,7 +491,9 @@ void Toolbar::UpdateLayout(float winW, float winH) {
 
       if (visible) {
         btn.rect = D2D1::RectF(cx, cy, cx + buttonSize, cy + buttonSize);
-        cx += buttonSize + gap;
+        // Use group gap after navigation buttons (PageLast) to separate from function buttons
+        float usedGap = (btn.id == ToolbarButtonID::PageLast) ? (GROUP_GAP * m_uiScale) : gap;
+        cx += buttonSize + usedGap;
 
         if (m_compareMode && btn.id == ToolbarButtonID::CompareZoomIn && !stepInserted) {
           cx -= gap; // Backtrack to remove standard gap
@@ -536,6 +556,7 @@ void Toolbar::UpdateLayout(float winW, float winH) {
 }
 
 const wchar_t *GetTooltipText(const ToolbarButton &btn) {
+  extern Toolbar g_toolbar;
   switch (btn.id) {
   case ToolbarButtonID::SlideshowImmersiveToggle:
     return AppStrings::Toolbar_Tooltip_SlideshowImmersiveToggle;
@@ -546,9 +567,9 @@ const wchar_t *GetTooltipText(const ToolbarButton &btn) {
   case ToolbarButtonID::Next:
     return AppStrings::Toolbar_Tooltip_Next;
   case ToolbarButtonID::PageFirst:
-    return L"首页";
+    return g_toolbar.IsImageMode() ? L"首张" : L"首页";
   case ToolbarButtonID::PageLast:
-    return L"尾页";
+    return g_toolbar.IsImageMode() ? L"末张" : L"尾页";
   case ToolbarButtonID::RotateL:
     return AppStrings::Toolbar_Tooltip_RotateL;
   case ToolbarButtonID::RotateR:

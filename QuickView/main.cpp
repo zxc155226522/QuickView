@@ -9688,11 +9688,25 @@ RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);  // OSD and Border ind
                 case ToolbarButtonID::PageFirst:
                     if (g_pagedDoc.active && g_pagedDoc.totalPages > 1) {
                         HandlePdfPageJump(hwnd, 0);
+                    } else if (g_toolbar.IsImageMode() && CheckUnsavedChanges(hwnd)) {
+                        auto& nav = GetPaneContext(PaneSlot::Primary).navigator;
+                        std::wstring firstPath = nav.First();
+                        if (!firstPath.empty()) {
+                            GetPaneContext(PaneSlot::Primary).editState.Reset();
+                            LoadImageAsync(hwnd, firstPath.c_str(), true, QuickView::BrowseDirection::BACKWARD);
+                        }
                     }
                     break;
                 case ToolbarButtonID::PageLast:
                     if (g_pagedDoc.active && g_pagedDoc.totalPages > 1) {
                         HandlePdfPageJump(hwnd, g_pagedDoc.totalPages - 1);
+                    } else if (g_toolbar.IsImageMode() && CheckUnsavedChanges(hwnd)) {
+                        auto& nav = GetPaneContext(PaneSlot::Primary).navigator;
+                        std::wstring lastPath = nav.Last();
+                        if (!lastPath.empty()) {
+                            GetPaneContext(PaneSlot::Primary).editState.Reset();
+                            LoadImageAsync(hwnd, lastPath.c_str(), true, QuickView::BrowseDirection::FORWARD);
+                        }
                     }
                     break;
                 case ToolbarButtonID::RotateL: PerformTransform(hwnd, TransformType::Rotate90CCW); break;
@@ -12534,6 +12548,7 @@ void ProcessEngineEvents(HWND hwnd) {
                         // Determine document type: CDR/CMX (vector) vs PDF/AI (bitmap)
                         const auto& fmt = evt.metadata.Format;
                         g_pagedDoc.isVector = (fmt == L"CDR" || fmt == L"CMX");
+                        g_toolbar.SetImageMode(false);
                         g_toolbar.SetPageIndicator(0, pages);
                         RECT rcPi; GetClientRect(hwnd, &rcPi);
                         g_toolbar.UpdateLayout((float)rcPi.right, (float)rcPi.bottom);
@@ -12569,6 +12584,18 @@ void ProcessEngineEvents(HWND hwnd) {
                                                                  (float)(rcClient.bottom - rcClient.top));
                             g_thumbnailPanel.UpdateLayout(fullRect);
                         }
+                    }
+                }
+
+                // [Image Mode] Update image position indicator after navigation
+                if (!isPreview && !g_pagedDoc.active && g_toolbar.IsImageMode()) {
+                    auto& nav = GetPaneContext(PaneSlot::Primary).navigator;
+                    int idx = nav.Index();
+                    if (idx >= 0 && (size_t)idx < nav.Count()) {
+                        g_toolbar.SetPageIndicator((uint32_t)idx, (uint32_t)nav.Count());
+                        RECT rcUpd; GetClientRect(hwnd, &rcUpd);
+                        g_toolbar.UpdateLayout((float)rcUpd.right, (float)rcUpd.bottom);
+                        RequestRepaint(PaintLayer::Static);
                     }
                 }
 
@@ -13293,6 +13320,17 @@ void StartNavigation(HWND hwnd, std::wstring path, [[maybe_unused]] bool showOSD
     }
 
     g_toolbar.ClearPageIndicator();
+    // [Image Mode] Show image position indicator for regular images (not paged docs)
+    {
+        auto& nav = GetPaneContext(PaneSlot::Primary).navigator;
+        if (nav.Count() > 0) {
+            int idx = nav.Index();
+            if (idx >= 0 && (size_t)idx < nav.Count()) {
+                g_toolbar.SetImageMode(true);
+                g_toolbar.SetPageIndicator((uint32_t)idx, (uint32_t)nav.Count());
+            }
+        }
+    }
     RECT rcClear; GetClientRect(hwnd, &rcClear);
     g_toolbar.UpdateLayout((float)rcClear.right, (float)rcClear.bottom);
     RequestRepaint(PaintLayer::Static);

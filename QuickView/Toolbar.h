@@ -153,7 +153,9 @@ public:
         m_showPageIndicator = (total > 1);
         if (!m_showPageIndicator) m_pageInputActive = false;
     }
-    void ClearPageIndicator() { m_showPageIndicator = false; m_pageInputActive = false; }
+    void ClearPageIndicator() { m_showPageIndicator = false; m_pageInputActive = false; m_isImageMode = false; }
+    void SetImageMode(bool mode) { m_isImageMode = mode; }
+    bool IsImageMode() const { return m_isImageMode; }
     bool IsPageIndicatorVisible() const { return m_showPageIndicator; }
     bool IsPageIndicatorHit(float x, float y) const {
         if (!m_showPageIndicator) return false;
@@ -181,7 +183,8 @@ public:
 private:
     // Layout Constants
     const float BUTTON_SIZE = 24.0f;
-    const float GAP = 6.0f;
+    const float GAP = 2.0f;
+    const float GROUP_GAP = 5.0f; // Wider gap between button groups (e.g., after nav buttons)
     const float PADDING_X = 10.0f;
     const float PADDING_Y = 6.0f; // 6+24+6 = 36px = title bar height
     const float BOTTOM_MARGIN = 0.0f; // Docked to bottom edge
@@ -244,6 +247,9 @@ private:
     uint32_t m_totalPages = 0;
     D2D1_RECT_F m_pageIndicatorRect = {};
     bool m_pageIndicatorHover = false;
+
+    // [Image Mode] true when viewing regular images (not PDF/paged docs)
+    bool m_isImageMode = false;
 
     // [PDF] Inline page input state
     bool m_pageInputActive = false;
