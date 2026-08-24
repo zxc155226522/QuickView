@@ -418,15 +418,9 @@ void PageThumbnailPanel::Render(ID2D1RenderTarget* pRT) {
         }
 
         if (pBitmap && pBitmap->Get()) {
-            D2D1_SIZE_F bmpSize = pBitmap->Get()->GetSize();
             pRT->DrawBitmap(pBitmap->Get(), thumbRect, 1.0f,
                            D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
-            THUMB_DBG(L"DrawBitmap page=%u bmpW=%.0f bmpH=%.0f thumbRect=(%.0f,%.0f,%.0f,%.0f)",
-                      pageIndex, bmpSize.width, bmpSize.height,
-                      thumbRect.left, thumbRect.top, thumbRect.right, thumbRect.bottom);
         } else {
-            THUMB_DBG(L"No bitmap for page=%u (imageMode=%d, cacheSize=%zu, slotsSize=%zu)",
-                      pageIndex, m_isImageMode, m_imageThumbCache.size(), m_slots.size());
             if (m_brushThumbnailBg) {
                 D2D1_ROUNDED_RECT bgRect = D2D1::RoundedRect(thumbRect, 3.0f * g_uiScale, 3.0f * g_uiScale);
                 pRT->FillRoundedRectangle(bgRect, m_brushThumbnailBg.Get());
