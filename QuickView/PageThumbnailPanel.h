@@ -15,6 +15,7 @@
 #include <wrl/client.h>
 
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -160,7 +161,7 @@ private:
     int m_currentImageIndex = -1;
     uint32_t m_totalImages = 0;
     std::vector<std::wstring> m_imagePaths; // cached paths for visible range
-    std::unordered_map<uint32_t, ComPtr<ID2D1Bitmap>> m_imageThumbCache;
+    std::map<uint32_t, ID2D1Bitmap*> m_imageThumbCache;
 
     // Thumbnail cache
     std::vector<ThumbnailSlot> m_slots;

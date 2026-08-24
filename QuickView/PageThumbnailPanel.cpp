@@ -14,7 +14,7 @@ extern float g_uiScale;
 extern AppConfig g_config;
 extern std::unique_ptr<CImageLoader> g_imageLoader;
 
-// [Debug] Diagnostic tracing via file log
+// [Debug] Diagnostic tracing
 static void ThumbDbgLog(const wchar_t* fmt, ...) {
     wchar_t _buf[512];
     va_list _args;
@@ -29,6 +29,8 @@ static void ThumbDbgLog(const wchar_t* fmt, ...) {
 #define THUMB_DBG(fmt, ...) ThumbDbgLog(L"[ThumbPanel] " fmt, __VA_ARGS__)
 
 PageThumbnailPanel::~PageThumbnailPanel() {
+    for (auto& pair : m_imageThumbCache) { if (pair.second) pair.second->Release(); }
+    m_imageThumbCache.clear();
     DiscardDeviceResources();
 }
 
@@ -43,7 +45,6 @@ void PageThumbnailPanel::Initialize(HWND hwnd, QuickView::DocumentRenderControll
 }
 
 void PageThumbnailPanel::Show(uint32_t totalPages, uint32_t currentPage) {
-    THUMB_DBG(L"Show(totalPages=%u, currentPage=%u)", totalPages, currentPage);
     if (totalPages <= 1) {
         THUMB_DBG(L"Show -> Hide (totalPages <= 1)", 0, 0);
         Hide();
@@ -82,6 +83,7 @@ void PageThumbnailPanel::Hide() {
     m_currentImageIndex = -1;
     m_totalImages = 0;
     m_imagePaths.clear();
+    for (auto& pair : m_imageThumbCache) { if (pair.second) pair.second->Release(); }
     m_imageThumbCache.clear();
     if (m_controller) {
         m_controller->CancelThumbnails();
@@ -139,6 +141,7 @@ void PageThumbnailPanel::ShowImageThumbnails(FileNavigator* nav, int currentInde
     // Clear document thumbnail slots, use image cache instead
     m_slots.clear();
     m_pendingFrames.clear();
+    for (auto& pair : m_imageThumbCache) { if (pair.second) pair.second->Release(); }
     m_imageThumbCache.clear();
 
     m_scrollY = 0.0f;
@@ -167,6 +170,7 @@ void PageThumbnailPanel::UpdateLayout(const D2D1_RECT_F& clientRect) {
 
     const float clientH = clientRect.bottom - clientRect.top;
 
+
     if (m_panelSide == 1) {
         // Left side
         m_panelRect.left = clientRect.left;
@@ -179,6 +183,7 @@ void PageThumbnailPanel::UpdateLayout(const D2D1_RECT_F& clientRect) {
     m_panelRect.top = titleBarH;
     m_panelRect.bottom = clientH - toolbarH;
     m_panelHeight = m_panelRect.bottom - m_panelRect.top;
+
 
     const float itemHeight = kThumbnailTargetHeight * g_uiScale + kPageLabelHeight * g_uiScale + kItemSpacing;
     uint32_t itemCount = m_isImageMode ? m_totalImages : m_totalPages;
@@ -286,13 +291,8 @@ ComPtr<ID2D1Bitmap> PageThumbnailPanel::LoadImageThumbnail(ID2D1RenderTarget* pR
     CImageLoader::ThumbData thumbData;
     HRESULT hr = g_imageLoader->LoadThumbnail(path.c_str(), kThumbnailTargetWidth, &thumbData, true, false);
     if (FAILED(hr) || !thumbData.isValid || thumbData.pixels.empty()) {
-        THUMB_DBG(L"LoadImageThumbnail FAIL path=%ls hr=0x%08X valid=%d pixSize=%zu",
-                  path.c_str(), (unsigned)hr, (int)thumbData.isValid, thumbData.pixels.size());
         return nullptr;
     }
-
-    THUMB_DBG(L"LoadImageThumbnail OK path=%ls w=%d h=%d stride=%d pixSize=%zu",
-              path.c_str(), thumbData.width, thumbData.height, thumbData.stride, thumbData.pixels.size());
 
     // Create D2D bitmap from BGRA pixel data
     D2D1_BITMAP_PROPERTIES props = D2D1::BitmapProperties(
@@ -302,7 +302,7 @@ ComPtr<ID2D1Bitmap> PageThumbnailPanel::LoadImageThumbnail(ID2D1RenderTarget* pR
     ComPtr<ID2D1Bitmap> bmp;
     hr = pRT->CreateBitmap(size, thumbData.pixels.data(), thumbData.stride, &props, &bmp);
     if (FAILED(hr)) {
-        THUMB_DBG(L"CreateBitmap FAIL hr=0x%08X w=%d h=%d stride=%d", (unsigned)hr, thumbData.width, thumbData.height, thumbData.stride);
+        THUMB_DBG(L"CreateBitmap FAIL hr=0x%08X w=%d h=%d", (unsigned)hr, thumbData.width, thumbData.height);
     }
     return SUCCEEDED(hr) ? bmp : nullptr;
 }
@@ -312,15 +312,19 @@ void PageThumbnailPanel::Render(ID2D1RenderTarget* pRT) {
     uint32_t itemCount = m_isImageMode ? m_totalImages : m_totalPages;
     if (itemCount == 0) return;
 
-    THUMB_DBG(L"Render(panelW=%.1f, items=%u, current=%u, side=%d, imageMode=%d)", m_panelWidth, itemCount, m_currentPage, m_panelSide, m_isImageMode);
+    // Debug
+    THUMB_DBG(L"Render(items=%u, current=%u, imageMode=%d)", itemCount, m_currentPage, m_isImageMode);
 
     if (!m_brushBg || m_currentRT != pRT) {
         if (m_currentRT != nullptr && m_currentRT != pRT) {
+            THUMB_DBG(L"Render: RT CHANGED old=%p new=%p -> reset slots & image cache", m_currentRT, pRT);
             for (auto& slot : m_slots) {
                 slot.bitmap.Reset();
                 slot.needsRender = true;
                 slot.isRendering = false;
             }
+            // Also reset image cache since RT changed - bitmaps are bound to RT
+            for (auto& pair : m_imageThumbCache) { if (pair.second) { pair.second->Release(); pair.second = nullptr; } }
         }
         CreateDeviceResources(pRT);
     }
@@ -405,20 +409,20 @@ void PageThumbnailPanel::Render(ID2D1RenderTarget* pRT) {
         const D2D1_RECT_F thumbRect = GetThumbnailRect(itemRect);
 
         // Get bitmap: PDF mode from slots, image mode from cache
-        ComPtr<ID2D1Bitmap>* pBitmap = nullptr;
+        ID2D1Bitmap* pBitmap = nullptr;
         if (m_isImageMode) {
             auto it = m_imageThumbCache.find(pageIndex);
-            if (it != m_imageThumbCache.end() && it->second) {
-                pBitmap = &it->second;
+            if (it != m_imageThumbCache.end()) {
+                pBitmap = it->second;
             }
         } else {
             if (pageIndex < m_slots.size() && m_slots[pageIndex].bitmap) {
-                pBitmap = &m_slots[pageIndex].bitmap;
+                pBitmap = m_slots[pageIndex].bitmap.Get();
             }
         }
 
-        if (pBitmap && pBitmap->Get()) {
-            pRT->DrawBitmap(pBitmap->Get(), thumbRect, 1.0f,
+        if (pBitmap) {
+            pRT->DrawBitmap(pBitmap, thumbRect, 1.0f,
                            D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
         } else {
             if (m_brushThumbnailBg) {
@@ -599,15 +603,13 @@ void PageThumbnailPanel::UpdateThumbnailRequests() {
             if (i < 0 || i >= (int)m_totalImages) continue;
             uint32_t idx = (uint32_t)i;
             if (m_imageThumbCache.find(idx) == m_imageThumbCache.end()) {
-                // Load thumbnail (allowSlow=true for reliable decoding)
                 if (idx < m_imagePaths.size()) {
                     auto bmp = LoadImageThumbnail(m_currentRT, m_imagePaths[idx]);
                     if (bmp) {
-                        m_imageThumbCache[idx] = std::move(bmp);
+                        m_imageThumbCache[idx] = bmp.Detach();
                         loadedThisFrame++;
                         m_needsRepaint = true;
                     } else {
-                        // Mark as checked to avoid retrying every frame
                         m_imageThumbCache[idx] = nullptr;
                         loadedThisFrame++;
                     }
@@ -622,6 +624,7 @@ void PageThumbnailPanel::UpdateThumbnailRequests() {
             for (auto it = m_imageThumbCache.begin(); it != m_imageThumbCache.end(); ) {
                 int dist = std::abs(static_cast<int>(it->first) - center);
                 if (dist > 30) {
+                    if (it->second) it->second->Release();
                     it = m_imageThumbCache.erase(it);
                 } else {
                     ++it;
