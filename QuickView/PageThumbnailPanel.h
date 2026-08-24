@@ -1,8 +1,9 @@
 #pragma once
 // ============================================================================
 // PageThumbnailPanel.h
-// Left-side embedded page thumbnail sidebar for multi-page documents.
-// Non-floating: participates in the main layout, pushes the image viewport right.
+// Side-embedded page thumbnail sidebar for multi-page documents and image lists.
+// Non-floating: participates in the main layout, pushes the image viewport.
+// Supports: left/right side, drag-to-resize, image-mode (folder thumbnails).
 // ============================================================================
 
 #include "PagedDocument.h"
@@ -25,6 +26,8 @@ using Microsoft::WRL::ComPtr;
 namespace QuickView {
     class DocumentRenderController;
 }
+
+class FileNavigator; // forward declare for image mode
 
 class PageThumbnailPanel {
 public:
@@ -50,6 +53,15 @@ public:
     void OnDocumentOpened(const std::wstring& path, uint32_t totalPages);
     void OnDocumentClosed();
 
+    // [Image Mode] Show folder image thumbnails
+    void ShowImageThumbnails(FileNavigator* nav, int currentIndex, uint32_t totalFiles);
+    void SetCurrentImageIndex(int index);
+    [[nodiscard]] bool IsImageMode() const { return m_isImageMode; }
+
+    // Panel side control (0=Right, 1=Left)
+    void SetPanelSide(int side) { m_panelSide = side; }
+    [[nodiscard]] int GetPanelSide() const { return m_panelSide; }
+
     // Layout
     [[nodiscard]] float GetWidth() const { return m_panelWidth; }
     [[nodiscard]] float GetPanelHeight() const { return m_panelHeight; }
@@ -66,8 +78,18 @@ public:
     // Interaction
     bool OnMouseMove(float x, float y);
     // Returns page index if a thumbnail was clicked, -1 otherwise
+    // For image mode, returns the file index (non-negative) or -1
     int OnLButtonDown(float x, float y);
     bool OnMouseWheel(int delta);
+
+    // [Resize] Drag-to-resize support
+    bool IsResizeHit(float x, float y) const;
+    void BeginResize(float x);
+    void UpdateResize(float x, float windowWidth);
+    void EndResize();
+    [[nodiscard]] bool IsResizing() const { return m_isResizing; }
+    // Returns true if the panel should capture the mouse (resize drag or panel click)
+    bool HitTestPanel(float x, float y) const;
 
     // Called each frame to schedule thumbnail renders
     void UpdateThumbnailRequests();
@@ -77,14 +99,15 @@ public:
 
 private:
     static constexpr float kDefaultPanelWidth = 180.0f;
-    static constexpr float kMinPanelWidth = 120.0f;
-    static constexpr float kMaxPanelWidth = 320.0f;
+    static constexpr float kMinPanelWidth = 100.0f;
+    static constexpr float kMaxPanelWidth = 400.0f;
     static constexpr float kItemPadding = 8.0f;
     static constexpr float kItemSpacing = 6.0f;
     static constexpr float kPageLabelHeight = 16.0f;
     static constexpr int kThumbnailTargetWidth = 160;
-    static constexpr int kThumbnailTargetHeight = 220;
+    static constexpr int kThumbnailTargetHeight = 120;
     static constexpr size_t kMaxCacheSize = 50;
+    static constexpr float kResizeHitWidth = 6.0f; // Drag handle width
 
     struct ThumbnailSlot {
         ComPtr<ID2D1Bitmap> bitmap;
@@ -103,6 +126,9 @@ private:
     // Create a D2D bitmap from a RawImageFrame
     ComPtr<ID2D1Bitmap> CreateBitmapFromFrame(ID2D1RenderTarget* pRT, const QuickView::RawImageFrame& frame);
 
+    // [Image Mode] Load a shell thumbnail for a file index
+    ComPtr<ID2D1Bitmap> LoadImageThumbnail(ID2D1RenderTarget* pRT, const std::wstring& path);
+
     HWND m_hwnd = nullptr;
     QuickView::DocumentRenderController* m_controller = nullptr;
     ID2D1RenderTarget* m_currentRT = nullptr;
@@ -111,11 +137,26 @@ private:
     float m_panelWidth = kDefaultPanelWidth;
     float m_panelHeight = 0.0f;
     D2D1_RECT_F m_panelRect = {};
+    int m_panelSide = 0; // 0=Right, 1=Left
+
+    // [Resize] Drag state
+    bool m_isResizing = false;
+    float m_resizeStartX = 0.0f;
+    float m_resizeStartWidth = 0.0f;
+    bool m_resizeHover = false;
 
     // Document state
     std::wstring m_currentPath;
     uint32_t m_totalPages = 0;
     uint32_t m_currentPage = 0;
+
+    // [Image Mode] Folder image thumbnails
+    bool m_isImageMode = false;
+    FileNavigator* m_navigator = nullptr;
+    int m_currentImageIndex = -1;
+    uint32_t m_totalImages = 0;
+    std::vector<std::wstring> m_imagePaths; // cached paths for visible range
+    std::unordered_map<uint32_t, ComPtr<ID2D1Bitmap>> m_imageThumbCache;
 
     // Thumbnail cache
     std::vector<ThumbnailSlot> m_slots;
@@ -141,6 +182,7 @@ private:
     ComPtr<ID2D1SolidColorBrush> m_brushText;
     ComPtr<ID2D1SolidColorBrush> m_brushThumbnailBg;
     ComPtr<ID2D1SolidColorBrush> m_brushBorder;
+    ComPtr<ID2D1SolidColorBrush> m_brushResizeHandle;
 
     ComPtr<IDWriteTextFormat> m_textFormatPage;
     ComPtr<IDWriteFactory> m_dwriteFactory;

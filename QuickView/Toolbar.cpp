@@ -30,6 +30,8 @@ Toolbar::Toolbar() {
 
       {ToolbarButtonID::RawToggle, Icons::Raw, {}, false, false},
       {ToolbarButtonID::GamutWarning, Icons::Warning, {}, false, false},
+      // [Thumbnail Panel] Sidebar toggle button
+      {ToolbarButtonID::ThumbnailPanelToggle, Icons::SidebarRight, {}, true, false},
 
       // Animation mode buttons (hidden in normal mode)
       {ToolbarButtonID::AnimPrevFrame, Icons::SkipBack, {}, true, false},
@@ -161,6 +163,7 @@ void Toolbar::UpdateLayout(float winW, float winH) {
   // Each table lists groups of buttons to hide in order of decreasing priority.
   // The LAST group in each table is the "core" group — if it can't fit, hide the entire toolbar.
   static constexpr ResponsiveHideGroup kNormalHideOrder[] = {
+      {ToolbarButtonID::ThumbnailPanelToggle},
       {ToolbarButtonID::FlipH},
       {ToolbarButtonID::Gallery},
       {ToolbarButtonID::CompareToggle},
@@ -633,6 +636,13 @@ const wchar_t *GetTooltipText(const ToolbarButton &btn) {
     return AppStrings::Toolbar_Tooltip_AnimNext;
   case ToolbarButtonID::AnimDirtyRect:
     return btn.isToggled ? AppStrings::Toolbar_Tooltip_AnimDirtyOn : AppStrings::Toolbar_Tooltip_AnimDirtyOff;
+  case ToolbarButtonID::ThumbnailPanelToggle:
+    switch (g_toolbar.GetThumbnailPanelState()) {
+      case 0: return L"缩略图面板：右侧（点击切换到左侧）";
+      case 1: return L"缩略图面板：左侧（点击关闭）";
+      case 2: return L"缩略图面板：已关闭（点击显示在右侧）";
+      default: return L"缩略图面板";
+    }
   default:
     return nullptr;
   }
@@ -1551,6 +1561,20 @@ void Toolbar::SetAnimationMode(bool enabled, bool playing, bool dirtyRect, bool 
     if (btn.id == ToolbarButtonID::AnimDirtyRect) {
       btn.isToggled = dirtyRect;
       btn.isEnabled = supportsDirtyRect;
+    }
+  }
+}
+
+void Toolbar::SetThumbnailPanelState(int side) {
+  m_thumbPanelSide = side;
+  for (auto &btn : m_buttons) {
+    if (btn.id == ToolbarButtonID::ThumbnailPanelToggle) {
+      btn.isToggled = (side != 2); // Toggled when panel is visible
+      switch (side) {
+        case 0: btn.iconGlyph = Icons::SidebarRight; break;  // Right
+        case 1: btn.iconGlyph = Icons::SidebarLeft; break;   // Left
+        case 2: btn.iconGlyph = Icons::SidebarOff; break;    // Off
+      }
     }
   }
 }

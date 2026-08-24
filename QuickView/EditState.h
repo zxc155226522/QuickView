@@ -598,6 +598,10 @@ bool SwatchIsCheckerboard[9] = {true, true, true, false, false, false, false, fa
     int NavigatorW = 150; // 鸟瞰图宽（逻辑px，固定记忆尺寸，切换图片不变化）
     int NavigatorH = 150; // 鸟瞰图高（逻辑px，固定记忆尺寸，切换图片不变化）
 
+    // --- Thumbnail Panel (Sidebar) ---
+    int ThumbnailPanelSide = 0;    // 0=Right(默认), 1=Left, 2=Off
+    float ThumbnailPanelWidth = 180.0f; // 用户拖动后的面板宽度（逻辑px，持久化）
+
     // --- Thumbnail Server (Shell 缩略图常驻服务) ---
     float ThumbnailThreads = 8.0f;               // 缩略图并行渲染线程数 (1-64)
     float ThumbnailSmallFileThresholdMB = 50.0f;  // 小于此值(MB)走并行通道(CDR/CMX 始终并行,不降级) (1-1024)

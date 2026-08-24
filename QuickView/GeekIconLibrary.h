@@ -182,6 +182,11 @@ namespace GeekIcons {
     inline IconGlyph Advanced         = &AdvancedVector;
     inline IconGlyph Keyboard         = &KeyboardVector;
 
+    // [Thumbnail Panel] Sidebar position toggle icons
+    inline IconGlyph SidebarRight    = &LayoutVector;   // Panel on right
+    inline IconGlyph SidebarLeft     = &LayoutVector;   // Panel on left
+    inline IconGlyph SidebarOff      = &CancelVector;   // Panel closed
+
     // Standard Reuse
 } // namespace GeekIcons
 

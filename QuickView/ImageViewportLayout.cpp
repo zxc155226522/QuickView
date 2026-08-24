@@ -8,6 +8,7 @@
 extern float g_uiScale;
 extern GalleryOverlay g_gallery;
 extern PageThumbnailPanel g_thumbnailPanel;  // [PDF Sidebar]
+extern AppConfig g_config;
 
 ImageViewportLayout ComputeImageViewportLayout(float windowWidth, float windowHeight) {
     const float safeWidth = (std::max)(1.0f, windowWidth);
@@ -18,8 +19,10 @@ ImageViewportLayout ComputeImageViewportLayout(float windowWidth, float windowHe
         ? g_gallery.GetVisualHeight(safeHeight)
         : 0.0f;
 
-    // [PDF Sidebar] Reserve left space when thumbnail panel is visible
+    // [PDF Sidebar] Reserve space when thumbnail panel is visible
     const float sidebarWidth = g_thumbnailPanel.IsVisible() ? g_thumbnailPanel.GetWidth() : 0.0f;
+    // Panel side: 0=Right (default), 1=Left
+    const int panelSide = g_thumbnailPanel.GetPanelSide();
 
     // Always reserve bottom space for toolbar (non-fullscreen only)
     float toolbarReservedHeight = 0.0f;
@@ -34,9 +37,16 @@ ImageViewportLayout ComputeImageViewportLayout(float windowWidth, float windowHe
     float bottomReserved = g_isFullScreen ? 0.0f : toolbarReservedHeight;
 
     ImageViewportLayout layout;
-    layout.Left = (std::min)(horizontalMargin, safeWidth - 1.0f) + sidebarWidth;
+    if (panelSide == 1) {
+        // Panel on LEFT: sidebar takes left space
+        layout.Left = (std::min)(horizontalMargin, safeWidth - 1.0f) + sidebarWidth;
+        layout.Right = (std::max)(layout.Left + 1.0f, safeWidth - horizontalMargin);
+    } else {
+        // Panel on RIGHT (default): sidebar takes right space
+        layout.Left = (std::min)(horizontalMargin, safeWidth - 1.0f);
+        layout.Right = (std::max)(layout.Left + 1.0f, safeWidth - horizontalMargin - sidebarWidth);
+    }
     layout.Top = (std::min)(topMargin, safeHeight - 1.0f);
-    layout.Right = (std::max)(layout.Left + 1.0f, safeWidth - horizontalMargin);
     layout.Bottom = (std::max)(layout.Top + 1.0f, safeHeight - bottomReserved);
     layout.Right = (std::min)(layout.Right, safeWidth);
     layout.Bottom = (std::min)(layout.Bottom, safeHeight);

@@ -45,7 +45,9 @@ enum class ToolbarButtonID {
     SlideshowImmersiveToggle,
     SlideshowExit,
     // Swatch background
-    SwatchSelect
+    SwatchSelect,
+    // [Thumbnail Panel] Sidebar position toggle
+    ThumbnailPanelToggle
 };
 
 struct ToolbarButton {
@@ -123,6 +125,10 @@ public:
     float GetAnimSpeedMult() const { return m_animSpeedMult; }
     void SetAnimSpeedMult(float mult) { m_animSpeedMult = mult; }
     void SetDraggingProgress(bool dragging) { m_isDraggingProgress = dragging; }
+
+    // [Thumbnail Panel] Set sidebar state (0=Right, 1=Left, 2=Off) and update icon
+    void SetThumbnailPanelState(int side);
+    int GetThumbnailPanelState() const { return m_thumbPanelSide; }
 
     // [Overlay Mode]
     void SetOverlayMode(bool enabled); // [Removed Overlay] no-op stub
@@ -250,6 +256,9 @@ private:
 
     // [Image Mode] true when viewing regular images (not PDF/paged docs)
     bool m_isImageMode = false;
+
+    // [Thumbnail Panel] 0=Right, 1=Left, 2=Off
+    int m_thumbPanelSide = 0;
 
     // [PDF] Inline page input state
     bool m_pageInputActive = false;
