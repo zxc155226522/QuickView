@@ -8410,10 +8410,10 @@ hoverEdge = (HitTestNavButtonInPane(pt, fullRect) != 0);
                       D2D1_RECT_F fullRect = D2D1::RectF(0.0f, 0.0f,
                           (float)(rc.right - rc.left), (float)(rc.bottom - rc.top));
                       g_thumbnailPanel.UpdateLayout(fullRect);
-                      ::InvalidateRect(hwnd, nullptr, FALSE);
+                      RequestRepaint(PaintLayer::Static);
                   } else {
                       if (g_thumbnailPanel.OnMouseMove((float)pt.x, (float)pt.y)) {
-                          ::InvalidateRect(hwnd, nullptr, FALSE);
+                          RequestRepaint(PaintLayer::Static);
                       }
                   }
                   // Update cursor for resize handle
@@ -10293,7 +10293,7 @@ RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);
             if (g_thumbnailPanel.HitTestPanel((float)ptClient2.x, (float)ptClient2.y)) {
                 int delta = GET_WHEEL_DELTA_WPARAM(wParam);
                 if (g_thumbnailPanel.OnMouseWheel(delta)) {
-                    ::InvalidateRect(hwnd, nullptr, FALSE);
+                    RequestRepaint(PaintLayer::Static);
                     return 0;
                 }
             }
@@ -12692,6 +12692,7 @@ void ProcessEngineEvents(HWND hwnd) {
                                                                      (float)(rcClient.right - rcClient.left),
                                                                      (float)(rcClient.bottom - rcClient.top));
                                 g_thumbnailPanel.UpdateLayout(fullRect);
+                                RequestRepaint(PaintLayer::Static);
                             }
                         }
                     } else {
@@ -12706,6 +12707,7 @@ void ProcessEngineEvents(HWND hwnd) {
                                                                      (float)(rcClient.right - rcClient.left),
                                                                      (float)(rcClient.bottom - rcClient.top));
                                 g_thumbnailPanel.UpdateLayout(fullRect);
+                                RequestRepaint(PaintLayer::Static);
                             }
                         }
                     }
@@ -14422,27 +14424,16 @@ TryUpgradeBitmapSurface(hwnd);
         g_uiRenderer->Render(hwnd, dt);
     }
 
-    // [PDF Sidebar] Render thumbnail panel (after UI layers, before Commit)
-    if (g_thumbnailPanel.IsVisible() && g_compEngine) {
+    // [PDF Sidebar] Update thumbnail panel state (rendering happens in UIRenderer::RenderStaticLayer)
+    if (g_thumbnailPanel.IsVisible()) {
         g_thumbnailPanel.UpdateThumbnailRequests();
         g_thumbnailPanel.ProcessThumbnailResults();
-
-        RECT rcClient; GetClientRect(hwnd, &rcClient);
-        float panelW = g_thumbnailPanel.GetWidth();
-        // Panel position depends on side: 0=Right, 1=Left
-        RECT sidebarRc;
-        if (g_thumbnailPanel.GetPanelSide() == 1) {
-            sidebarRc = {0, 0, (LONG)panelW, rcClient.bottom};
-        } else {
-            sidebarRc = {(LONG)(rcClient.right - panelW), 0, rcClient.right, rcClient.bottom};
+        // Request repaint only if scrolling animation is active or thumbnails are loading
+        bool hasAnimation = std::abs(g_thumbnailPanel.GetScrollY() - g_thumbnailPanel.GetTargetScrollY()) > 0.5f;
+        bool hasLoadingSlots = g_thumbnailPanel.IsLoading();
+        if (hasAnimation || hasLoadingSlots) {
+            RequestRepaint(PaintLayer::Static);
         }
-        auto* dc = g_compEngine->BeginLayerUpdate(UILayer::Dynamic, &sidebarRc);
-        if (dc) {
-            g_thumbnailPanel.Render(dc);
-            g_compEngine->EndLayerUpdate(UILayer::Dynamic);
-        }
-        // Request next-frame repaint for thumbnail animation (scrolling, loading)
-        RequestRepaint(PaintLayer::Dynamic);
     }
 
     // [PDF] Request repaint for cursor blink during inline page input

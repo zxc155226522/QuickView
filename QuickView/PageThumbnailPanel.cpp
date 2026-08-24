@@ -282,8 +282,9 @@ ComPtr<ID2D1Bitmap> PageThumbnailPanel::LoadImageThumbnail(ID2D1RenderTarget* pR
     if (!pRT || path.empty()) return nullptr;
 
     // Use the existing LoadThumbnail function to get a shell thumbnail
+    // allowSlow=false: use shell cache only, never full decode (prevents UI freeze)
     CImageLoader::ThumbData thumbData;
-    HRESULT hr = g_imageLoader->LoadThumbnail(path.c_str(), kThumbnailTargetWidth, &thumbData, false);
+    HRESULT hr = g_imageLoader->LoadThumbnail(path.c_str(), kThumbnailTargetWidth, &thumbData, false, false);
     if (FAILED(hr) || !thumbData.isValid || thumbData.pixels.empty()) return nullptr;
 
     // Create D2D bitmap from BGRA pixel data
@@ -550,29 +551,56 @@ bool PageThumbnailPanel::HitTestPanel(float x, float y) const {
            y >= m_panelRect.top && y <= m_panelRect.bottom;
 }
 
-void PageThumbnailPanel::UpdateThumbnailRequests() {
-    if (!m_visible || m_totalPages == 0) return;
-
-    // [Image Mode] Lazy-load shell thumbnails for visible range
-    if (m_isImageMode && m_currentRT && m_navigator) {
+bool PageThumbnailPanel::IsLoading() const {
+    if (m_isImageMode) {
+        // Check if any visible slot lacks a bitmap
         const float itemHeight = kThumbnailTargetHeight * g_uiScale + kPageLabelHeight * g_uiScale + kItemSpacing;
         const int visibleStart = std::max(0, static_cast<int>(m_scrollY / itemHeight)) - 2;
         const int visibleEnd = std::min(static_cast<int>(m_totalImages),
             static_cast<int>((m_scrollY + m_panelHeight) / itemHeight) + 3);
-
         for (int i = visibleStart; i < visibleEnd; ++i) {
             if (i < 0 || i >= (int)m_totalImages) continue;
             uint32_t idx = (uint32_t)i;
-            if (m_imageThumbCache.find(idx) == m_imageThumbCache.end()) {
-                // Load thumbnail synchronously (small, from shell cache)
-                if (idx < m_imagePaths.size()) {
-                    auto bmp = LoadImageThumbnail(m_currentRT, m_imagePaths[idx]);
-                    if (bmp) {
-                        m_imageThumbCache[idx] = std::move(bmp);
+            if (m_imageThumbCache.find(idx) == m_imageThumbCache.end()) return true;
+        }
+        return false;
+    }
+    for (const auto& slot : m_slots) {
+        if (slot.isRendering || slot.needsRender) return true;
+    }
+    return false;
+}
+
+void PageThumbnailPanel::UpdateThumbnailRequests() {
+    if (!m_visible || m_totalPages == 0) return;
+
+        // [Image Mode] Lazy-load shell thumbnails for visible range
+        // Limit to 1 thumbnail per frame to prevent UI stutter
+        if (m_isImageMode && m_currentRT && m_navigator) {
+            const float itemHeight = kThumbnailTargetHeight * g_uiScale + kPageLabelHeight * g_uiScale + kItemSpacing;
+            const int visibleStart = std::max(0, static_cast<int>(m_scrollY / itemHeight)) - 2;
+            const int visibleEnd = std::min(static_cast<int>(m_totalImages),
+                static_cast<int>((m_scrollY + m_panelHeight) / itemHeight) + 3);
+
+            int loadedThisFrame = 0;
+            for (int i = visibleStart; i < visibleEnd && loadedThisFrame < 1; ++i) {
+                if (i < 0 || i >= (int)m_totalImages) continue;
+                uint32_t idx = (uint32_t)i;
+                if (m_imageThumbCache.find(idx) == m_imageThumbCache.end()) {
+                    // Load thumbnail synchronously (small, from shell cache)
+                    if (idx < m_imagePaths.size()) {
+                        auto bmp = LoadImageThumbnail(m_currentRT, m_imagePaths[idx]);
+                        if (bmp) {
+                            m_imageThumbCache[idx] = std::move(bmp);
+                            loadedThisFrame++;
+                        } else {
+                            // Mark as checked to avoid retrying every frame
+                            m_imageThumbCache[idx] = nullptr;
+                            loadedThisFrame++;
+                        }
                     }
                 }
             }
-        }
 
         // Clean up off-screen cache entries to limit memory
         if (m_imageThumbCache.size() > kMaxCacheSize) {

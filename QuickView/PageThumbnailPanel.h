@@ -66,6 +66,9 @@ public:
     [[nodiscard]] float GetWidth() const { return m_panelWidth; }
     [[nodiscard]] float GetPanelHeight() const { return m_panelHeight; }
     [[nodiscard]] D2D1_RECT_F GetPanelRect() const { return m_panelRect; }
+    [[nodiscard]] float GetScrollY() const { return m_scrollY; }
+    [[nodiscard]] float GetTargetScrollY() const { return m_targetScrollY; }
+    [[nodiscard]] bool IsLoading() const;
     void UpdateLayout(const D2D1_RECT_F& clientRect);
 
     // Device resources
