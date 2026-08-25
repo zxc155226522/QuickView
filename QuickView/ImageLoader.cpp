@@ -3739,23 +3739,6 @@ HRESULT CImageLoader::LoadShellThumbnail(LPCWSTR filePath, int targetSize,
   if (FAILED(hr) || !hBitmap)
     return E_FAIL;
 
-  // Reject standard icon sizes to avoid meaningless fallback.
-  // [Fix] Also reject 256: Windows may return a 256×256 file-type icon for
-  // formats without a thumbnail handler, which would otherwise be mistaken
-  // for a real thumbnail and skip the LoadToFrame rasterization fallback.
-  BITMAP bm;
-  if (GetObject(hBitmap, sizeof(bm), &bm)) {
-    if (bm.bmWidth == bm.bmHeight &&
-        (bm.bmWidth == 16 || bm.bmWidth == 32 || bm.bmWidth == 48 ||
-         bm.bmWidth == 64 || bm.bmWidth == 128 || bm.bmWidth == 256)) {
-      DeleteObject(hBitmap);
-      return E_FAIL; // It's an icon, reject it
-    }
-  } else {
-    DeleteObject(hBitmap);
-    return E_FAIL;
-  }
-
   ComPtr<IWICBitmap> wicBitmap;
   hr = m_wicFactory->CreateBitmapFromHBITMAP(
       hBitmap, nullptr, WICBitmapUsePremultipliedAlpha, &wicBitmap);
@@ -4717,13 +4700,6 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
   pData->isValid = false;
   pData->pixels.clear();
 
-  // [Fix] Completely removed LoadShellThumbnail: When QuickView is registered
-  // as the default program for a file type, Windows Shell may return the
-  // QuickView file-type icon (256×256) instead of a real thumbnail preview.
-  // This affected ALL formats without a system thumbnail handler (JXL, TGA,
-  // EXR, QOI, PCX, PNM, CDR, CMX, PLT, DXF, DWG, PDF, AI, etc.).
-  // All thumbnails are now generated internally through:
-  //   embedded preview → format-specific decoder → unified codec → WIC fallback
   const ImageHeaderInfo headerInfo = PeekHeader(filePath);
   const uint64_t fallbackFileSize = static_cast<uint64_t>(headerInfo.fileSize);
 
@@ -4733,6 +4709,20 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
   std::unique_ptr<QuickView::MappedFile> mapping;
 
   std::wstring pathStr(filePath);
+
+  // [Opt] 优先读取系统 Shell 缓存缩略图（INCACHEONLY）。
+  // 资源管理器已生成的缓存可直接复用，毫秒级返回。
+  // 仅对真实文件路径尝试（压缩包虚拟路径跳过）。
+  if (pathStr.find(L"|") == std::wstring::npos) {
+    HRESULT shellHr = LoadShellThumbnail(filePath, targetSize, pData,
+                                         /*cacheOnly=*/true);
+    if (SUCCEEDED(shellHr) && pData->isValid) {
+      return S_OK;
+    }
+    // 缓存未命中或失败，清空状态后走自建生成路径
+    pData->isValid = false;
+    pData->pixels.clear();
+  }
   if (pathStr.find(L"|") != std::wstring::npos) {
     std::wstring archivePath;
     size_t entryIndex;
