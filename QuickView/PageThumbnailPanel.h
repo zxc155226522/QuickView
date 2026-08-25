@@ -104,7 +104,7 @@ public:
 
 private:
     static constexpr float kDefaultPanelWidth = 180.0f;
-    static constexpr float kMinPanelWidth = 100.0f;
+    static constexpr float kMinPanelWidth = 20.0f;
     static constexpr float kMaxPanelWidth = 400.0f;
     static constexpr float kItemPadding = 8.0f;
     static constexpr float kItemSpacing = 6.0f;
