@@ -422,7 +422,7 @@ void PageThumbnailPanel::Render(ID2D1RenderTarget* pRT) {
     // Convert any pending frames to D2D bitmaps (PDF mode only)
     if (!m_isImageMode && !m_pendingFrames.empty()) {
         for (auto it = m_pendingFrames.begin(); it != m_pendingFrames.end(); ) {
-            if (it->first < m_totalPages && !m_slots[it->first].bitmap) {
+            if (it->first < m_slots.size() && it->first < m_totalPages && !m_slots[it->first].bitmap) {
                 auto bmp = CreateBitmapFromFrame(pRT, *(it->second));
                 if (bmp) {
                     m_slots[it->first].bitmap = std::move(bmp);
@@ -966,6 +966,11 @@ void PageThumbnailPanel::ProcessThumbnailResults() {
 
     QuickView::ThumbnailResult result;
     while (m_controller->TakeThumbnailResult(result)) {
+        // [Fix] Guard against stale results from a previous document.
+        // When switching files, m_slots is cleared and may be smaller than
+        // m_totalPages (or empty). Without this check, m_slots[result.pageIndex]
+        // is an out-of-bounds access → heap corruption → abort().
+        if (result.pageIndex >= m_slots.size()) continue;
         if (result.status == S_OK && result.frame && result.frame->IsValid()) {
             if (result.pageIndex < m_totalPages) {
                 auto& slot = m_slots[result.pageIndex];
