@@ -47,53 +47,42 @@ void ThumbnailManager::ClearCache() {
 }
 
 ComPtr<ID2D1Bitmap> ThumbnailManager::GetThumbnail(size_t imageId, LPCWSTR /*filePath*/, ID2D1RenderTarget* pRT) {
-    // [v6.0.7] Split locking: L2 hit is a read-only fast path; L1→L2 promotion
-    // creates a GPU bitmap OUTSIDE the cache mutex to avoid blocking the worker.
+    // [v6.0.8] Reverted to single-lock: the split-lock approach caused heap
+    // corruption (0xc0000374) due to LRU eviction racing with L2 promotion.
+    std::lock_guard<std::mutex> lock(m_cacheMutex);
 
-    // 1. Check L2 Cache (GPU Bitmap) — read-only, brief lock
-    {
-        std::lock_guard<std::mutex> lock(m_cacheMutex);
-        auto itL2 = m_l2Cache.find(imageId);
-        if (itL2 != m_l2Cache.end()) {
-            TouchLRU(imageId);
-            return itL2->second;
-        }
+    // 1. Check L2 Cache (GPU Bitmap)
+    auto itL2 = m_l2Cache.find(imageId);
+    if (itL2 != m_l2Cache.end()) {
+        TouchLRU(imageId);
+        return itL2->second;
     }
 
-    // 2. Check L1 Cache (Raw Data) — copy data out under lock, create bitmap outside lock
-    CImageLoader::ThumbData l1Data;
-    {
-        std::lock_guard<std::mutex> lock(m_cacheMutex);
-        auto itL1 = m_l1Cache.find(imageId);
-        if (itL1 == m_l1Cache.end()) return nullptr;       // Not in any cache
+    // 2. Check L1 Cache (Raw Data) - Promote to L2
+    auto itL1 = m_l1Cache.find(imageId);
+    if (itL1 != m_l1Cache.end()) {
         TouchLRU(imageId);
         if (itL1->second.isFailed) return nullptr;
-        l1Data = itL1->second; // copy raw pixels out (will be consumed by CreateBitmap)
-    }
 
-    // GPU bitmap creation outside the cache mutex (no blocking worker threads)
-    ComPtr<ID2D1Bitmap> bmp;
-    if (pRT && !l1Data.pixels.empty()) {
-        D2D1_BITMAP_PROPERTIES props = D2D1::BitmapProperties(
-            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)
-        );
-        D2D1_SIZE_U size = D2D1::SizeU(l1Data.width, l1Data.height);
-        HRESULT hr = pRT->CreateBitmap(size, l1Data.pixels.data(), l1Data.stride, &props, &bmp);
-        if (SUCCEEDED(hr)) {
-            std::lock_guard<std::mutex> lock(m_cacheMutex);
-            m_l2Cache[imageId] = bmp;
-        } else {
-            // Mark L1 entry as failed to avoid repeated attempts
-            std::lock_guard<std::mutex> lock(m_cacheMutex);
-            auto itL1 = m_l1Cache.find(imageId);
-            if (itL1 != m_l1Cache.end()) {
+        ComPtr<ID2D1Bitmap> bmp;
+        if (pRT && !itL1->second.pixels.empty()) {
+            D2D1_BITMAP_PROPERTIES props = D2D1::BitmapProperties(
+                D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)
+            );
+            D2D1_SIZE_U size = D2D1::SizeU(itL1->second.width, itL1->second.height);
+            HRESULT hr = pRT->CreateBitmap(size, itL1->second.pixels.data(), itL1->second.stride, &props, &bmp);
+            if (SUCCEEDED(hr)) {
+                m_l2Cache[imageId] = bmp;
+            } else {
                 itL1->second.isFailed = true;
                 itL1->second.pixels.clear();
                 itL1->second.pixels.shrink_to_fit();
             }
         }
+        return bmp;
     }
-    return bmp;
+
+    return nullptr;
 }
 
 void ThumbnailManager::UpdateOptimizedPriority(int startIdx, int endIdx, int priorityCenter) {
