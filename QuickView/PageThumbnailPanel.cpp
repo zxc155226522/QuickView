@@ -66,6 +66,8 @@ void PageThumbnailPanel::Show(uint32_t totalPages, uint32_t currentPage) {
 
     m_scrollY = 0.0f;
     m_targetScrollY = 0.0f;
+    m_scrollX = 0.0f;
+    m_targetScrollX = 0.0f;
     m_pendingFrames.clear();
     ScrollToCurrentPage(true);
 }
@@ -78,6 +80,8 @@ void PageThumbnailPanel::Hide() {
     m_pendingFrames.clear();
     m_scrollY = 0.0f;
     m_targetScrollY = 0.0f;
+    m_scrollX = 0.0f;
+    m_targetScrollX = 0.0f;
     m_isImageMode = false;
     m_navigator = nullptr;
     m_currentImageIndex = -1;
@@ -148,6 +152,8 @@ void PageThumbnailPanel::ShowImageThumbnails(FileNavigator* nav, int currentInde
     if (!wasVisible) {
         m_scrollY = 0.0f;
         m_targetScrollY = 0.0f;
+        m_scrollX = 0.0f;
+        m_targetScrollX = 0.0f;
         ScrollToCurrentPage(true);
     }
 }
@@ -166,12 +172,31 @@ void PageThumbnailPanel::UpdateLayout(const D2D1_RECT_F& clientRect) {
         m_panelWidth = kDefaultPanelWidth * g_uiScale;
     }
     m_panelWidth = std::clamp(m_panelWidth, kMinPanelWidth, kMaxPanelWidth);
+    m_panelHeightUser = std::clamp(m_panelHeightUser, kMinPanelHeightBottom, kMaxPanelHeightBottom);
 
     const float titleBarH = g_isFullScreen ? 0.0f : 36.0f * g_uiScale;
     const float toolbarH  = g_isFullScreen ? 0.0f : 36.0f * g_uiScale;
 
     const float clientH = clientRect.bottom - clientRect.top;
 
+    if (m_panelSide == 3) {
+        // [Bottom Mode] Full width, height = user setting, positioned above toolbar
+        const float clientW = clientRect.right - clientRect.left;
+        m_panelRect.left = clientRect.left;
+        m_panelRect.right = clientRect.right;
+        m_panelRect.top = clientH - toolbarH - m_panelHeightUser;
+        m_panelRect.bottom = clientH - toolbarH;
+        m_panelWidth = clientW;
+        m_panelHeight = m_panelRect.bottom - m_panelRect.top;
+        // Horizontal scroll
+        const float itemWidth = kBottomItemWidth * g_uiScale + kItemSpacing;
+        uint32_t itemCount = m_isImageMode ? m_totalImages : m_totalPages;
+        const float contentWidth = static_cast<float>(itemCount) * itemWidth;
+        m_maxScrollX = std::max(0.0f, contentWidth - m_panelWidth + kItemPadding * 2.0f);
+        if (m_scrollX > m_maxScrollX) m_scrollX = m_maxScrollX;
+        if (m_targetScrollX > m_maxScrollX) m_targetScrollX = m_maxScrollX;
+        return;
+    }
 
     if (m_panelSide == 1) {
         // Left side
@@ -239,6 +264,14 @@ void PageThumbnailPanel::DiscardDeviceResources() {
 }
 
 D2D1_RECT_F PageThumbnailPanel::GetItemRect(uint32_t pageIndex) const {
+    if (m_panelSide == 3) {
+        // [Bottom Mode] Horizontal layout: items arranged left-to-right
+        const float itemWidth = kBottomItemWidth * g_uiScale + kItemSpacing;
+        const float x = m_panelRect.left + kItemPadding + static_cast<float>(pageIndex) * itemWidth - m_scrollX;
+        const float y = m_panelRect.top + kItemPadding;
+        const float h = m_panelHeight - kItemPadding * 2.0f;
+        return D2D1::RectF(x, y, x + itemWidth, y + h);
+    }
     const float itemHeight = kThumbnailTargetHeight * g_uiScale + kPageLabelHeight * g_uiScale + kItemSpacing;
     const float y = m_panelRect.top + kItemPadding + static_cast<float>(pageIndex) * itemHeight - m_scrollY;
     const float x = m_panelRect.left + kItemPadding;
@@ -247,6 +280,16 @@ D2D1_RECT_F PageThumbnailPanel::GetItemRect(uint32_t pageIndex) const {
 }
 
 D2D1_RECT_F PageThumbnailPanel::GetThumbnailRect(const D2D1_RECT_F& itemRect) const {
+    if (m_panelSide == 3) {
+        // [Bottom Mode] Thumbnail fills item width, height adapts
+        const float availW = itemRect.right - itemRect.left - kItemSpacing;
+        const float availH = itemRect.bottom - itemRect.top - kPageLabelHeight * g_uiScale;
+        const float thumbH = std::min(availH, kThumbnailTargetHeight * g_uiScale);
+        const float thumbW = std::min(thumbH / 1.4f, availW);
+        const float cx = (itemRect.left + itemRect.right) * 0.5f;
+        const float cy = itemRect.top + (availH - thumbH) * 0.5f;
+        return D2D1::RectF(cx - thumbW * 0.5f, cy, cx + thumbW * 0.5f, cy + thumbH);
+    }
     const float thumbH = kThumbnailTargetHeight * g_uiScale;
     const float thumbW = std::min(thumbH / 1.4f, itemRect.right - itemRect.left);
     const float cx = (itemRect.left + itemRect.right) * 0.5f;
@@ -257,6 +300,22 @@ D2D1_RECT_F PageThumbnailPanel::GetThumbnailRect(const D2D1_RECT_F& itemRect) co
 void PageThumbnailPanel::ScrollToCurrentPage(bool instant) {
     uint32_t itemCount = m_isImageMode ? m_totalImages : m_totalPages;
     if (itemCount == 0 || m_panelHeight <= 0.0f) return;
+
+    if (m_panelSide == 3) {
+        // [Bottom Mode] Horizontal scroll to current page
+        const float itemWidth = kBottomItemWidth * g_uiScale + kItemSpacing;
+        const float currentPageX = static_cast<float>(m_currentPage) * itemWidth;
+        const float pageRight = currentPageX + itemWidth;
+        if (currentPageX < m_scrollX) {
+            m_targetScrollX = currentPageX;
+        } else if (pageRight > m_scrollX + m_panelWidth - kItemPadding * 2.0f) {
+            m_targetScrollX = pageRight - m_panelWidth + kItemPadding * 2.0f;
+        }
+        m_targetScrollX = std::max(0.0f, std::min(m_targetScrollX, m_maxScrollX));
+        if (instant) m_scrollX = m_targetScrollX;
+        return;
+    }
+
     const float itemHeight = kThumbnailTargetHeight * g_uiScale + kPageLabelHeight * g_uiScale + kItemSpacing;
     const float currentPageY = static_cast<float>(m_currentPage) * itemHeight;
     const float pageBottom = currentPageY + itemHeight;
@@ -332,10 +391,18 @@ void PageThumbnailPanel::Render(ID2D1RenderTarget* pRT) {
     }
 
     // Smooth scroll animation
-    if (std::abs(m_scrollY - m_targetScrollY) > 0.5f) {
-        m_scrollY += (m_targetScrollY - m_scrollY) * 0.25f;
+    if (m_panelSide == 3) {
+        if (std::abs(m_scrollX - m_targetScrollX) > 0.5f) {
+            m_scrollX += (m_targetScrollX - m_scrollX) * 0.25f;
+        } else {
+            m_scrollX = m_targetScrollX;
+        }
     } else {
-        m_scrollY = m_targetScrollY;
+        if (std::abs(m_scrollY - m_targetScrollY) > 0.5f) {
+            m_scrollY += (m_targetScrollY - m_scrollY) * 0.25f;
+        } else {
+            m_scrollY = m_targetScrollY;
+        }
     }
 
     // Convert any pending frames to D2D bitmaps (PDF mode only)
@@ -358,42 +425,65 @@ void PageThumbnailPanel::Render(ID2D1RenderTarget* pRT) {
 
     // Separator line on the inner edge (towards image area)
     if (m_brushThumbnailBg) {
-        float sepX;
-        if (m_panelSide == 1) {
+        if (m_panelSide == 3) {
+            // [Bottom Mode] Separator on top edge
+            float sepY = m_panelRect.top;
+            D2D1_RECT_F sepRect = D2D1::RectF(m_panelRect.left, sepY, m_panelRect.right, sepY + 1.0f);
+            pRT->FillRectangle(sepRect, m_brushThumbnailBg.Get());
+        } else if (m_panelSide == 1) {
             // Left side: separator on right edge
-            sepX = m_panelRect.right - 1.0f;
+            float sepX = m_panelRect.right - 1.0f;
+            D2D1_RECT_F sepRect = D2D1::RectF(sepX, m_panelRect.top, sepX + 1.0f, m_panelRect.bottom);
+            pRT->FillRectangle(sepRect, m_brushThumbnailBg.Get());
         } else {
             // Right side: separator on left edge
-            sepX = m_panelRect.left;
+            float sepX = m_panelRect.left;
+            D2D1_RECT_F sepRect = D2D1::RectF(sepX, m_panelRect.top, sepX + 1.0f, m_panelRect.bottom);
+            pRT->FillRectangle(sepRect, m_brushThumbnailBg.Get());
         }
-        D2D1_RECT_F sepRect = D2D1::RectF(sepX, m_panelRect.top, sepX + 1.0f, m_panelRect.bottom);
-        pRT->FillRectangle(sepRect, m_brushThumbnailBg.Get());
     }
 
     // [Resize handle] Visual indicator on the drag edge
     if (m_brushResizeHandle && (m_resizeHover || m_isResizing)) {
-        float handleX;
-        if (m_panelSide == 1) {
-            handleX = m_panelRect.right - kResizeHitWidth;
+        if (m_panelSide == 3) {
+            // [Bottom Mode] Drag handle on top edge
+            float handleY = m_panelRect.top;
+            D2D1_RECT_F handleRect = D2D1::RectF(m_panelRect.left, handleY, m_panelRect.right, handleY + kResizeHitWidth);
+            pRT->FillRectangle(handleRect, m_brushResizeHandle.Get());
         } else {
-            handleX = m_panelRect.left;
+            float handleX;
+            if (m_panelSide == 1) {
+                handleX = m_panelRect.right - kResizeHitWidth;
+            } else {
+                handleX = m_panelRect.left;
+            }
+            D2D1_RECT_F handleRect = D2D1::RectF(handleX, m_panelRect.top, handleX + kResizeHitWidth, m_panelRect.bottom);
+            pRT->FillRectangle(handleRect, m_brushResizeHandle.Get());
         }
-        D2D1_RECT_F handleRect = D2D1::RectF(handleX, m_panelRect.top, handleX + kResizeHitWidth, m_panelRect.bottom);
-        pRT->FillRectangle(handleRect, m_brushResizeHandle.Get());
     }
 
     // Clip to panel area
     pRT->PushAxisAlignedClip(m_panelRect, D2D1_ANTIALIAS_MODE_ALIASED);
 
     const float itemHeight = kThumbnailTargetHeight * g_uiScale + kPageLabelHeight * g_uiScale + kItemSpacing;
-    const int startPage = std::max(0, static_cast<int>(m_scrollY / itemHeight) - 1);
-    const int endPage = std::min(static_cast<int>(itemCount),
-        static_cast<int>((m_scrollY + m_panelHeight) / itemHeight) + 2);
+    const float itemWidthBottom = kBottomItemWidth * g_uiScale + kItemSpacing;
+    const int startPage = m_panelSide == 3
+        ? std::max(0, static_cast<int>(m_scrollX / itemWidthBottom) - 1)
+        : std::max(0, static_cast<int>(m_scrollY / itemHeight) - 1);
+    const int endPage = m_panelSide == 3
+        ? std::min(static_cast<int>(itemCount),
+            static_cast<int>((m_scrollX + m_panelWidth) / itemWidthBottom) + 2)
+        : std::min(static_cast<int>(itemCount),
+            static_cast<int>((m_scrollY + m_panelHeight) / itemHeight) + 2);
 
     for (int i = startPage; i < endPage; ++i) {
         const uint32_t pageIndex = static_cast<uint32_t>(i);
         const D2D1_RECT_F itemRect = GetItemRect(pageIndex);
-        if (itemRect.bottom < m_panelRect.top || itemRect.top > m_panelRect.bottom) continue;
+        if (m_panelSide == 3) {
+            if (itemRect.right < m_panelRect.left || itemRect.left > m_panelRect.right) continue;
+        } else {
+            if (itemRect.bottom < m_panelRect.top || itemRect.top > m_panelRect.bottom) continue;
+        }
 
         const bool isCurrentPage = (pageIndex == m_currentPage);
         const bool isHovered = (static_cast<int>(pageIndex) == m_hoverIndex);
@@ -456,20 +546,30 @@ bool PageThumbnailPanel::OnMouseMove(float x, float y) {
     // Update resize hover state
     bool wasResizeHover = m_resizeHover;
     m_resizeHover = IsResizeHit(x, y);
-    if (m_resizeHover != wasResizeHover) {
-        // Need repaint for resize handle visual
-    }
 
     int newHover = -1;
     if (x >= m_panelRect.left && x <= m_panelRect.right &&
         y >= m_panelRect.top && y <= m_panelRect.bottom) {
-        const float itemHeight = kThumbnailTargetHeight * g_uiScale + kPageLabelHeight * g_uiScale + kItemSpacing;
-        const float localY = y - m_panelRect.top - kItemPadding + m_scrollY;
-        if (localY >= 0.0f) {
-            newHover = static_cast<int>(localY / itemHeight);
-            uint32_t itemCount = m_isImageMode ? m_totalImages : m_totalPages;
-            if (newHover < 0 || newHover >= static_cast<int>(itemCount)) {
-                newHover = -1;
+        if (m_panelSide == 3) {
+            // [Bottom Mode] Horizontal: calculate index by X position
+            const float itemWidth = kBottomItemWidth * g_uiScale + kItemSpacing;
+            const float localX = x - m_panelRect.left - kItemPadding + m_scrollX;
+            if (localX >= 0.0f) {
+                newHover = static_cast<int>(localX / itemWidth);
+                uint32_t itemCount = m_isImageMode ? m_totalImages : m_totalPages;
+                if (newHover < 0 || newHover >= static_cast<int>(itemCount)) {
+                    newHover = -1;
+                }
+            }
+        } else {
+            const float itemHeight = kThumbnailTargetHeight * g_uiScale + kPageLabelHeight * g_uiScale + kItemSpacing;
+            const float localY = y - m_panelRect.top - kItemPadding + m_scrollY;
+            if (localY >= 0.0f) {
+                newHover = static_cast<int>(localY / itemHeight);
+                uint32_t itemCount = m_isImageMode ? m_totalImages : m_totalPages;
+                if (newHover < 0 || newHover >= static_cast<int>(itemCount)) {
+                    newHover = -1;
+                }
             }
         }
     }
@@ -489,6 +589,19 @@ int PageThumbnailPanel::OnLButtonDown(float x, float y) {
         return -1;
     }
 
+    if (m_panelSide == 3) {
+        // [Bottom Mode] Horizontal: calculate index by X position
+        const float itemWidth = kBottomItemWidth * g_uiScale + kItemSpacing;
+        const float localX = x - m_panelRect.left - kItemPadding + m_scrollX;
+        if (localX < 0.0f) return -1;
+        const int pageIndex = static_cast<int>(localX / itemWidth);
+        uint32_t itemCount = m_isImageMode ? m_totalImages : m_totalPages;
+        if (pageIndex >= 0 && pageIndex < static_cast<int>(itemCount)) {
+            return pageIndex;
+        }
+        return -1;
+    }
+
     const float itemHeight = kThumbnailTargetHeight * g_uiScale + kPageLabelHeight * g_uiScale + kItemSpacing;
     const float localY = y - m_panelRect.top - kItemPadding + m_scrollY;
     if (localY < 0.0f) return -1;
@@ -503,8 +616,17 @@ int PageThumbnailPanel::OnLButtonDown(float x, float y) {
 
 bool PageThumbnailPanel::OnMouseWheel(int delta) {
     if (!m_visible) return false;
-    if (m_maxScrollY <= 0.0f) return false;
 
+    if (m_panelSide == 3) {
+        // [Bottom Mode] Horizontal scroll
+        if (m_maxScrollX <= 0.0f) return false;
+        const float scrollStep = 60.0f * g_uiScale;
+        m_targetScrollX -= static_cast<float>(delta / 120) * scrollStep;
+        m_targetScrollX = std::max(0.0f, std::min(m_targetScrollX, m_maxScrollX));
+        return true;
+    }
+
+    if (m_maxScrollY <= 0.0f) return false;
     const float scrollStep = 60.0f * g_uiScale;
     m_targetScrollY -= static_cast<float>(delta / 120) * scrollStep;
     m_targetScrollY = std::max(0.0f, std::min(m_targetScrollY, m_maxScrollY));
@@ -513,6 +635,13 @@ bool PageThumbnailPanel::OnMouseWheel(int delta) {
 
 bool PageThumbnailPanel::IsResizeHit(float x, float y) const {
     if (!m_visible) return false;
+
+    if (m_panelSide == 3) {
+        // [Bottom Mode] Drag handle on top edge
+        if (x < m_panelRect.left || x > m_panelRect.right) return false;
+        return y >= m_panelRect.top - kResizeHitWidth && y <= m_panelRect.top + kResizeHitWidth;
+    }
+
     if (y < m_panelRect.top || y > m_panelRect.bottom) return false;
 
     if (m_panelSide == 1) {
@@ -524,14 +653,26 @@ bool PageThumbnailPanel::IsResizeHit(float x, float y) const {
     }
 }
 
-void PageThumbnailPanel::BeginResize(float x) {
+void PageThumbnailPanel::BeginResize(float x, float y) {
     m_isResizing = true;
-    m_resizeStartX = x;
-    m_resizeStartWidth = m_panelWidth;
+    m_resizeStartX = (m_panelSide == 3) ? y : x;
+    m_resizeStartWidth = (m_panelSide == 3) ? m_panelHeightUser : m_panelWidth;
 }
 
-void PageThumbnailPanel::UpdateResize(float x, [[maybe_unused]] float windowWidth) {
+void PageThumbnailPanel::UpdateResize(float x, float y, [[maybe_unused]] float windowWidth) {
     if (!m_isResizing) return;
+
+    if (m_panelSide == 3) {
+        // [Bottom Mode] Dragging top edge: upward (negative dy) increases height
+        float dy = y - m_resizeStartX;
+        float newHeight = m_resizeStartWidth - dy;
+        newHeight = std::clamp(newHeight, kMinPanelHeightBottom, kMaxPanelHeightBottom);
+        if (newHeight != m_panelHeightUser) {
+            m_panelHeightUser = newHeight;
+            g_config.ThumbnailPanelWidth = m_panelHeightUser;
+        }
+        return;
+    }
 
     float dx = x - m_resizeStartX;
     float newWidth;
@@ -555,7 +696,11 @@ void PageThumbnailPanel::UpdateResize(float x, [[maybe_unused]] float windowWidt
 void PageThumbnailPanel::EndResize() {
     m_isResizing = false;
     // Final persist
-    g_config.ThumbnailPanelWidth = m_panelWidth;
+    if (m_panelSide == 3) {
+        g_config.ThumbnailPanelWidth = m_panelHeightUser;
+    } else {
+        g_config.ThumbnailPanelWidth = m_panelWidth;
+    }
 }
 
 bool PageThumbnailPanel::HitTestPanel(float x, float y) const {
@@ -569,6 +714,18 @@ bool PageThumbnailPanel::HitTestPanel(float x, float y) const {
 bool PageThumbnailPanel::IsLoading() const {
     if (m_isImageMode) {
         // Check if any visible slot lacks a bitmap
+        if (m_panelSide == 3) {
+            const float itemWidth = kBottomItemWidth * g_uiScale + kItemSpacing;
+            const int visibleStart = std::max(0, static_cast<int>(m_scrollX / itemWidth)) - 2;
+            const int visibleEnd = std::min(static_cast<int>(m_totalImages),
+                static_cast<int>((m_scrollX + m_panelWidth) / itemWidth) + 3);
+            for (int i = visibleStart; i < visibleEnd; ++i) {
+                if (i < 0 || i >= (int)m_totalImages) continue;
+                uint32_t idx = (uint32_t)i;
+                if (m_imageThumbCache.find(idx) == m_imageThumbCache.end()) return true;
+            }
+            return false;
+        }
         const float itemHeight = kThumbnailTargetHeight * g_uiScale + kPageLabelHeight * g_uiScale + kItemSpacing;
         const int visibleStart = std::max(0, static_cast<int>(m_scrollY / itemHeight)) - 2;
         const int visibleEnd = std::min(static_cast<int>(m_totalImages),
@@ -592,6 +749,47 @@ void PageThumbnailPanel::UpdateThumbnailRequests() {
     // [Image Mode] Lazy-load shell thumbnails for visible range
     // Limit to 1 thumbnail per frame to prevent UI stutter
     if (m_isImageMode && m_currentRT && m_navigator) {
+        if (m_panelSide == 3) {
+            // [Bottom Mode] Horizontal visible range
+            const float itemWidth = kBottomItemWidth * g_uiScale + kItemSpacing;
+            const int visibleStart = std::max(0, static_cast<int>(m_scrollX / itemWidth)) - 2;
+            const int visibleEnd = std::min(static_cast<int>(m_totalImages),
+                static_cast<int>((m_scrollX + m_panelWidth) / itemWidth) + 3);
+
+            int loadedThisFrame = 0;
+            for (int i = visibleStart; i < visibleEnd && loadedThisFrame < 1; ++i) {
+                if (i < 0 || i >= (int)m_totalImages) continue;
+                uint32_t idx = (uint32_t)i;
+                if (m_imageThumbCache.find(idx) == m_imageThumbCache.end()) {
+                    if (idx < m_imagePaths.size()) {
+                        auto bmp = LoadImageThumbnail(m_currentRT, m_imagePaths[idx]);
+                        if (bmp) {
+                            m_imageThumbCache[idx] = bmp.Detach();
+                            loadedThisFrame++;
+                            m_needsRepaint = true;
+                        } else {
+                            m_imageThumbCache[idx] = nullptr;
+                            loadedThisFrame++;
+                        }
+                    }
+                }
+            }
+            // Clean up off-screen cache entries
+            if (m_imageThumbCache.size() > kMaxCacheSize) {
+                int center = static_cast<int>(m_scrollX / itemWidth) + static_cast<int>(m_panelWidth / itemWidth / 2);
+                for (auto it = m_imageThumbCache.begin(); it != m_imageThumbCache.end(); ) {
+                    int dist = std::abs(static_cast<int>(it->first) - center);
+                    if (dist > 30) {
+                        if (it->second) it->second->Release();
+                        it = m_imageThumbCache.erase(it);
+                    } else {
+                        ++it;
+                    }
+                }
+            }
+            return;
+        }
+
         const float itemHeight = kThumbnailTargetHeight * g_uiScale + kPageLabelHeight * g_uiScale + kItemSpacing;
         const int visibleStart = std::max(0, static_cast<int>(m_scrollY / itemHeight)) - 2;
         const int visibleEnd = std::min(static_cast<int>(m_totalImages),
@@ -635,6 +833,58 @@ void PageThumbnailPanel::UpdateThumbnailRequests() {
 
     // PDF mode: use DocumentRenderController
     if (!m_controller || m_isImageMode) return;
+
+    if (m_panelSide == 3) {
+        // [Bottom Mode] Horizontal visible range for PDF thumbnails
+        const float itemWidth = kBottomItemWidth * g_uiScale + kItemSpacing;
+        const int visibleStart = static_cast<int>(std::max(0.0f, m_scrollX / itemWidth)) - 2;
+        const int visibleEnd = static_cast<int>((m_scrollX + m_panelWidth) / itemWidth) + 3;
+
+        int inFlight = 0;
+        for (auto& slot : m_slots) {
+            if (slot.isRendering) inFlight++;
+        }
+
+        int submitted = 0;
+        const int maxInFlight = 2;
+
+        auto trySubmit = [&](uint32_t idx) {
+            if (submitted + inFlight >= maxInFlight) return;
+            if (idx >= m_totalPages) return;
+            if (!m_slots[idx].needsRender || m_slots[idx].isRendering) return;
+            if (m_slots[idx].bitmap) {
+                m_slots[idx].needsRender = false;
+                return;
+            }
+
+            QuickView::ThumbnailRequest req;
+            req.notifyWindow = m_hwnd;
+            req.path = m_currentPath;
+            req.pageIndex = idx;
+            req.targetWidth = kThumbnailTargetWidth;
+            req.targetHeight = kThumbnailTargetHeight;
+            req.priority = static_cast<int>(std::abs(static_cast<int>(idx) - static_cast<int>(m_currentPage)));
+
+            uint64_t id = m_controller->RequestThumbnail(req);
+            if (id != 0) {
+                m_slots[idx].isRendering = true;
+                submitted++;
+            }
+        };
+
+        trySubmit(m_currentPage);
+        for (int i = visibleStart; i < visibleEnd && submitted + inFlight < maxInFlight; ++i) {
+            if (i >= 0 && i < static_cast<int>(m_totalPages)) {
+                trySubmit(static_cast<uint32_t>(i));
+            }
+        }
+        for (uint32_t offset = 1; offset <= 5 && submitted + inFlight < maxInFlight; ++offset) {
+            if (m_currentPage + offset < m_totalPages) trySubmit(m_currentPage + offset);
+            if (submitted + inFlight >= maxInFlight) break;
+            if (m_currentPage >= offset) trySubmit(m_currentPage - offset);
+        }
+        return;
+    }
 
     const float itemHeight = kThumbnailTargetHeight * g_uiScale + kPageLabelHeight * g_uiScale + kItemSpacing;
     const int visibleStart = static_cast<int>(std::max(0.0f, m_scrollY / itemHeight)) - 2;

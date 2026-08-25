@@ -50,6 +50,7 @@ static UINT GetSvgSurfaceSizeLimit();
 #include "PaneContext.h"
 #include "AppStrings.h"
 #include "ContextMenu.h"
+#include "GeekContextMenu.h"
 #include "UndoManager.h"
 #include <shlobj.h>
 #pragma comment(lib, "shlwapi.lib")
@@ -8375,7 +8376,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
 float sbW = g_thumbnailPanel.IsVisible() ? g_thumbnailPanel.GetWidth() : 0.0f;
 float navLeft = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 1) ? sbW : 0.0f;
 float navRight = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 0) ? (winW - sbW) : winW;
-D2D1_RECT_F fullRect = D2D1::RectF(navLeft, 0.0f, navRight, winH);
+// [Bottom Mode] Also exclude bottom panel area from nav hit zone
+float navBottom = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 3) ? g_thumbnailPanel.GetPanelRect().top : winH;
+D2D1_RECT_F fullRect = D2D1::RectF(navLeft, 0.0f, navRight, navBottom);
 hoverEdge = (HitTestNavButtonInPane(pt, fullRect) != 0);
                   }
               } else {
@@ -8406,7 +8409,7 @@ hoverEdge = (HitTestNavButtonInPane(pt, fullRect) != 0);
                   // [Resize] Handle drag-to-resize
                   if (g_thumbnailPanel.IsResizing()) {
                       RECT rc; GetClientRect(hwnd, &rc);
-                      g_thumbnailPanel.UpdateResize((float)pt.x, (float)rc.right);
+                      g_thumbnailPanel.UpdateResize((float)pt.x, (float)pt.y, (float)rc.right);
                       D2D1_RECT_F fullRect = D2D1::RectF(0.0f, 0.0f,
                           (float)(rc.right - rc.left), (float)(rc.bottom - rc.top));
                       g_thumbnailPanel.UpdateLayout(fullRect);
@@ -9198,7 +9201,7 @@ RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);  // OSD and Border ind
 
         // [Thumbnail Panel] Check resize drag first (before panel click)
         if (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.IsResizeHit((float)pt.x, (float)pt.y)) {
-            g_thumbnailPanel.BeginResize((float)pt.x);
+            g_thumbnailPanel.BeginResize((float)pt.x, (float)pt.y);
             SetCapture(hwnd);
             return 0;
         }
@@ -9559,15 +9562,17 @@ if (g_config.NavIndicator == 0) {
 float sbW = g_thumbnailPanel.IsVisible() ? g_thumbnailPanel.GetWidth() : 0.0f;
 float navLeft = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 1) ? sbW : 0.0f;
 float navRight = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 0) ? ((float)w - sbW) : (float)w;
-D2D1_RECT_F fullRect = D2D1::RectF(navLeft, 0.0f, navRight, (float)h);
+float navBottom = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 3) ? g_thumbnailPanel.GetPanelRect().top : (float)h;
+D2D1_RECT_F fullRect = D2D1::RectF(navLeft, 0.0f, navRight, navBottom);
 inEdgeZone = (HitTestNavButtonInPane(pt, fullRect) != 0);
 } else {
 float edgeMargin = 64.0f * g_uiScale;
 float sbW3 = g_thumbnailPanel.IsVisible() ? g_thumbnailPanel.GetWidth() : 0.0f;
 float panelLeft = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 1) ? sbW3 : 0.0f;
 float panelRight = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 0) ? ((float)w - sbW3) : (float)w;
+float panelBottom = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 3) ? g_thumbnailPanel.GetPanelRect().top : (float)h;
 bool inHRange = (pt.x >= panelLeft && pt.x < panelLeft + edgeMargin) || (pt.x > panelRight - edgeMargin);
-bool inVRange = (pt.y > h * 0.30) && (pt.y < h * 0.70);
+bool inVRange = (pt.y > h * 0.30) && (pt.y < h * 0.70) && (pt.y < panelBottom);
                     inEdgeZone = inHRange && inVRange;
                 }
             }
@@ -9818,39 +9823,22 @@ if (GetTickCount() - g_lastOverlayCloseTime < 350) {
                     }
 break;
 case ToolbarButtonID::ThumbnailPanelToggle: {
-    // Cycle: Right(0) -> Left(1) -> Off(2) -> Right(0)
-    int side = g_toolbar.GetThumbnailPanelState();
-    side = (side + 1) % 3;
-    g_config.ThumbnailPanelSide = side;
-    g_toolbar.SetThumbnailPanelState(side);
-
-    RECT rcClient; GetClientRect(hwnd, &rcClient);
-    D2D1_RECT_F fullRect = D2D1::RectF(0.0f, 0.0f,
-        (float)(rcClient.right - rcClient.left),
-        (float)(rcClient.bottom - rcClient.top));
-
-    if (side == 2) {
-        // Off: hide panel
-        g_thumbnailPanel.OnDocumentClosed();
-    } else {
-        g_thumbnailPanel.SetPanelSide(side);
-        if (g_pagedDoc.active && g_pagedDoc.totalPages > 1) {
-            // PDF mode: show page thumbnails
-            g_thumbnailPanel.OnDocumentOpened(GetPaneContext(PaneSlot::Primary).path, g_pagedDoc.totalPages);
-        } else if (!g_imagePath.empty()) {
-            // Image mode: show folder image thumbnails
-            auto& nav = GetPaneContext(PaneSlot::Primary).navigator;
-            if (nav.Count() > 0) {
-                g_thumbnailPanel.ShowImageThumbnails(&nav, nav.Index(), (uint32_t)nav.Count());
-            }
-        }
-        g_thumbnailPanel.UpdateLayout(fullRect);
-    }
-
-    // Update toolbar layout and image viewport
-    g_toolbar.UpdateLayout((float)rcClient.right, (float)rcClient.bottom);
-    RequestRepaint(PaintLayer::Static | PaintLayer::Dynamic);
-    InvalidateRect(hwnd, nullptr, FALSE);
+    // [Popup Menu] Show position selection menu instead of cycling
+    RECT btnRect = g_toolbar.GetThumbnailPanelToggleScreenRect();
+    // Convert client to screen coordinates
+    POINT ptTL = {btnRect.left, btnRect.bottom};
+    ClientToScreen(hwnd, &ptTL);
+    // Build popup menu items using GeekMenuItem::Check for radio-like behavior
+    int curSide = g_toolbar.GetThumbnailPanelState();
+    std::vector<QuickView::UI::Menu::GeekMenuItem> items = {
+        QuickView::UI::Menu::GeekMenuItem::Check(IDM_THUMB_PANEL_RIGHT,  L"右侧显示",  curSide == 0),
+        QuickView::UI::Menu::GeekMenuItem::Check(IDM_THUMB_PANEL_LEFT,   L"左侧显示",  curSide == 1),
+        QuickView::UI::Menu::GeekMenuItem::Check(IDM_THUMB_PANEL_BOTTOM, L"底部显示",  curSide == 3),
+        QuickView::UI::Menu::GeekMenuItem::Sep(),
+        QuickView::UI::Menu::GeekMenuItem::Check(IDM_THUMB_PANEL_OFF,    L"关闭面板",  curSide == 2),
+    };
+    std::vector<QuickView::UI::Menu::ActionButton> emptyActions;
+    QuickView::UI::Menu::GeekContextMenu::ShowMenu(hwnd, ptTL.x, ptTL.y, std::move(emptyActions), std::move(items));
     break;
 }
 case ToolbarButtonID::CompareToggle:
@@ -10142,7 +10130,8 @@ if (g_config.NavIndicator == 0) {
 float sbW = g_thumbnailPanel.IsVisible() ? g_thumbnailPanel.GetWidth() : 0.0f;
 float navLeft = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 1) ? sbW : 0.0f;
 float navRight = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 0) ? ((float)width - sbW) : (float)width;
-D2D1_RECT_F fullRect = D2D1::RectF(navLeft, 0.0f, navRight, (float)height);
+float navBottom = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 3) ? g_thumbnailPanel.GetPanelRect().top : (float)height;
+D2D1_RECT_F fullRect = D2D1::RectF(navLeft, 0.0f, navRight, navBottom);
 direction = HitTestNavButtonInPane(pt, fullRect);
 clickValid = (direction != 0);
 } else {
@@ -10150,8 +10139,9 @@ float edgeMargin = 64.0f * g_uiScale;
 float sbW2 = g_thumbnailPanel.IsVisible() ? g_thumbnailPanel.GetWidth() : 0.0f;
 float panelLeft = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 1) ? sbW2 : 0.0f;
 float panelRight = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 0) ? ((float)width - sbW2) : (float)width;
+float panelBottom = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 3) ? g_thumbnailPanel.GetPanelRect().top : (float)height;
 bool inHRange = (pt.x >= panelLeft && pt.x < panelLeft + edgeMargin) || (pt.x > panelRight - edgeMargin);
-bool inVRange = (pt.y > height * 0.30) && (pt.y < height * 0.70);
+bool inVRange = (pt.y > height * 0.30) && (pt.y < height * 0.70) && (pt.y < panelBottom);
                         if (inHRange && inVRange) {
                             clickValid = true;
                             direction = (pt.x < (panelLeft + panelRight) * 0.5f) ? -1 : 1;
@@ -11918,6 +11908,46 @@ const std::wstring& contextPath = contextLeft ? GetPaneContext(PaneSlot::Left).p
             if (CheckUnsavedChanges(hwnd)) PostMessage(hwnd, WM_CLOSE, 0, 0);
             break;
         }
+
+        // [Thumbnail Panel] Position selection from popup menu
+        case IDM_THUMB_PANEL_RIGHT:
+        case IDM_THUMB_PANEL_LEFT:
+        case IDM_THUMB_PANEL_BOTTOM:
+        case IDM_THUMB_PANEL_OFF: {
+            int newSide = 0;
+            if (cmdId == IDM_THUMB_PANEL_LEFT) newSide = 1;
+            else if (cmdId == IDM_THUMB_PANEL_OFF) newSide = 2;
+            else if (cmdId == IDM_THUMB_PANEL_BOTTOM) newSide = 3;
+
+            g_config.ThumbnailPanelSide = newSide;
+            g_toolbar.SetThumbnailPanelState(newSide);
+
+            RECT rcClient; GetClientRect(hwnd, &rcClient);
+            D2D1_RECT_F fullRect = D2D1::RectF(0.0f, 0.0f,
+                (float)(rcClient.right - rcClient.left),
+                (float)(rcClient.bottom - rcClient.top));
+
+            if (newSide == 2) {
+                g_thumbnailPanel.OnDocumentClosed();
+            } else {
+                g_thumbnailPanel.SetPanelSide(newSide);
+                if (g_pagedDoc.active && g_pagedDoc.totalPages > 1) {
+                    g_thumbnailPanel.OnDocumentOpened(GetPaneContext(PaneSlot::Primary).path, g_pagedDoc.totalPages);
+                } else if (!g_imagePath.empty()) {
+                    auto& nav = GetPaneContext(PaneSlot::Primary).navigator;
+                    if (nav.Count() > 0) {
+                        g_thumbnailPanel.ShowImageThumbnails(&nav, nav.Index(), (uint32_t)nav.Count());
+                    }
+                }
+                g_thumbnailPanel.UpdateLayout(fullRect);
+            }
+
+            g_toolbar.UpdateLayout((float)rcClient.right, (float)rcClient.bottom);
+            RequestRepaint(PaintLayer::Static | PaintLayer::Dynamic);
+            InvalidateRect(hwnd, nullptr, FALSE);
+            break;
+        }
+
         // TODO: Implement other menu commands
         default:
             break;

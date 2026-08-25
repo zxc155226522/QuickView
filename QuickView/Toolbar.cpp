@@ -638,9 +638,10 @@ const wchar_t *GetTooltipText(const ToolbarButton &btn) {
     return btn.isToggled ? AppStrings::Toolbar_Tooltip_AnimDirtyOn : AppStrings::Toolbar_Tooltip_AnimDirtyOff;
   case ToolbarButtonID::ThumbnailPanelToggle:
     switch (g_toolbar.GetThumbnailPanelState()) {
-      case 0: return L"缩略图面板：右侧（点击切换到左侧）";
-      case 1: return L"缩略图面板：左侧（点击关闭）";
-      case 2: return L"缩略图面板：已关闭（点击显示在右侧）";
+      case 0: return L"缩略图面板：右侧";
+      case 1: return L"缩略图面板：左侧";
+      case 3: return L"缩略图面板：底部";
+      case 2: return L"缩略图面板：已关闭";
       default: return L"缩略图面板";
     }
   default:
@@ -1573,9 +1574,24 @@ void Toolbar::SetThumbnailPanelState(int side) {
       switch (side) {
         case 0: btn.iconGlyph = Icons::SidebarRight; break;  // Right
         case 1: btn.iconGlyph = Icons::SidebarLeft; break;   // Left
+        case 3: btn.iconGlyph = Icons::SidebarBottom; break;  // Bottom
         case 2: btn.iconGlyph = Icons::SidebarOff; break;    // Off
       }
     }
   }
+}
+
+RECT Toolbar::GetThumbnailPanelToggleScreenRect() const {
+  RECT rc = {0, 0, 0, 0};
+  for (const auto &btn : m_buttons) {
+    if (btn.id == ToolbarButtonID::ThumbnailPanelToggle && btn.rect.right > 0) {
+      rc.left = (LONG)btn.rect.left;
+      rc.top = (LONG)btn.rect.top;
+      rc.right = (LONG)btn.rect.right;
+      rc.bottom = (LONG)btn.rect.bottom;
+      break;
+    }
+  }
+  return rc;
 }
 

@@ -599,7 +599,7 @@ bool SwatchIsCheckerboard[9] = {true, true, true, false, false, false, false, fa
     int NavigatorH = 150; // 鸟瞰图高（逻辑px，固定记忆尺寸，切换图片不变化）
 
     // --- Thumbnail Panel (Sidebar) ---
-    int ThumbnailPanelSide = 0;    // 0=Right(默认), 1=Left, 2=Off
+    int ThumbnailPanelSide = 0;    // 0=Right(默认), 1=Left, 2=Off, 3=Bottom
     float ThumbnailPanelWidth = 180.0f; // 用户拖动后的面板宽度（逻辑px，持久化）
 
     // --- Thumbnail Server (Shell 缩略图常驻服务) ---

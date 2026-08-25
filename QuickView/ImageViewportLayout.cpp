@@ -21,7 +21,8 @@ ImageViewportLayout ComputeImageViewportLayout(float windowWidth, float windowHe
 
     // [PDF Sidebar] Reserve space when thumbnail panel is visible
     const float sidebarWidth = g_thumbnailPanel.IsVisible() ? g_thumbnailPanel.GetWidth() : 0.0f;
-    // Panel side: 0=Right (default), 1=Left
+    const float bottomPanelHeight = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 3) ? g_thumbnailPanel.GetBottomPanelHeight() : 0.0f;
+    // Panel side: 0=Right (default), 1=Left, 3=Bottom
     const int panelSide = g_thumbnailPanel.GetPanelSide();
 
     // Always reserve bottom space for toolbar (non-fullscreen only)
@@ -34,12 +35,16 @@ ImageViewportLayout ComputeImageViewportLayout(float windowWidth, float windowHe
     // Toolbar is docked at bottom with same height as title bar (36px)
     float horizontalMargin = g_isFullScreen ? 0.0f : padding;
     float topMargin = g_isFullScreen ? 0.0f : titleBarHeight + galleryHeight + padding;
-    float bottomReserved = g_isFullScreen ? 0.0f : toolbarReservedHeight;
+    float bottomReserved = g_isFullScreen ? 0.0f : toolbarReservedHeight + bottomPanelHeight;
 
     ImageViewportLayout layout;
     if (panelSide == 1) {
         // Panel on LEFT: sidebar takes left space
         layout.Left = (std::min)(horizontalMargin, safeWidth - 1.0f) + sidebarWidth;
+        layout.Right = (std::max)(layout.Left + 1.0f, safeWidth - horizontalMargin);
+    } else if (panelSide == 3) {
+        // Panel on BOTTOM: no horizontal reservation, bottom reserved includes panel height
+        layout.Left = (std::min)(horizontalMargin, safeWidth - 1.0f);
         layout.Right = (std::max)(layout.Left + 1.0f, safeWidth - horizontalMargin);
     } else {
         // Panel on RIGHT (default): sidebar takes right space

@@ -185,6 +185,7 @@ namespace GeekIcons {
     // [Thumbnail Panel] Sidebar position toggle icons
     inline IconGlyph SidebarRight    = &LayoutVector;   // Panel on right
     inline IconGlyph SidebarLeft     = &LayoutVector;   // Panel on left
+    inline IconGlyph SidebarBottom   = &LayoutVector;   // Panel on bottom
     inline IconGlyph SidebarOff      = &CancelVector;   // Panel closed
 
     // Standard Reuse

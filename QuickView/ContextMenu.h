@@ -80,6 +80,12 @@ enum ContextMenuCommand : UINT {
     IDM_NAV_STOP,
     IDM_NAV_THROUGH,
 
+    // [Thumbnail Panel] Position Options
+    IDM_THUMB_PANEL_RIGHT,
+    IDM_THUMB_PANEL_LEFT,
+    IDM_THUMB_PANEL_BOTTOM,
+    IDM_THUMB_PANEL_OFF,
+
     // [CMS] Color Space Options
     IDM_CMS_UNMANAGED,
     IDM_CMS_AUTO,

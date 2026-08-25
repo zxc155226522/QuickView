@@ -129,6 +129,8 @@ public:
     // [Thumbnail Panel] Set sidebar state (0=Right, 1=Left, 2=Off) and update icon
     void SetThumbnailPanelState(int side);
     int GetThumbnailPanelState() const { return m_thumbPanelSide; }
+    // [Thumbnail Panel] Get screen rect of the toggle button for popup menu positioning
+    RECT GetThumbnailPanelToggleScreenRect() const;
 
     // [Overlay Mode]
     void SetOverlayMode(bool enabled); // [Removed Overlay] no-op stub

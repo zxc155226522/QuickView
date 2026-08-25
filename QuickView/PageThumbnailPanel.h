@@ -66,6 +66,7 @@ public:
     // Layout
     [[nodiscard]] float GetWidth() const { return m_panelWidth; }
     [[nodiscard]] float GetPanelHeight() const { return m_panelHeight; }
+    [[nodiscard]] float GetBottomPanelHeight() const { return m_panelHeightUser; }
     [[nodiscard]] D2D1_RECT_F GetPanelRect() const { return m_panelRect; }
     [[nodiscard]] float GetScrollY() const { return m_scrollY; }
     [[nodiscard]] float GetTargetScrollY() const { return m_targetScrollY; }
@@ -89,8 +90,8 @@ public:
 
     // [Resize] Drag-to-resize support
     bool IsResizeHit(float x, float y) const;
-    void BeginResize(float x);
-    void UpdateResize(float x, float windowWidth);
+    void BeginResize(float x, float y);
+    void UpdateResize(float x, float y, float windowWidth);
     void EndResize();
     [[nodiscard]] bool IsResizing() const { return m_isResizing; }
     // Returns true if the panel should capture the mouse (resize drag or panel click)
@@ -106,6 +107,11 @@ private:
     static constexpr float kDefaultPanelWidth = 180.0f;
     static constexpr float kMinPanelWidth = 20.0f;
     static constexpr float kMaxPanelWidth = 400.0f;
+    // [Bottom Mode] Horizontal panel above toolbar
+    static constexpr float kDefaultPanelHeightBottom = 140.0f;
+    static constexpr float kMinPanelHeightBottom = 40.0f;
+    static constexpr float kMaxPanelHeightBottom = 400.0f;
+    static constexpr float kBottomItemWidth = 160.0f; // Thumbnail width in bottom mode
     static constexpr float kItemPadding = 8.0f;
     static constexpr float kItemSpacing = 6.0f;
     static constexpr float kPageLabelHeight = 16.0f;
@@ -142,7 +148,13 @@ private:
     float m_panelWidth = kDefaultPanelWidth;
     float m_panelHeight = 0.0f;
     D2D1_RECT_F m_panelRect = {};
-    int m_panelSide = 0; // 0=Right, 1=Left
+    int m_panelSide = 0; // 0=Right, 1=Left, 2=Off, 3=Bottom
+    // [Bottom Mode] User-resized height for bottom panel
+    float m_panelHeightUser = kDefaultPanelHeightBottom;
+    // [Bottom Mode] Horizontal scroll state
+    float m_scrollX = 0.0f;
+    float m_targetScrollX = 0.0f;
+    float m_maxScrollX = 0.0f;
 
     // [Resize] Drag state
     bool m_isResizing = false;
