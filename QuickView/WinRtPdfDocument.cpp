@@ -101,6 +101,20 @@ HRESULT WinRtPdfDocument::Open(const std::wstring& path,
     Close();
     if (path.empty()) return E_INVALIDARG;
 
+    // [PDF Fix] Defensively initialize WinRT (MTA) on this thread.
+    // RoInitialize is idempotent: returns S_OK on first call, S_FALSE if
+    // already initialized. If the thread is already STA (e.g. main UI thread),
+    // this returns RPC_E_CHANGED_MODE — we ignore that and proceed, relying on
+    // the caller's existing COM init. On worker threads (HeavyLanePool), the
+    // worker loop already does CoInitializeEx + RoInitialize, so this is a
+    // no-op safety net for any other call sites.
+    // RAII ensures RoUninitialize is called on every return path.
+    HRESULT roInitHr = RoInitialize(RO_INIT_MULTITHREADED);
+    struct RoInitGuard {
+        HRESULT hr;
+        ~RoInitGuard() { if (SUCCEEDED(hr)) RoUninitialize(); }
+    } roInitGuard{ roInitHr };
+
     // 1. 通过 IStorageFile 代理打开文件
     //    使用 IStorageFolderHandleAccess -> 不需要 StorageFile::GetFileFromPathAsync
     //    但更简单的方式是直接用 CreateRandomAccessStreamOnFile + LoadFromStreamAsync

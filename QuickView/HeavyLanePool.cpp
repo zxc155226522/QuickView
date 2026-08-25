@@ -14,6 +14,7 @@ static constexpr const char* CURRENT_MODULE = "HeavyLanePool";
 #include <turbojpeg.h>
 #include <chrono>
 #include <winioctl.h>
+#include <roapi.h>  // [PDF Fix] RoInitialize/RoUninitialize for WinRT PDF on worker threads
 
 
 namespace {
@@ -828,7 +829,17 @@ void HeavyLanePool::ResumeDeferredJobs(ImageID imageId, int lod) {
 
 void HeavyLanePool::WorkerLoop(int workerId, std::stop_token st) {
     Worker& self = m_workers[workerId];
-    
+
+    // [PDF Fix] Initialize COM (MTA) + WinRT for this worker thread.
+    // WinRtPdfDocument::Open uses CreateRandomAccessStreamOnFile,
+    // RoGetActivationFactory, WindowsCreateString, etc. which require
+    // COM/WinRT initialization. Without this, opening PDF files crashes
+    // the worker thread (0xC0000005 access violation).
+    HRESULT coInitHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    HRESULT roInitHr = RoInitialize(RO_INIT_MULTITHREADED);
+    // S_OK / S_FALSE / RPC_E_CHANGED_MODE are all acceptable — the thread
+    // is initialized either way.
+
     QV_LOG("Worker_Lifecycle",
         TraceLoggingString("Started", "Action"),
         TraceLoggingInt32(workerId, "WorkerId"));
@@ -989,6 +1000,10 @@ void HeavyLanePool::WorkerLoop(int workerId, std::stop_token st) {
             TryExpand();
         }
     }
+
+    // [PDF Fix] Uninitialize WinRT + COM on thread exit (reverse order).
+    if (SUCCEEDED(roInitHr)) RoUninitialize();
+    if (SUCCEEDED(coInitHr)) CoUninitialize();
 }
 
 // ============================================================================
