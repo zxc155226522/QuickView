@@ -94,7 +94,6 @@ void PageThumbnailPanel::SetCurrentPage(uint32_t page) {
     if (page >= m_totalPages) return;
     if (m_currentPage != page) {
         m_currentPage = page;
-        ScrollToCurrentPage(false);
     }
 }
 
@@ -154,7 +153,6 @@ void PageThumbnailPanel::SetCurrentImageIndex(int index) {
     if (m_currentImageIndex != index) {
         m_currentImageIndex = index;
         m_currentPage = (uint32_t)index;
-        ScrollToCurrentPage(false);
     }
 }
 
@@ -396,11 +394,8 @@ void PageThumbnailPanel::Render(ID2D1RenderTarget* pRT) {
         const bool isCurrentPage = (pageIndex == m_currentPage);
         const bool isHovered = (static_cast<int>(pageIndex) == m_hoverIndex);
 
-        // Selection/hover background
-        if (isCurrentPage && m_brushSelection) {
-            D2D1_ROUNDED_RECT selRect = D2D1::RoundedRect(itemRect, 4.0f * g_uiScale, 4.0f * g_uiScale);
-            pRT->FillRoundedRectangle(selRect, m_brushSelection.Get());
-        } else if (isHovered && m_brushHover) {
+        // Selection/hover background (removed: no selection background)
+        if (!isCurrentPage && isHovered && m_brushHover) {
             D2D1_ROUNDED_RECT hovRect = D2D1::RoundedRect(itemRect, 4.0f * g_uiScale, 4.0f * g_uiScale);
             pRT->FillRoundedRectangle(hovRect, m_brushHover.Get());
         }
