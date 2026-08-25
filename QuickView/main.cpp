@@ -7627,8 +7627,16 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
             return 0;
         }
 
-        // Debug HUD Refresh (996)
-        if (wParam == 996) {
+// Thumbnail Batch Repaint Timer (997) - coalesces WM_THUMB_KEY_READY storms
+if (wParam == 997) {
+    KillTimer(hwnd, 997);
+    if (g_gallery.IsVisible()) {
+        RequestRepaint(PaintLayer::Gallery);
+    }
+}
+
+// Debug HUD Refresh (996)
+if (wParam == 996) {
              RequestRepaint(PaintLayer::Dynamic);
         }
         
@@ -9134,9 +9142,12 @@ RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);  // OSD and Border ind
         return 0;
         
     case WM_THUMB_KEY_READY:
-        // Redraw only Gallery layer when thumbnail is ready
+        // [v6.0.8] Batch repaint: instead of calling RequestRepaint for every
+        // single thumbnail ready message, set a short timer (8ms) that coalesces
+        // multiple ready notifications into one repaint. This prevents repaint
+        // storms when the worker threads rapidly finish dozens of thumbnails.
         if (g_gallery.IsVisible()) {
-            RequestRepaint(PaintLayer::Gallery);
+            SetTimer(hwnd, 997, 8, nullptr);  // 997 = thumbnail batch repaint timer
         }
         return 0;
 

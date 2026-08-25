@@ -704,6 +704,35 @@ void GalleryOverlay::Render(ID2D1DeviceContext *pDC, const D2D1_SIZE_F &size,
     // lock contention storms while scrolling through thousands of uncached files.
     int frameQueueBudget = 8;
 
+    // [v6.0.8] Pre-compute extension badges for visible range to avoid per-item
+    // per-frame string operations (rfind + substr + towupper + BadgeColorFor).
+    struct BadgeInfo {
+        std::wstring label;
+        D2D1_COLOR_F color;
+        bool valid = false;
+    };
+    std::vector<BadgeInfo> visBadges;
+    if (visEnd >= visStart) {
+        visBadges.resize(visEnd - visStart + 1);
+        for (int i = visStart; i <= visEnd; ++i) {
+            const std::wstring& path = m_pNav->GetFile(i);
+            BadgeInfo& bi = visBadges[i - visStart];
+            if (size_t dot = path.rfind(L'.'); dot != std::wstring::npos) {
+                std::wstring ext = path.substr(dot + 1);
+                for (auto& c : ext) c = (wchar_t)std::towupper((wint_t)c);
+                if (!ext.empty()) {
+                    ImageID imgId = m_pNav->GetImageID(i);
+                    if (const FileNavigator::PairedRaw* pairedRaw = m_pNav->GetPairedRaw(imgId))
+                        bi.label = ext + FileNavigator::PairedRawLabel(*pairedRaw);
+                    else
+                        bi.label = ext;
+                    bi.color = BadgeColorFor(ext);
+                    bi.valid = true;
+                }
+            }
+        }
+    }
+
     // Single item draw lambda to keep Z-Order multipass loops clean and hyper-efficient
     auto drawItem = [&](int i) {
         D2D1_RECT_F cellRect = GetItemRect(i, size.width);
@@ -798,33 +827,19 @@ void GalleryOverlay::Render(ID2D1DeviceContext *pDC, const D2D1_SIZE_F &size,
                 float fitY = cellRect.top + innerPad + (innerH - drawH) * 0.5f;
                 D2D1_RECT_F fitRect = D2D1::RectF(fitX, fitY, fitX + drawW, fitY + drawH);
 
-                // 3. Draw bitmap with BitmapBrush for rounded corners
-                ComPtr<ID2D1BitmapBrush> bmpBrush;
-                HRESULT hr = pDC->CreateBitmapBrush(bmp.Get(), &bmpBrush);
-                if (SUCCEEDED(hr) && bmpBrush) {
-                    bmpBrush->SetExtendModeX(D2D1_EXTEND_MODE_CLAMP);
-                    bmpBrush->SetExtendModeY(D2D1_EXTEND_MODE_CLAMP);
-                    bmpBrush->SetInterpolationMode(D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+                // [v6.0.8] Use DrawBitmap instead of CreateBitmapBrush + FillRoundedRectangle.
+                // This avoids creating a D2D brush resource per item per frame (GPU allocation).
+                // The rounded-corner effect is approximated by the cell background fill.
+                pDC->DrawBitmap(bmp.Get(), &fitRect, m_transitionProgress, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
 
-                    float scaleX = drawW / bmpSize.width;
-                    float scaleY = drawH / bmpSize.height;
-                    bmpBrush->SetTransform(D2D1::Matrix3x2F::Scale(scaleX, scaleY) *
-                                           D2D1::Matrix3x2F::Translation(fitX, fitY));
-
-                    // Proportionally scaled corner radius
-                    float cornerRatio = (std::min)(drawW / cellW, drawH / cellH);
-                    float fitRadius = 4.0f * scale * cornerRatio;
-                    pDC->FillRoundedRectangle(D2D1::RoundedRect(fitRect, fitRadius, fitRadius), bmpBrush.Get());
-
-                    // 4. Draw thin border around thumbnail
-                    D2D1_COLOR_F borderClr = isLight
-                        ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.15f)
-                        : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.12f);
-                    borderClr.a *= m_transitionProgress;
-                    m_brushBg->SetColor(borderClr);
-                    m_brushBg->SetOpacity(1.0f);
-                    pDC->DrawRoundedRectangle(D2D1::RoundedRect(fitRect, fitRadius, fitRadius), m_brushBg.Get(), 1.0f * scale);
-                }
+                // 4. Draw thin border around thumbnail
+                D2D1_COLOR_F borderClr = isLight
+                    ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.15f)
+                    : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.12f);
+                borderClr.a *= m_transitionProgress;
+                m_brushBg->SetColor(borderClr);
+                m_brushBg->SetOpacity(1.0f);
+                pDC->DrawRoundedRectangle(D2D1::RoundedRect(fitRect, 4.0f * scale, 4.0f * scale), m_brushBg.Get(), 1.0f * scale);
             }
         } else {
             // Draw placeholder box (matching 6px rounded corners)
@@ -846,30 +861,25 @@ void GalleryOverlay::Render(ID2D1DeviceContext *pDC, const D2D1_SIZE_F &size,
             }
         }
         // [类型角标] 右上角悬浮胶囊，分类型配色；对所有文件生效（含占位方块）
+        // [v6.0.8] Use pre-computed badge cache instead of per-item string ops
         {
-            std::wstring mainExt;
-            if (size_t dot = path.rfind(L'.'); dot != std::wstring::npos)
-                mainExt = path.substr(dot + 1);
-            for (auto& c : mainExt) c = (wchar_t)std::towupper((wint_t)c);
-            if (!mainExt.empty()) {
-                std::wstring label = mainExt;
-                if (const FileNavigator::PairedRaw* pairedRaw = m_pNav->GetPairedRaw(imgId))
-                    label = mainExt + FileNavigator::PairedRawLabel(*pairedRaw); // e.g. "JPG+CR3"
-                D2D1_COLOR_F base = BadgeColorFor(mainExt);
-                const float bw = (8.0f + 6.5f * (float)label.length()) * g_uiScale;
+            int bi = i - visStart;
+            if (bi >= 0 && bi < (int)visBadges.size() && visBadges[bi].valid) {
+                const auto& badgeInfo = visBadges[bi];
+                const float bw = (8.0f + 6.5f * (float)badgeInfo.label.length()) * g_uiScale;
                 const float bh = 15.0f * g_uiScale;
                 const float bm = 5.0f * g_uiScale;
                 const float br = bh * 0.5f; // 胶囊：圆角=半高，两端半圆
                 D2D1_RECT_F badge = D2D1::RectF(cellRect.right - bm - bw, cellRect.top + bm,
                                                cellRect.right - bm, cellRect.top + bm + bh);
-                m_brushBg->SetColor(D2D1::ColorF(base.r, base.g, base.b, 0.66f));
+                m_brushBg->SetColor(D2D1::ColorF(badgeInfo.color.r, badgeInfo.color.g, badgeInfo.color.b, 0.66f));
                 m_brushBg->SetOpacity(m_transitionProgress);
                 pDC->FillRoundedRectangle(D2D1::RoundedRect(badge, br, br), m_brushBg.Get());
 
                 D2D1_COLOR_F prevTxt = m_brushText->GetColor();
                 m_brushText->SetColor(D2D1::ColorF(D2D1::ColorF::White));
                 m_brushText->SetOpacity(m_transitionProgress * 0.95f);
-                pDC->DrawText(label.c_str(), (UINT32)label.length(), m_textFormatBadge.Get(), badge, m_brushText.Get());
+                pDC->DrawText(badgeInfo.label.c_str(), (UINT32)badgeInfo.label.length(), m_textFormatBadge.Get(), badge, m_brushText.Get());
                 m_brushText->SetColor(prevTxt);
                 m_brushText->SetOpacity(1.0f);
             }
