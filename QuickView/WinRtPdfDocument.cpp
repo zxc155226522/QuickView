@@ -13,6 +13,7 @@
 #include <roapi.h>                        // RoActivateInstance, RoGetActivationFactory
 #include <shcore.h>                       // CreateRandomAccessStreamOnFile
 #include <windowsstoragecom.h>           // IRandomAccessStreamByteAccess
+#include <combaseapi.h>                   // CoWaitForMultipleHandles
 
 #include <wrl/client.h>                   // ComPtr
 #include <wrl/implements.h>               // Make<>
@@ -177,13 +178,23 @@ HRESULT WinRtPdfDocument::Open(const std::wstring& path,
     }
     handler->AddRef();  // 防止回调完成前 handler 被释放
 
-    // 等待完成（30秒超时）
-    DWORD waitResult = WaitForSingleObject(doneEvent, 30000);
+    // [Fix] 使用 CoWaitForMultipleHandles 替代 WaitForSingleObject。
+    // WinRT 的 IAsyncOperation 完成回调需要通过 COM 消息泵分发。
+    // WaitForSingleObject 不处理消息泵，导致回调永远无法执行 → 死锁。
+    // CoWaitForMultipleHandles 在等待期间会处理 COM 消息泵，使回调能正常分发。
+    DWORD waitResult = 0;
+    HANDLE waitHandles[] = { doneEvent };
+    HRESULT coWaitHr = CoWaitForMultipleHandles(
+        CWMO_DISPATCH_CALLS | CWMO_DISPATCH_WINDOW_MESSAGES,
+        30000,              // 30 秒超时
+        1,                  // 1 个 handle
+        waitHandles,
+        &waitResult);
     handler->Release();  // 释放上面的 AddRef
     CloseHandle(doneEvent);
 
-    if (waitResult != WAIT_OBJECT_0) {
-        errorMessage = L"PDF 加载超时";
+    if (FAILED(coWaitHr) || waitResult != WAIT_OBJECT_0) {
+        errorMessage = L"PDF 加载超时或等待失败";
         return HRESULT_FROM_WIN32(ERROR_TIMEOUT);
     }
     if (FAILED(loadHr) || !resultDoc) {

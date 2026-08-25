@@ -2,6 +2,8 @@
 #include "DocumentRenderController.h"
 
 #include <mupdf/fitz.h>
+#include <roapi.h>      // [PDF Fix] RoInitialize/RoUninitialize for WinRT PDF
+#include <objbase.h>     // [PDF Fix] CoInitializeEx/CoUninitialize
 
 namespace QuickView {
 
@@ -233,6 +235,15 @@ void DocumentRenderController::ProcessThumbnailRequest(const ThumbnailRequest& r
 }
 
 void DocumentRenderController::WorkerMain() noexcept {
+    // [PDF Fix] Initialize COM (MTA) + WinRT for this worker thread.
+    // WinRtPdfDocument::Open uses CreateRandomAccessStreamOnFile,
+    // RoGetActivationFactory, CoWaitForMultipleHandles, etc. which require
+    // COM/WinRT initialization. Without this, the WinRT async callback for
+    // LoadFromStreamAsync cannot be dispatched → deadloop/hang.
+    HRESULT coInitHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    HRESULT roInitHr = RoInitialize(RO_INIT_MULTITHREADED);
+    // S_OK / S_FALSE / RPC_E_CHANGED_MODE are all acceptable.
+
     while (true) {
         enum class TaskType { None, FullRender, Thumbnail };
         TaskType taskType = TaskType::None;
@@ -244,7 +255,7 @@ void DocumentRenderController::WorkerMain() noexcept {
             m_condition.wait(lock, [this] {
                 return m_stopping || m_pendingRequest.has_value() || !m_thumbQueue.empty();
             });
-            if (m_stopping) return;
+            if (m_stopping) break;
 
             // Priority: full-size render requests first
             if (m_pendingRequest.has_value()) {
@@ -279,24 +290,34 @@ void DocumentRenderController::WorkerMain() noexcept {
                         rendered = true;
                     } else {
                         // Native render failed, try MuPDF
-                        std::wstring mupdfError;
-                        HRESULT mupdfHr = m_document->Open(fullRequest.path, mupdfError);
-                        if (SUCCEEDED(mupdfHr)) {
-                            hr = m_document->RenderPage(fullRequest.pageIndex,
-                                                        fullRequest.viewportWidth,
-                                                        fullRequest.viewportHeight,
-                                                        fullRequest.zoom,
-                                                        result);
-                            rendered = SUCCEEDED(hr);
+                        // [Fix] Guard against m_document being nullptr
+                        // (MuPDF context initialization can fail).
+                        if (m_document) {
+                            std::wstring mupdfError;
+                            HRESULT mupdfHr = m_document->Open(fullRequest.path, mupdfError);
+                            if (SUCCEEDED(mupdfHr)) {
+                                hr = m_document->RenderPage(fullRequest.pageIndex,
+                                                            fullRequest.viewportWidth,
+                                                            fullRequest.viewportHeight,
+                                                            fullRequest.zoom,
+                                                            result);
+                                rendered = SUCCEEDED(hr);
+                            }
                         }
                     }
                 }
                 if (!rendered) {
-                    hr = m_document->RenderPage(fullRequest.pageIndex,
-                                                fullRequest.viewportWidth,
-                                                fullRequest.viewportHeight,
-                                                fullRequest.zoom,
-                                                result);
+                    // [Fix] Guard against m_document being nullptr.
+                    if (m_document) {
+                        hr = m_document->RenderPage(fullRequest.pageIndex,
+                                                    fullRequest.viewportWidth,
+                                                    fullRequest.viewportHeight,
+                                                    fullRequest.zoom,
+                                                    result);
+                    } else {
+                        hr = E_FAIL;
+                        result.errorMessage = L"No PDF rendering engine available.";
+                    }
                 }
             } else {
                 result.status = hr;
@@ -330,6 +351,10 @@ void DocumentRenderController::WorkerMain() noexcept {
             }
         }
     }
+
+    // [PDF Fix] Uninitialize WinRT + COM on thread exit (reverse order).
+    if (SUCCEEDED(roInitHr)) RoUninitialize();
+    if (SUCCEEDED(coInitHr)) CoUninitialize();
 }
 
 } // namespace QuickView
