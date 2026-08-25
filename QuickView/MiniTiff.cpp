@@ -1113,37 +1113,65 @@ static HRESULT LoadUncompressedPreview(const uint8_t* data, size_t size,
         QvCmykDbg("QV: CMYK(preview) without embedded ICC -> naive\n");
     }
 
+    // 4×4 网格超采样（Box 滤波抗锯齿）：对每个输出像素，
+    // 在 step×step 源区域内均匀取 4×4=16 个采样点取平均。
+    // 比纯最近邻(1点)平滑得多，比完整区域平均(step²点)快 ~20 倍。
+    static constexpr uint32_t kGrid = 4;              // 4×4 采样网格
+
     for (uint32_t oy = 0; oy < outH; ++oy) {
-        uint32_t sy = oy * step;
-        if (sy >= h) break;
-        uint32_t strip = sy / rowsPerStrip;
-        uint64_t rowOff = desc.offsets[strip] + (sy - strip * rowsPerStrip) * rowBytes;
-        const uint8_t* srcRow = data + rowOff;
+        const uint32_t syBase = oy * step;
+        if (syBase >= h) break;
         uint8_t* dstRow = pixels + static_cast<size_t>(oy) * outStride;
+
         for (uint32_t ox = 0; ox < outW; ++ox) {
-            uint32_t sx = ox * step;
-            if (sx >= w) break;
-            const uint8_t* sp = srcRow + static_cast<size_t>(sx) * pixelStride;
-            uint8_t r, g, b, a = 255;
-            if (photometric == 2) {                   // RGB / RGBA
-                r = sp[0]; g = sp[1]; b = sp[2];
-                a = (samples >= 4) ? sp[3] : 255;
-            } else if (photometric == 5) {            // CMYK / CMYKA
-                // 复用主视图同款 CMYK→BGRA 转换，保证缩略图与主图视觉一致。
-                bool cmykPremultiply = (desc.extraSamples != 1);
-                ConvertCmykToBgra(sp, dstRow + static_cast<int>(ox) * 4, 1,
-                                  samples, cmykPremultiply, cmykXform.xform);
-                continue;   // 已写入 dstRow，跳过下方直接赋值
-            } else {                                   // Grayscale (0=white-is-0, 1=black-is-0)
-                uint8_t v = sp[0];
-                if (photometric == 0) v = static_cast<uint8_t>(255 - v);
-                r = g = b = v;
+            const uint32_t sxBase = ox * step;
+            if (sxBase >= w) break;
+
+            // 在 [sxBase, sxBase+step) × [syBase, syBase+step) 区域内采 kGrid×kGrid 个点
+            unsigned sumB = 0, sumG = 0, sumR = 0, sumA = 0;
+            for (uint32_t gy = 0; gy < kGrid; ++gy) {
+                uint32_t sy = syBase + (gy * step) / kGrid;
+                if (sy >= h) sy = h - 1;
+                uint32_t strip = sy / rowsPerStrip;
+                uint64_t rowOff = desc.offsets[strip]
+                                  + (static_cast<uint64_t>(sy) - strip * rowsPerStrip) * rowBytes;
+                const uint8_t* gridRow = data + rowOff;
+
+                for (uint32_t gx = 0; gx < kGrid; ++gx) {
+                    uint32_t sx = sxBase + (gx * step) / kGrid;
+                    if (sx >= w) sx = w - 1;
+                    const uint8_t* sp = gridRow + static_cast<size_t>(sx) * pixelStride;
+
+                    if (photometric == 2) {                   // RGB / RGBA
+                        sumB += sp[0]; sumG += sp[1]; sumR += sp[2];
+                        sumA += (samples >= 4) ? sp[3] : 255;
+                    } else if (photometric == 5) {            // CMYK / CMYKA
+                        // CMYK 不能简单平均后再转 RGB（非线性），退回单点采样。
+                        // 仅在网格中心点(gx==kGrid/2, gy==kGrid/2)做一次转换。
+                        if (gx == kGrid / 2 && gy == kGrid / 2) {
+                            bool cmykPremultiply = (desc.extraSamples != 1);
+                            ConvertCmykToBgra(sp, dstRow + static_cast<int>(ox) * 4, 1,
+                                              samples, cmykPremultiply, cmykXform.xform);
+                        }
+                        continue;
+                    } else {                                   // Grayscale
+                        uint8_t v = sp[0];
+                        if (photometric == 0) v = static_cast<uint8_t>(255 - v);
+                        sumR += v; sumG += v; sumB += v;
+                        sumA += 255;
+                    }
+                }
             }
+
+            // CMYK 已在上方直接写入 dstRow，跳过平均写入
+            if (photometric == 5) continue;
+
+            static constexpr unsigned kTotal = kGrid * kGrid; // 16
             int o = static_cast<int>(ox) * 4;
-            dstRow[o + 0] = b;
-            dstRow[o + 1] = g;
-            dstRow[o + 2] = r;
-            dstRow[o + 3] = a;
+            dstRow[o + 0] = static_cast<uint8_t>(sumB / kTotal);
+            dstRow[o + 1] = static_cast<uint8_t>(sumG / kTotal);
+            dstRow[o + 2] = static_cast<uint8_t>(sumR / kTotal);
+            dstRow[o + 3] = static_cast<uint8_t>(sumA / kTotal);
         }
     }
 
