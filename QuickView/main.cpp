@@ -668,6 +668,7 @@ static constexpr UINT_PTR IDT_SMOOTH_WINDOW_ZOOM = 1002;
 
 static constexpr UINT_PTR IDT_SMOOTH_ZOOM = 1003; // Drive transform-only smooth zoom animation
 static constexpr UINT_PTR IDT_CURSOR_BLINK = 1004; // [PDF] Cursor blink timer for page input
+static constexpr UINT_PTR IDT_NAV_THROTTLE = 1005;  // [Scroll Fix] Navigation throttle timer (50ms debounce)
 
 
 // Phase 2: Queue Drop Debounce (single-slot sliding window)
@@ -699,6 +700,15 @@ static std::atomic<bool> g_forceTitanTileReseed{false};
 // This allows OnPaint Titan scheduler to detect real content switch points even
 // when global imageId was updated earlier by Phase2 staging.
 static std::atomic<uint64_t> g_titanDispatchSerial{0};
+
+// [Scroll Fix] Navigation throttle state.
+// When the user scrolls rapidly, intermediate Navigate calls are coalesced:
+// only the last direction is executed after a short debounce window.
+// This prevents UI-thread sync IO (Shell cache, PeekHeader, file mapping) from
+// stacking up and freezing the UI during fast scroll.
+static HWND g_navThrottleHwnd = nullptr;
+static int g_navThrottleDirection = 0;
+static std::atomic<bool> g_navThrottleActive{false};
 
 D2D1_POINT_2F g_lastFitOffset = {}; // Center offset of image on screen
 float g_lastFitScale = 1.0f;        // Scale factor to fit image to screen
@@ -7710,6 +7720,20 @@ if (wParam == 996) {
                 KillTimer(hwnd, 995);
             }
         }
+
+        // [Scroll Fix] Navigation throttle: fire the delayed Navigate call
+        if (wParam == IDT_NAV_THROTTLE) {
+            KillTimer(hwnd, IDT_NAV_THROTTLE);
+            g_navThrottleActive.store(false);
+            if (g_navThrottleHwnd && g_navThrottleDirection != 0) {
+                // Snapshot direction, then clear to prevent re-entry
+                int dir = g_navThrottleDirection;
+                g_navThrottleDirection = 0;
+                // Call Navigate directly — the throttle window has elapsed,
+                // so this is the final coalesced navigation request.
+                Navigate(g_navThrottleHwnd, dir);
+            }
+        }
         return 0;
     }
     case WM_GETMINMAXINFO: {
@@ -8079,7 +8103,11 @@ if (wParam == 996) {
         DestroyWindow(hwnd);
         return 0;
     }
-    case WM_DESTROY: g_thumbMgr.Shutdown(); PostQuitMessage(0); return 0;
+    case WM_DESTROY:
+        KillTimer(hwnd, IDT_NAV_THROTTLE);
+        g_navThrottleActive.store(false);
+        g_navThrottleHwnd = nullptr;
+        g_thumbMgr.Shutdown(); PostQuitMessage(0); return 0;
     
      // Mouse Interaction
      case WM_MOUSEMOVE: {
@@ -13893,6 +13921,31 @@ void Navigate(HWND hwnd, int direction) {
     if (GetPaneContext(PaneSlot::Primary).navigator.Count() <= 0) return;
     if (!CheckUnsavedChanges(hwnd)) return;
 
+    // [Scroll Fix] Navigation throttle for rapid scroll.
+    // When the user scrolls quickly, multiple Navigate() calls arrive within
+    // a few milliseconds. Each call triggers synchronous file IO (PeekHeader,
+    // Shell cache query, file mapping) on the UI thread, causing UI freeze.
+    // Solution: coalesce rapid consecutive Navigate calls into one — only the
+    // last direction survives a 50ms debounce window.
+    // Skip throttle for Compare mode (complex multi-pane state machine).
+    if (!IsCompareModeActive()) {
+        if (g_navThrottleActive.load(std::memory_order_acquire)) {
+            // A throttle timer is already pending — just update the direction
+            // and restart the timer. This effectively drops all intermediate
+            // Navigate calls, keeping only the latest.
+            g_navThrottleDirection = direction;
+            g_navThrottleHwnd = hwnd;
+            SetTimer(hwnd, IDT_NAV_THROTTLE, 50, nullptr);
+            return;
+        }
+        // No pending throttle — this is the first Navigate in a burst.
+        // Arm the throttle so that subsequent Navigate calls within 50ms
+        // are coalesced. This first call executes immediately.
+        g_navThrottleActive.store(true, std::memory_order_release);
+        g_navThrottleDirection = 0;  // Clear: no pending deferred call
+        SetTimer(hwnd, IDT_NAV_THROTTLE, 50, nullptr);
+        // Fall through and execute this Navigate immediately.
+    }
     // [RAW+JPEG Pairing] Pair-compare session: the arrows move BOTH panes to
     // the neighboring paired photo (left = rendered, right = RAW at full
     // decode), regardless of pane focus. Items without a pair are skipped.

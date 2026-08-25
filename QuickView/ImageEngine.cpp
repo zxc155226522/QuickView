@@ -619,6 +619,10 @@ void ImageEngine::NavigateTo(const std::wstring& path, uintmax_t fileSize, uint6
     m_currentImageIdBySlot[static_cast<int>(targetSlot)].store(imageId);
     // Cancel stale heavy/tile work immediately for the target pane.
     m_heavyPool->CancelOthers(imageId, targetSlot);
+    // [Fix] Also clear FastLane queue to prevent stale decode tasks from
+    // piling up during rapid scroll. Without this, every intermediate image
+    // gets fully decoded even though the user has already scrolled past it.
+    m_fastLane.Clear();
     
     m_currentNavPath = path;
     m_lastInputTime = std::chrono::steady_clock::now();
