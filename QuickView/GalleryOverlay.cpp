@@ -651,14 +651,41 @@ void GalleryOverlay::Render(ID2D1DeviceContext *pDC, const D2D1_SIZE_F &size,
     m_scrollTop = std::clamp(m_scrollTop, 0.0f, m_maxScroll);
     m_scrollLeft = std::clamp(m_scrollLeft, 0.0f, m_maxScrollLeft);
     
-    // Virtualization / visible range check (Frustum Culling)
-    int startIdx = 0;
-    int endIdx = (int)count - 1;
+    // Virtualization: compute the actual visible index range [visStart, visEnd]
+    // instead of iterating all files. This is the key fix for scroll lag.
+    int visStart = 0;
+    int visEnd = (int)count - 1;
     int centerIdx = (int)m_selectedIndex;
     if (centerIdx < 0) centerIdx = 0;
-    
+    {
+        // Filmstrip mode: horizontal layout, item i at x = filmLeftMargin + i*(cellW+gap) - scrollLeft
+        if (m_gridProgress < 0.5f) {
+            float filmCellW2 = filmCellW + currentGap;
+            if (filmCellW2 > 0.5f) {
+                float visLeft = m_scrollLeft - filmLeftMargin - currentGap;
+                float visRight = visLeft + size.width + currentGap * 2.0f;
+                visStart = (int)std::max(0.0f, std::floor(visLeft / filmCellW2)) - 2;
+                visEnd = (int)std::min((float)count - 1.0f, std::ceil(visRight / filmCellW2)) + 2;
+            }
+        } else {
+            // Grid mode: vertical scroll, each row has gridCols items
+            float gridStep = gridCellH + currentGap;
+            if (gridStep > 0.5f && gridCols > 0) {
+                float visTop = m_scrollTop - currentGap;
+                float visBottom = visTop + gridViewportH + currentGap * 2.0f;
+                int rowStart = (int)std::max(0.0f, std::floor(visTop / gridStep)) - 1;
+                int rowEnd = (int)std::min((float)gridRows - 1.0f, std::ceil(visBottom / gridStep)) + 1;
+                visStart = rowStart * gridCols;
+                visEnd = std::min((int)count - 1, (rowEnd + 1) * gridCols - 1);
+            }
+        }
+        visStart = std::max(0, visStart);
+        visEnd = std::min((int)count - 1, visEnd);
+        // Safety fallback
+        if (visStart > visEnd) { visStart = 0; visEnd = (int)count - 1; }
+    }
     // Prioritize thumbnail loading around visible center index
-    m_pThumbMgr->UpdateOptimizedPriority(startIdx, endIdx, centerIdx);
+    m_pThumbMgr->UpdateOptimizedPriority(visStart, visEnd, centerIdx);
     
     // Clip drawing area to the visual panel area
     pDC->PushAxisAlignedClip(panelRect, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
@@ -673,6 +700,10 @@ void GalleryOverlay::Render(ID2D1DeviceContext *pDC, const D2D1_SIZE_F &size,
     D2D1_RECT_F thumbsClip = D2D1::RectF(currentLeftMargin - 6.0f * scale, clipTop, size.width - currentLeftMargin + 6.0f * scale, clipBottom);
     pDC->PushAxisAlignedClip(thumbsClip, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
     
+    // [v6.0.7] Per-frame queue throttle: limit new QueueRequest calls to avoid
+    // lock contention storms while scrolling through thousands of uncached files.
+    int frameQueueBudget = 8;
+
     // Single item draw lambda to keep Z-Order multipass loops clean and hyper-efficient
     auto drawItem = [&](int i) {
         D2D1_RECT_F cellRect = GetItemRect(i, size.width);
@@ -807,9 +838,11 @@ void GalleryOverlay::Render(ID2D1DeviceContext *pDC, const D2D1_SIZE_F &size,
             }
             
             // Queue request only if NOT actively columns-zooming (performance LOD)
-            if (!m_isZooming) {
+            // [v6.0.7] Throttle: limit new queue requests per frame to avoid lock storms
+            if (!m_isZooming && frameQueueBudget > 0) {
                 int prio = std::abs(i - centerIdx);
                 m_pThumbMgr->QueueRequest(imgId, path.c_str(), prio);
+                --frameQueueBudget;
             }
         }
         // [类型角标] 右上角悬浮胶囊，分类型配色；对所有文件生效（含占位方块）
@@ -844,7 +877,8 @@ void GalleryOverlay::Render(ID2D1DeviceContext *pDC, const D2D1_SIZE_F &size,
     };
     
     // Phase 1: Draw all standard (non-selected, non-hovered) thumbnails first
-    for (int i = 0; i < (int)count; ++i) {
+    // [v6.0.7] Only iterate the visible range instead of all files to fix scroll lag
+    for (int i = visStart; i <= visEnd; ++i) {
         if (i != m_selectedIndex && i != m_hoverIndex) {
             drawItem(i);
         }
