@@ -138,14 +138,18 @@ void PageThumbnailPanel::ShowImageThumbnails(FileNavigator* nav, int currentInde
     }
 
     // Clear document thumbnail slots, use image cache instead
+    bool wasVisible = m_visible && m_isImageMode;
     m_slots.clear();
     m_pendingFrames.clear();
     for (auto& pair : m_imageThumbCache) { if (pair.second) pair.second->Release(); }
     m_imageThumbCache.clear();
 
-    m_scrollY = 0.0f;
-    m_targetScrollY = 0.0f;
-    ScrollToCurrentPage(true);
+    // Only reset scroll position on first show, not when navigating between images
+    if (!wasVisible) {
+        m_scrollY = 0.0f;
+        m_targetScrollY = 0.0f;
+        ScrollToCurrentPage(true);
+    }
 }
 
 void PageThumbnailPanel::SetCurrentImageIndex(int index) {
