@@ -29,6 +29,10 @@ static void ThumbDbgLog(const wchar_t* fmt, ...) {
 #define THUMB_DBG(fmt, ...) ThumbDbgLog(L"[ThumbPanel] " fmt, __VA_ARGS__)
 
 PageThumbnailPanel::~PageThumbnailPanel() {
+    // [v6.0.8] Stop background worker thread
+    m_thumbRunning = false;
+    m_thumbCV.notify_all();
+    if (m_thumbThread.joinable()) m_thumbThread.join();
     for (auto& pair : m_imageThumbCache) { if (pair.second) pair.second->Release(); }
     m_imageThumbCache.clear();
     DiscardDeviceResources();
@@ -42,6 +46,10 @@ void PageThumbnailPanel::Initialize(HWND hwnd, QuickView::DocumentRenderControll
         m_panelWidth = std::clamp(g_config.ThumbnailPanelWidth, kMinPanelWidth, kMaxPanelWidth);
     }
     m_panelSide = g_config.ThumbnailPanelSide;
+
+    // [v6.0.8] Start background thumbnail worker thread
+    m_thumbRunning = true;
+    m_thumbThread = std::thread(&PageThumbnailPanel::ThumbWorkerLoop, this);
 }
 
 void PageThumbnailPanel::Show(uint32_t totalPages, uint32_t currentPage) {
@@ -89,6 +97,12 @@ void PageThumbnailPanel::Hide() {
     m_imagePaths.clear();
     for (auto& pair : m_imageThumbCache) { if (pair.second) pair.second->Release(); }
     m_imageThumbCache.clear();
+    // [v6.0.8] Clear async queue
+    {
+        std::lock_guard<std::mutex> lock(m_thumbQueueMutex);
+        m_thumbQueue = {};
+        m_thumbPending.clear();
+    }
     if (m_controller) {
         m_controller->CancelThumbnails();
     }
@@ -415,6 +429,38 @@ void PageThumbnailPanel::Render(ID2D1RenderTarget* pRT) {
                 }
             }
             it = m_pendingFrames.erase(it);
+        }
+    }
+
+    // [v6.0.8] Consume async thumbnail results and create D2D bitmaps on UI thread
+    if (m_isImageMode && !m_thumbResults.empty()) {
+        std::vector<AsyncThumbResult> results;
+        {
+            std::lock_guard<std::mutex> lock(m_thumbResultMutex);
+            results.swap(m_thumbResults);
+        }
+        for (auto& r : results) {
+            if (!r.valid || r.width <= 0 || r.height <= 0 || r.pixels.empty()) {
+                // Mark as failed (nullptr) so we don't re-queue
+                m_imageThumbCache[r.pageIndex] = nullptr;
+                continue;
+            }
+            D2D1_BITMAP_PROPERTIES props = D2D1::BitmapProperties(
+                D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+            D2D1_SIZE_U size = D2D1::SizeU(r.width, r.height);
+            ComPtr<ID2D1Bitmap> bmp;
+            HRESULT hr = pRT->CreateBitmap(size, r.pixels.data(), r.stride, &props, &bmp);
+            if (SUCCEEDED(hr)) {
+                // Release old entry if exists
+                auto it = m_imageThumbCache.find(r.pageIndex);
+                if (it != m_imageThumbCache.end() && it->second) {
+                    it->second->Release();
+                }
+                m_imageThumbCache[r.pageIndex] = bmp.Detach();
+                m_needsRepaint = true;
+            } else {
+                m_imageThumbCache[r.pageIndex] = nullptr;
+            }
         }
     }
 
@@ -746,32 +792,21 @@ bool PageThumbnailPanel::IsLoading() const {
 void PageThumbnailPanel::UpdateThumbnailRequests() {
     if (!m_visible || m_totalPages == 0) return;
 
-    // [Image Mode] Lazy-load shell thumbnails for visible range
-    // Limit to 1 thumbnail per frame to prevent UI stutter
+    // [Image Mode] Async-load thumbnails for visible range via background thread
+    // [v6.0.8] Replaced synchronous LoadImageThumbnail with async queue.
     if (m_isImageMode && m_currentRT && m_navigator) {
         if (m_panelSide == 3) {
-            // [Bottom Mode] Horizontal visible range
             const float itemWidth = kBottomItemWidth * g_uiScale + kItemSpacing;
             const int visibleStart = std::max(0, static_cast<int>(m_scrollX / itemWidth)) - 2;
             const int visibleEnd = std::min(static_cast<int>(m_totalImages),
                 static_cast<int>((m_scrollX + m_panelWidth) / itemWidth) + 3);
 
-            int loadedThisFrame = 0;
-            for (int i = visibleStart; i < visibleEnd && loadedThisFrame < 1; ++i) {
+            // Enqueue visible uncached items for async loading
+            for (int i = visibleStart; i < visibleEnd; ++i) {
                 if (i < 0 || i >= (int)m_totalImages) continue;
                 uint32_t idx = (uint32_t)i;
                 if (m_imageThumbCache.find(idx) == m_imageThumbCache.end()) {
-                    if (idx < m_imagePaths.size()) {
-                        auto bmp = LoadImageThumbnail(m_currentRT, m_imagePaths[idx]);
-                        if (bmp) {
-                            m_imageThumbCache[idx] = bmp.Detach();
-                            loadedThisFrame++;
-                            m_needsRepaint = true;
-                        } else {
-                            m_imageThumbCache[idx] = nullptr;
-                            loadedThisFrame++;
-                        }
-                    }
+                    EnqueueThumb(idx);
                 }
             }
             // Clean up off-screen cache entries
@@ -795,28 +830,17 @@ void PageThumbnailPanel::UpdateThumbnailRequests() {
         const int visibleEnd = std::min(static_cast<int>(m_totalImages),
             static_cast<int>((m_scrollY + m_panelHeight) / itemHeight) + 3);
 
-        int loadedThisFrame = 0;
-        for (int i = visibleStart; i < visibleEnd && loadedThisFrame < 1; ++i) {
+        // Enqueue visible uncached items for async loading
+        for (int i = visibleStart; i < visibleEnd; ++i) {
             if (i < 0 || i >= (int)m_totalImages) continue;
             uint32_t idx = (uint32_t)i;
             if (m_imageThumbCache.find(idx) == m_imageThumbCache.end()) {
-                if (idx < m_imagePaths.size()) {
-                    auto bmp = LoadImageThumbnail(m_currentRT, m_imagePaths[idx]);
-                    if (bmp) {
-                        m_imageThumbCache[idx] = bmp.Detach();
-                        loadedThisFrame++;
-                        m_needsRepaint = true;
-                    } else {
-                        m_imageThumbCache[idx] = nullptr;
-                        loadedThisFrame++;
-                    }
-                }
+                EnqueueThumb(idx);
             }
         }
 
         // Clean up off-screen cache entries to limit memory
         if (m_imageThumbCache.size() > kMaxCacheSize) {
-            // Remove entries far from visible range
             int center = static_cast<int>(m_scrollY / itemHeight) + static_cast<int>(m_panelHeight / itemHeight / 2);
             for (auto it = m_imageThumbCache.begin(); it != m_imageThumbCache.end(); ) {
                 int dist = std::abs(static_cast<int>(it->first) - center);
@@ -955,9 +979,73 @@ void PageThumbnailPanel::ProcessThumbnailResults() {
             }
         } else {
             if (result.pageIndex < m_totalPages) {
-                m_slots[result.pageIndex].isRendering = false;
-                m_slots[result.pageIndex].needsRender = true;
+            m_slots[result.pageIndex].isRendering = false;
+            m_slots[result.pageIndex].needsRender = true;
             }
         }
     }
+}
+
+// ============================================================================
+// [v6.0.8] Async thumbnail loading — runs on background thread
+// ============================================================================
+
+void PageThumbnailPanel::EnqueueThumb(uint32_t idx) {
+    if (idx >= m_imagePaths.size()) return;
+    std::lock_guard<std::mutex> lock(m_thumbQueueMutex);
+    if (m_thumbPending.count(idx)) return;  // already queued
+    m_thumbQueue.push(idx);
+    m_thumbPending[idx] = true;
+    m_thumbCV.notify_one();
+}
+
+void PageThumbnailPanel::ThumbWorkerLoop() {
+    HRESULT coInit = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+
+    while (m_thumbRunning) {
+        uint32_t idx;
+        {
+            std::unique_lock<std::mutex> lock(m_thumbQueueMutex);
+            m_thumbCV.wait(lock, [this] { return !m_thumbQueue.empty() || !m_thumbRunning; });
+            if (!m_thumbRunning) break;
+            if (m_thumbQueue.empty()) continue;
+            idx = m_thumbQueue.front();
+            m_thumbQueue.pop();
+        }
+
+        // Decode thumbnail on this background thread (no GPU calls)
+        AsyncThumbResult result;
+        result.pageIndex = idx;
+
+        if (idx < m_imagePaths.size()) {
+            CImageLoader::ThumbData thumbData;
+            HRESULT hr = g_imageLoader->LoadThumbnail(
+                m_imagePaths[idx].c_str(), kThumbnailTargetWidth, &thumbData, true, false);
+            if (SUCCEEDED(hr) && thumbData.isValid && !thumbData.pixels.empty()) {
+                result.pixels = std::move(thumbData.pixels);
+                result.width = thumbData.width;
+                result.height = thumbData.height;
+                result.stride = thumbData.stride;
+                result.valid = true;
+            }
+        }
+
+        // Store result for UI thread consumption
+        {
+            std::lock_guard<std::mutex> lock(m_thumbResultMutex);
+            m_thumbResults.push_back(std::move(result));
+        }
+
+        // Notify UI thread to create D2D bitmap and repaint
+        if (m_hwnd) {
+            PostMessage(m_hwnd, WM_PAGE_THUMB_READY, 0, 0);
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(m_thumbQueueMutex);
+            m_thumbPending.erase(idx);
+        }
+    }
+
+    if (SUCCEEDED(coInit)) CoUninitialize();
 }

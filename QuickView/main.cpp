@@ -9151,6 +9151,11 @@ RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);  // OSD and Border ind
         }
         return 0;
 
+    case WM_PAGE_THUMB_READY:
+        // [v6.0.8] Page thumbnail panel async result ready — trigger repaint
+        RequestRepaint(PaintLayer::Gallery);
+        return 0;
+
     case WM_APP + 4: // WM_DEFERRED_REPAINT
         ::InvalidateRect(hwnd, nullptr, FALSE);
         return 0;

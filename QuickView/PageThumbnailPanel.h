@@ -6,6 +6,9 @@
 // Supports: left/right side, drag-to-resize, image-mode (folder thumbnails).
 // ============================================================================
 
+// [v6.0.8] Async page thumbnail ready notification (posted from worker thread)
+#define WM_PAGE_THUMB_READY (WM_USER + 110)
+
 #include "PagedDocument.h"
 #include "ImageTypes.h"
 #include "DocumentRenderController.h"
@@ -14,10 +17,14 @@
 #include <dwrite.h>
 #include <wrl/client.h>
 
+#include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <map>
 #include <memory>
 #include <mutex>
+#include <queue>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -104,6 +111,29 @@ public:
     void ProcessThumbnailResults();
 
 private:
+    // [v6.0.8] Async thumbnail loader — prevents UI stutter by decoding
+    // thumbnails on a background thread instead of the render thread.
+    struct AsyncThumbResult {
+        uint32_t pageIndex = 0;
+        std::vector<uint8_t> pixels;
+        int width = 0;
+        int height = 0;
+        int stride = 0;
+        bool valid = false;
+    };
+
+    std::thread m_thumbThread;
+    std::mutex m_thumbQueueMutex;
+    std::condition_variable m_thumbCV;
+    std::queue<uint32_t> m_thumbQueue;          // page indices to load
+    std::unordered_map<uint32_t, bool> m_thumbPending; // tracks in-flight
+    std::mutex m_thumbResultMutex;
+    std::vector<AsyncThumbResult> m_thumbResults;  // completed (consumed on UI thread)
+    std::atomic<bool> m_thumbRunning{ false };
+
+    void EnqueueThumb(uint32_t idx);
+    void ThumbWorkerLoop();
+
     static constexpr float kDefaultPanelWidth = 180.0f;
     static constexpr float kMinPanelWidth = 20.0f;
     static constexpr float kMaxPanelWidth = 400.0f;
