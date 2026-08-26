@@ -4631,7 +4631,7 @@ static HRESULT RasterizeSvgThumbnail(const std::vector<uint8_t> &xmlData,
     // [CDR Fix] Reuse the shared stroke-upscaling helper so thin lines stay
     // visible when the SVG is downscaled to a small thumbnail.
     std::string xmlStr(processedXml.begin(), processedXml.end());
-    QuickView::QvUpscaleSvgStrokeWidths(xmlStr, 2.0f, scale);
+    QuickView::QvUpscaleSvgStrokeWidths(xmlStr, 1.0f, scale);
     processedXml.assign(xmlStr.begin(), xmlStr.end());
   }
 
