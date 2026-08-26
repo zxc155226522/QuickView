@@ -3,11 +3,14 @@
 #include "AppContext.h"
 #include "GalleryOverlay.h"
 #include "Toolbar.h"
-#include "PageThumbnailPanel.h"
+#include "ThumbnailPanelBase.h"
+#include "PdfPageThumbnailPanel.h"
+#include "ImageListThumbnailPanel.h"
 
 extern float g_uiScale;
 extern GalleryOverlay g_gallery;
-extern PageThumbnailPanel g_thumbnailPanel;  // [PDF Sidebar]
+extern PdfPageThumbnailPanel g_pdfThumbPanel;
+extern ImageListThumbnailPanel g_imageThumbPanel;
 extern AppConfig g_config;
 
 ImageViewportLayout ComputeImageViewportLayout(float windowWidth, float windowHeight) {
@@ -19,11 +22,26 @@ ImageViewportLayout ComputeImageViewportLayout(float windowWidth, float windowHe
         ? g_gallery.GetVisualHeight(safeHeight)
         : 0.0f;
 
-    // [PDF Sidebar] Reserve space when thumbnail panel is visible
-    const float sidebarWidth = g_thumbnailPanel.IsVisible() ? g_thumbnailPanel.GetWidth() : 0.0f;
-    const float bottomPanelHeight = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 3) ? g_thumbnailPanel.GetBottomPanelHeight() : 0.0f;
-    // Panel side: 0=Right (default), 1=Left, 3=Bottom
-    const int panelSide = g_thumbnailPanel.GetPanelSide();
+    // [Split Panels] Calculate sidebar widths for both panels
+    float leftSidebarWidth = 0.0f;
+    float rightSidebarWidth = 0.0f;
+    float bottomPanelHeight = 0.0f;
+
+    // PDF panel
+    if (g_pdfThumbPanel.IsVisible()) {
+        int side = g_pdfThumbPanel.GetPanelSide();
+        if (side == 1) leftSidebarWidth += g_pdfThumbPanel.GetWidth();
+        else if (side == 0) rightSidebarWidth += g_pdfThumbPanel.GetWidth();
+        else if (side == 3) bottomPanelHeight = (std::max)(bottomPanelHeight, g_pdfThumbPanel.GetBottomPanelHeight());
+    }
+
+    // Image panel
+    if (g_imageThumbPanel.IsVisible()) {
+        int side = g_imageThumbPanel.GetPanelSide();
+        if (side == 1) leftSidebarWidth += g_imageThumbPanel.GetWidth();
+        else if (side == 0) rightSidebarWidth += g_imageThumbPanel.GetWidth();
+        else if (side == 3) bottomPanelHeight = (std::max)(bottomPanelHeight, g_imageThumbPanel.GetBottomPanelHeight());
+    }
 
     // Always reserve bottom space for toolbar (non-fullscreen only)
     float toolbarReservedHeight = 0.0f;
@@ -31,26 +49,16 @@ ImageViewportLayout ComputeImageViewportLayout(float windowWidth, float windowHe
         toolbarReservedHeight = g_toolbar.GetReservedHeight();
     }
 
-    // Image area: top = titleBar + gallery + padding, bottom = window - toolbar height
-    // Toolbar is docked at bottom with same height as title bar (36px)
+    // Image area
     float horizontalMargin = g_isFullScreen ? 0.0f : padding;
     float topMargin = g_isFullScreen ? 0.0f : titleBarHeight + galleryHeight + padding;
     float bottomReserved = g_isFullScreen ? 0.0f : toolbarReservedHeight + bottomPanelHeight;
 
     ImageViewportLayout layout;
-    if (panelSide == 1) {
-        // Panel on LEFT: sidebar takes left space
-        layout.Left = (std::min)(horizontalMargin, safeWidth - 1.0f) + sidebarWidth;
-        layout.Right = (std::max)(layout.Left + 1.0f, safeWidth - horizontalMargin);
-    } else if (panelSide == 3) {
-        // Panel on BOTTOM: no horizontal reservation, bottom reserved includes panel height
-        layout.Left = (std::min)(horizontalMargin, safeWidth - 1.0f);
-        layout.Right = (std::max)(layout.Left + 1.0f, safeWidth - horizontalMargin);
-    } else {
-        // Panel on RIGHT (default): sidebar takes right space
-        layout.Left = (std::min)(horizontalMargin, safeWidth - 1.0f);
-        layout.Right = (std::max)(layout.Left + 1.0f, safeWidth - horizontalMargin - sidebarWidth);
-    }
+    // Left margin includes left sidebar(s)
+    layout.Left = (std::min)(horizontalMargin, safeWidth - 1.0f) + leftSidebarWidth;
+    // Right margin includes right sidebar(s)
+    layout.Right = (std::max)(layout.Left + 1.0f, safeWidth - horizontalMargin - rightSidebarWidth);
     layout.Top = (std::min)(topMargin, safeHeight - 1.0f);
     layout.Bottom = (std::max)(layout.Top + 1.0f, safeHeight - bottomReserved);
     layout.Right = (std::min)(layout.Right, safeWidth);

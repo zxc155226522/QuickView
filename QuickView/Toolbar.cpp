@@ -30,8 +30,10 @@ Toolbar::Toolbar() {
 
       {ToolbarButtonID::RawToggle, Icons::Raw, {}, false, false},
       {ToolbarButtonID::GamutWarning, Icons::Warning, {}, false, false},
-      // [Thumbnail Panel] Sidebar toggle button
+      // [Thumbnail Panel] Sidebar toggle buttons — split into two independent panels
       {ToolbarButtonID::ThumbnailPanelToggle, Icons::SidebarRight, {}, true, false},
+      {ToolbarButtonID::PdfThumbPanelToggle, Icons::Layout, {}, true, false},
+      {ToolbarButtonID::ImageThumbPanelToggle, Icons::Image, {}, true, false},
 
       // Animation mode buttons (hidden in normal mode)
       {ToolbarButtonID::AnimPrevFrame, Icons::SkipBack, {}, true, false},
@@ -164,6 +166,8 @@ void Toolbar::UpdateLayout(float winW, float winH) {
   // The LAST group in each table is the "core" group — if it can't fit, hide the entire toolbar.
   static constexpr ResponsiveHideGroup kNormalHideOrder[] = {
       {ToolbarButtonID::ThumbnailPanelToggle},
+      {ToolbarButtonID::PdfThumbPanelToggle},
+      {ToolbarButtonID::ImageThumbPanelToggle},
       {ToolbarButtonID::FlipH},
       {ToolbarButtonID::Gallery},
       {ToolbarButtonID::CompareToggle},
@@ -643,6 +647,22 @@ const wchar_t *GetTooltipText(const ToolbarButton &btn) {
       case 3: return L"缩略图面板：底部";
       case 2: return L"缩略图面板：已关闭";
       default: return L"缩略图面板";
+    }
+  case ToolbarButtonID::PdfThumbPanelToggle:
+    switch (g_toolbar.GetPdfThumbPanelState()) {
+      case 0: return L"页面缩略图：右侧";
+      case 1: return L"页面缩略图：左侧";
+      case 3: return L"页面缩略图：底部";
+      case 2: return L"页面缩略图：已关闭";
+      default: return L"页面缩略图";
+    }
+  case ToolbarButtonID::ImageThumbPanelToggle:
+    switch (g_toolbar.GetImageThumbPanelState()) {
+      case 0: return L"图片缩略图：右侧";
+      case 1: return L"图片缩略图：左侧";
+      case 3: return L"图片缩略图：底部";
+      case 2: return L"图片缩略图：已关闭";
+      default: return L"图片缩略图";
     }
   default:
     return nullptr;
@@ -1585,6 +1605,72 @@ RECT Toolbar::GetThumbnailPanelToggleScreenRect() const {
   RECT rc = {0, 0, 0, 0};
   for (const auto &btn : m_buttons) {
     if (btn.id == ToolbarButtonID::ThumbnailPanelToggle && btn.rect.right > 0) {
+      rc.left = (LONG)btn.rect.left;
+      rc.top = (LONG)btn.rect.top;
+      rc.right = (LONG)btn.rect.right;
+      rc.bottom = (LONG)btn.rect.bottom;
+      break;
+    }
+  }
+  return rc;
+}
+
+// ============================================================================
+// [Split Panels] PDF page thumbnail panel state
+// ============================================================================
+
+void Toolbar::SetPdfThumbPanelState(int side) {
+  m_pdfThumbPanelSide = side;
+  for (auto &btn : m_buttons) {
+    if (btn.id == ToolbarButtonID::PdfThumbPanelToggle) {
+      btn.isToggled = (side != 2);
+      switch (side) {
+        case 0: btn.iconGlyph = Icons::SidebarRight; break;
+        case 1: btn.iconGlyph = Icons::SidebarLeft; break;
+        case 3: btn.iconGlyph = Icons::SidebarBottom; break;
+        case 2: btn.iconGlyph = Icons::SidebarOff; break;
+      }
+    }
+  }
+}
+
+RECT Toolbar::GetPdfThumbPanelToggleScreenRect() const {
+  RECT rc = {0, 0, 0, 0};
+  for (const auto &btn : m_buttons) {
+    if (btn.id == ToolbarButtonID::PdfThumbPanelToggle && btn.rect.right > 0) {
+      rc.left = (LONG)btn.rect.left;
+      rc.top = (LONG)btn.rect.top;
+      rc.right = (LONG)btn.rect.right;
+      rc.bottom = (LONG)btn.rect.bottom;
+      break;
+    }
+  }
+  return rc;
+}
+
+// ============================================================================
+// [Split Panels] Image list thumbnail panel state
+// ============================================================================
+
+void Toolbar::SetImageThumbPanelState(int side) {
+  m_imageThumbPanelSide = side;
+  for (auto &btn : m_buttons) {
+    if (btn.id == ToolbarButtonID::ImageThumbPanelToggle) {
+      btn.isToggled = (side != 2);
+      switch (side) {
+        case 0: btn.iconGlyph = Icons::SidebarRight; break;
+        case 1: btn.iconGlyph = Icons::SidebarLeft; break;
+        case 3: btn.iconGlyph = Icons::SidebarBottom; break;
+        case 2: btn.iconGlyph = Icons::SidebarOff; break;
+      }
+    }
+  }
+}
+
+RECT Toolbar::GetImageThumbPanelToggleScreenRect() const {
+  RECT rc = {0, 0, 0, 0};
+  for (const auto &btn : m_buttons) {
+    if (btn.id == ToolbarButtonID::ImageThumbPanelToggle && btn.rect.right > 0) {
       rc.left = (LONG)btn.rect.left;
       rc.top = (LONG)btn.rect.top;
       rc.right = (LONG)btn.rect.right;

@@ -46,8 +46,11 @@ enum class ToolbarButtonID {
     SlideshowExit,
     // Swatch background
     SwatchSelect,
-    // [Thumbnail Panel] Sidebar position toggle
-    ThumbnailPanelToggle
+    // [Thumbnail Panel] Sidebar position toggle — Legacy single button
+    ThumbnailPanelToggle,
+    // [Split Panels] Two independent thumbnail panel toggles
+    PdfThumbPanelToggle,
+    ImageThumbPanelToggle
 };
 
 struct ToolbarButton {
@@ -126,11 +129,21 @@ public:
     void SetAnimSpeedMult(float mult) { m_animSpeedMult = mult; }
     void SetDraggingProgress(bool dragging) { m_isDraggingProgress = dragging; }
 
-    // [Thumbnail Panel] Set sidebar state (0=Right, 1=Left, 2=Off) and update icon
+    // [Thumbnail Panel] Set sidebar state (0=Right, 1=Left, 2=Off) and update icon — Legacy
     void SetThumbnailPanelState(int side);
     int GetThumbnailPanelState() const { return m_thumbPanelSide; }
     // [Thumbnail Panel] Get screen rect of the toggle button for popup menu positioning
     RECT GetThumbnailPanelToggleScreenRect() const;
+
+    // [Split Panels] PDF page thumbnail panel state
+    void SetPdfThumbPanelState(int side);
+    int GetPdfThumbPanelState() const { return m_pdfThumbPanelSide; }
+    RECT GetPdfThumbPanelToggleScreenRect() const;
+
+    // [Split Panels] Image list thumbnail panel state
+    void SetImageThumbPanelState(int side);
+    int GetImageThumbPanelState() const { return m_imageThumbPanelSide; }
+    RECT GetImageThumbPanelToggleScreenRect() const;
 
     // [Overlay Mode]
     void SetOverlayMode(bool enabled); // [Removed Overlay] no-op stub
@@ -259,8 +272,12 @@ private:
     // [Image Mode] true when viewing regular images (not PDF/paged docs)
     bool m_isImageMode = false;
 
-    // [Thumbnail Panel] 0=Right, 1=Left, 2=Off
+    // [Thumbnail Panel] 0=Right, 1=Left, 2=Off — Legacy
     int m_thumbPanelSide = 0;
+
+    // [Split Panels] Independent panel states
+    int m_pdfThumbPanelSide = 2;   // PDF page thumbnail: default Off
+    int m_imageThumbPanelSide = 0; // Image list thumbnail: default Right
 
     // [PDF] Inline page input state
     bool m_pageInputActive = false;

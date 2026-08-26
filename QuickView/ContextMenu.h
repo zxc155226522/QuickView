@@ -80,11 +80,23 @@ enum ContextMenuCommand : UINT {
     IDM_NAV_STOP,
     IDM_NAV_THROUGH,
 
-    // [Thumbnail Panel] Position Options
+    // [Thumbnail Panel] Position Options — Legacy (kept for backward compat)
     IDM_THUMB_PANEL_RIGHT,
     IDM_THUMB_PANEL_LEFT,
     IDM_THUMB_PANEL_BOTTOM,
     IDM_THUMB_PANEL_OFF,
+
+    // [PDF Page Thumbnail Panel] Independent position options
+    IDM_PDF_THUMB_RIGHT,
+    IDM_PDF_THUMB_LEFT,
+    IDM_PDF_THUMB_BOTTOM,
+    IDM_PDF_THUMB_OFF,
+
+    // [Image List Thumbnail Panel] Independent position options
+    IDM_IMG_THUMB_RIGHT,
+    IDM_IMG_THUMB_LEFT,
+    IDM_IMG_THUMB_BOTTOM,
+    IDM_IMG_THUMB_OFF,
 
     // [CMS] Color Space Options
     IDM_CMS_UNMANAGED,

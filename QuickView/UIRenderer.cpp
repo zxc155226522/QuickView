@@ -27,7 +27,9 @@ namespace {
     }
 }
 #include "Toolbar.h"
-#include "PageThumbnailPanel.h"
+#include "PdfPageThumbnailPanel.h"
+#include "ImageListThumbnailPanel.h"
+#include "ThumbnailPanelBase.h"
 #include <algorithm>
 #include <cmath>
 #include <vector>
@@ -39,7 +41,8 @@ namespace {
 
 // External globals (retained - these are global state needed by overlays)
 extern Toolbar g_toolbar;
-extern PageThumbnailPanel g_thumbnailPanel;  // [PDF Sidebar]
+extern PdfPageThumbnailPanel g_pdfThumbPanel;   // [PDF Sidebar] Page thumbnails
+extern ImageListThumbnailPanel g_imageThumbPanel; // [Image Sidebar] Folder thumbnails
 extern D2D1_SIZE_F GetEffectiveImageSize();
 extern GalleryOverlay g_gallery;
 extern SettingsOverlay g_settingsOverlay;
@@ -888,9 +891,12 @@ void UIRenderer::RenderStaticLayer(ID2D1DeviceContext* dc, HWND hwnd) {
         g_helpOverlay.Render(dc, (float)m_width, (float)m_height);
     }
     
-    // [PDF Sidebar] Render thumbnail panel on Static layer (before title bar)
-    if (g_thumbnailPanel.IsVisible()) {
-        g_thumbnailPanel.Render(dc);
+    // [Split Panels] Render thumbnail panels on Static layer (before title bar)
+    if (g_pdfThumbPanel.IsVisible()) {
+        g_pdfThumbPanel.Render(dc);
+    }
+    if (g_imageThumbPanel.IsVisible()) {
+        g_imageThumbPanel.Render(dc);
     }
 
     // [Topmost Guarantee] Custom title bar strictly drawn at the very end of Static Layer
