@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "ThumbnailPanelBase.h"
+#include "AppContext.h"
 
 extern float g_uiScale;
 extern AppConfig g_config;

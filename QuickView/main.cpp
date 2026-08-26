@@ -400,13 +400,6 @@ QuickView::PagedDocumentState g_pagedDoc;
 PdfPageThumbnailPanel g_pdfThumbPanel;     // PDF page thumbnails
 ImageListThumbnailPanel g_imageThumbPanel; // Folder image thumbnails
 
-// Helper: get active thumbnail panel (for shared layout/interaction)
-static ThumbnailPanelBase* GetActiveThumbPanel() {
-    if (g_pdfThumbPanel.IsVisible()) return &g_pdfThumbPanel;
-    if (g_imageThumbPanel.IsVisible()) return &g_imageThumbPanel;
-    return nullptr;
-}
-
 // Helper: check if any panel hits (x,y)
 static bool AnyThumbPanelHitTest(float x, float y) {
     if (g_pdfThumbPanel.IsVisible() && g_pdfThumbPanel.HitTestPanel(x, y)) return true;
@@ -8500,7 +8493,6 @@ if (wParam == 996) {
                       hoverEdge = AppContext::GetInstance().CompareCtrl->HitTestEdgeNav(hwnd, pt);
                   } else if (!IsCompareModeActive()) {
 // [Fix] Exclude thumbnail sidebar from nav hit area
-float sbW = GetLeftSidebarWidth() + GetRightSidebarWidth();
 float navLeft = GetLeftSidebarWidth();
 float navRight = winW - GetRightSidebarWidth();
 // [Bottom Mode] Also exclude bottom panel area from nav hit zone
@@ -9272,15 +9264,8 @@ RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);  // OSD and Border ind
         }
         return 0;
 
-    case WM_PAGE_THUMB_READY:
-        // [Image Panel] Async image thumbnail ready — process and repaint
-        if (g_imageThumbPanel.IsVisible()) {
-            RequestRepaint(PaintLayer::Gallery);
-        }
-        return 0;
-
     case WM_IMAGE_THUMB_READY:
-        // [Image Panel] Async image thumbnail result from worker thread
+        // [Image Panel] Async image thumbnail ready — process and repaint
         if (g_imageThumbPanel.IsVisible()) {
             RequestRepaint(PaintLayer::Gallery);
         }
@@ -9709,7 +9694,6 @@ RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);  // OSD and Border ind
                 }
             } else if (w > 50 && h > 100) {
 if (g_config.NavIndicator == 0) {
-float sbW = GetLeftSidebarWidth() + GetRightSidebarWidth();
 float navLeft = GetLeftSidebarWidth();
 float navRight = (float)w - GetRightSidebarWidth();
 float navBottom = (float)h;
@@ -9719,7 +9703,6 @@ D2D1_RECT_F fullRect = D2D1::RectF(navLeft, 0.0f, navRight, navBottom);
 inEdgeZone = (HitTestNavButtonInPane(pt, fullRect) != 0);
 } else {
 float edgeMargin = 64.0f * g_uiScale;
-float sbW3 = GetLeftSidebarWidth() + GetRightSidebarWidth();
 float panelLeft = GetLeftSidebarWidth();
 float panelRight = (float)w - GetRightSidebarWidth();
 float panelBottom = (float)h;
@@ -10281,7 +10264,6 @@ case ToolbarButtonID::CompareToggle:
                     bool clickValid = false;
                     int direction = 0;
 if (g_config.NavIndicator == 0) {
-float sbW = GetLeftSidebarWidth() + GetRightSidebarWidth();
 float navLeft = GetLeftSidebarWidth();
 float navRight = (float)width - GetRightSidebarWidth();
 float navBottom = (float)height;
@@ -10292,7 +10274,6 @@ direction = HitTestNavButtonInPane(pt, fullRect);
 clickValid = (direction != 0);
 } else {
 float edgeMargin = 64.0f * g_uiScale;
-float sbW2 = GetLeftSidebarWidth() + GetRightSidebarWidth();
 float panelLeft = GetLeftSidebarWidth();
 float panelRight = (float)width - GetRightSidebarWidth();
 float panelBottom = (float)height;
@@ -13702,10 +13683,9 @@ void StartNavigation(HWND hwnd, std::wstring path, [[maybe_unused]] bool showOSD
         g_pagedDoc.Reset();
     }
 
-    // [PDF Sidebar] Hide thumbnail panel when switching files
+    // [Split Panels] Hide thumbnail panels when switching files
     if (g_pdfThumbPanel.IsVisible()) g_pdfThumbPanel.OnDocumentClosed();
     if (g_imageThumbPanel.IsVisible()) g_imageThumbPanel.OnDocumentClosed();
-    }
 
     g_toolbar.ClearPageIndicator();
     // [Image Mode] Show image position indicator for regular images (not paged docs)

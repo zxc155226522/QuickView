@@ -116,7 +116,10 @@ void ImageListThumbnailPanel::OnLayoutChanged() {
 ComPtr<ID2D1Bitmap> ImageListThumbnailPanel::GetItemBitmap(uint32_t index) {
     auto it = m_imageThumbCache.find(index);
     if (it != m_imageThumbCache.end()) {
-        return ComPtr<ID2D1Bitmap>(it->second, false); // Don't addref — raw pointer in cache
+        ComPtr<ID2D1Bitmap> bitmap;
+        bitmap.Attach(it->second); // Take ownership from cache (raw pointer)
+        it->second = nullptr;      // Cache no longer owns it
+        return bitmap;
     }
     return nullptr;
 }
