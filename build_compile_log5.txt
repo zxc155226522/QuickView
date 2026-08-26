@@ -1,0 +1,2 @@
+[1/2] Building CXX object CMakeFiles\QuickView.dir\QuickView\main.cpp.obj
+[2/2] Linking CXX executable QuickView.exe

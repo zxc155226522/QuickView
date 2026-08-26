@@ -1,0 +1,62 @@
+[1/4] Linking CXX static library third_party\librevenge\librevenge.lib
+[2/4] Building CXX object CMakeFiles\QuickView.dir\QuickView\HeavyLanePool.cpp.obj
+FAILED: [code=1] CMakeFiles/QuickView.dir/QuickView/HeavyLanePool.cpp.obj 
+C:\PROGRA~1\LLVM\bin\clang-cl.exe  /nologo -TP -DHWY_STATIC_DEFINE -DJXL_STATIC_DEFINE -DLIBRAW_NODLL -DTOOLCHAIN_MISS_ASM_HWCAP_H -DTOOLCHAIN_MISS_SYS_AUXV_H -DUNICODE -DUNRAR_SIMD_HWY -D_UNICODE -IE:\qv_build_tmp\QuickView -IE:\qv_build_tmp\third_party\yyjson -IE:\qv_build_tmp\third_party\unrar-mini -IE:\qv_build_tmp\third_party\resvg\include -IE:\qv_build_tmp\third_party\unrar-mini\. -IE:\qv_build_tmp\third_party\librevenge\inc -IE:\qv_build_tmp\third_party\libcdr\inc -imsvc"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include" -imsvc"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\ATLMFC\include" -imsvc"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\VS\include" -imsvc"D:\Windows Kits\10\include\10.0.26100.0\ucrt" -imsvc"D:\Windows Kits\10\include\10.0.26100.0\um" -imsvc"D:\Windows Kits\10\include\10.0.26100.0\shared" -imsvc"D:\Windows Kits\10\include\10.0.26100.0\winrt" -imsvc"D:\Windows Kits\10\include\10.0.26100.0\cppwinrt" -imsvc"C:\Program Files (x86)\Windows Kits\NETFXSDK\4.8\include\um" -imsvcE:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include -imsvcE:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include\webp -imsvcE:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include\libraw -imsvcE:\qv_build_tmp\third_party\pdfium\include -imsvcE:\qv_build_tmp\third_party\pdfium\include\cpp /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -clang:-std=c++23 -MT /W4 /WX /utf-8 /Gw /Gy /permissive- /clang:-Wno-cast-function-type-mismatch /clang:-fno-ident /O2 /Zc:inline /GR- /fp:fast /GS- /EHs-c- /Z7 /clang:-flto=full /clang:-mllvm /clang:-inline-threshold=250 /clang:-fwhole-program-vtables /YuE:/qv_build_tmp/out/build/Release-LTO/CMakeFiles/QuickView.dir/cmake_pch.hxx /FpE:/qv_build_tmp/out/build/Release-LTO/CMakeFiles/QuickView.dir/./cmake_pch.cxx.pch /FIE:/qv_build_tmp/out/build/Release-LTO/CMakeFiles/QuickView.dir/cmake_pch.hxx /showIncludes /FoCMakeFiles\QuickView.dir\QuickView\HeavyLanePool.cpp.obj /FdCMakeFiles\QuickView.dir\ -c -- E:\qv_build_tmp\QuickView\HeavyLanePool.cpp
+E:\qv_build_tmp\QuickView\HeavyLanePool.cpp(1001,19): error: use of undeclared identifier 'roInitHr'; did you mean 'coInitHr'?
+ 1001 |     if (SUCCEEDED(roInitHr)) RoUninitialize();
+      |                   ^~~~~~~~
+      |                   coInitHr
+D:\Windows Kits\10\include\10.0.26100.0\shared\intsafe.h(174,37): note: expanded from macro 'SUCCEEDED'
+  174 | #define SUCCEEDED(hr)   (((HRESULT)(hr)) >= 0)
+      |                                     ^
+E:\qv_build_tmp\QuickView\HeavyLanePool.cpp(835,13): note: 'coInitHr' declared here
+  835 |     HRESULT coInitHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+      |             ^
+1 error generated.
+[3/4] Building CXX object CMakeFiles\QuickView.dir\QuickView\main.cpp.obj
+FAILED: [code=1] CMakeFiles/QuickView.dir/QuickView/main.cpp.obj 
+C:\PROGRA~1\LLVM\bin\clang-cl.exe  /nologo -TP -DHWY_STATIC_DEFINE -DJXL_STATIC_DEFINE -DLIBRAW_NODLL -DTOOLCHAIN_MISS_ASM_HWCAP_H -DTOOLCHAIN_MISS_SYS_AUXV_H -DUNICODE -DUNRAR_SIMD_HWY -D_UNICODE -IE:\qv_build_tmp\QuickView -IE:\qv_build_tmp\third_party\yyjson -IE:\qv_build_tmp\third_party\unrar-mini -IE:\qv_build_tmp\third_party\resvg\include -IE:\qv_build_tmp\third_party\unrar-mini\. -IE:\qv_build_tmp\third_party\librevenge\inc -IE:\qv_build_tmp\third_party\libcdr\inc -imsvc"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include" -imsvc"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\ATLMFC\include" -imsvc"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\VS\include" -imsvc"D:\Windows Kits\10\include\10.0.26100.0\ucrt" -imsvc"D:\Windows Kits\10\include\10.0.26100.0\um" -imsvc"D:\Windows Kits\10\include\10.0.26100.0\shared" -imsvc"D:\Windows Kits\10\include\10.0.26100.0\winrt" -imsvc"D:\Windows Kits\10\include\10.0.26100.0\cppwinrt" -imsvc"C:\Program Files (x86)\Windows Kits\NETFXSDK\4.8\include\um" -imsvcE:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include -imsvcE:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include\webp -imsvcE:\qv_build_tmp\out\build\Release-LTO\vcpkg_installed\x64-windows-static-clang\include\libraw -imsvcE:\qv_build_tmp\third_party\pdfium\include -imsvcE:\qv_build_tmp\third_party\pdfium\include\cpp /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -clang:-std=c++23 -MT /W4 /WX /utf-8 /Gw /Gy /permissive- /clang:-Wno-cast-function-type-mismatch /clang:-fno-ident /O2 /Zc:inline /GR- /fp:fast /GS- /EHs-c- /Z7 /clang:-flto=full /clang:-mllvm /clang:-inline-threshold=250 /clang:-fwhole-program-vtables /YuE:/qv_build_tmp/out/build/Release-LTO/CMakeFiles/QuickView.dir/cmake_pch.hxx /FpE:/qv_build_tmp/out/build/Release-LTO/CMakeFiles/QuickView.dir/./cmake_pch.cxx.pch /FIE:/qv_build_tmp/out/build/Release-LTO/CMakeFiles/QuickView.dir/cmake_pch.hxx /showIncludes /FoCMakeFiles\QuickView.dir\QuickView\main.cpp.obj /FdCMakeFiles\QuickView.dir\ -c -- E:\qv_build_tmp\QuickView\main.cpp
+E:\qv_build_tmp\QuickView\main.cpp(6135,28): error: unused parameter 'argc' [-Werror,-Wunused-parameter]
+ 6135 | static int RunCdrToPdf(int argc, wchar_t** argv) {
+      |                            ^
+E:\qv_build_tmp\QuickView\main.cpp(6135,44): error: unused parameter 'argv' [-Werror,-Wunused-parameter]
+ 6135 | static int RunCdrToPdf(int argc, wchar_t** argv) {
+      |                                            ^
+E:\qv_build_tmp\QuickView\main.cpp(12258,33): error: unused variable 'tW' [-Werror,-Wunused-variable]
+ 12258 |                             int tW = (int)std::max(1L, (long)std::round(svgW * fitScale));
+       |                                 ^~
+E:\qv_build_tmp\QuickView\main.cpp(12259,33): error: unused variable 'tH' [-Werror,-Wunused-variable]
+ 12259 |                             int tH = (int)std::max(1L, (long)std::round(svgH * fitScale));
+       |                                 ^~
+E:\qv_build_tmp\QuickView\main.cpp(12724,41): error: '_wfopen' is deprecated: This function or variable may be unsafe. Consider using _wfopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details. [-Werror,-Wdeprecated-declarations]
+ 12724 |                         if (FILE* _fp = _wfopen(L"E:\\qv_thumb_debug.log", L"a")) {
+       |                                         ^
+D:\Windows Kits\10\include\10.0.26100.0\ucrt\corecrt_wstdio.h(132,20): note: '_wfopen' has been explicitly marked deprecated here
+  132 |     _Check_return_ _CRT_INSECURE_DEPRECATE(_wfopen_s)
+      |                    ^
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\vcruntime.h(368,55): note: expanded from macro '_CRT_INSECURE_DEPRECATE'
+  368 |         #define _CRT_INSECURE_DEPRECATE(_Replacement) _CRT_DEPRECATE_TEXT(    \
+      |                                                       ^
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\vcruntime.h(358,47): note: expanded from macro '_CRT_DEPRECATE_TEXT'
+  358 | #define _CRT_DEPRECATE_TEXT(_Text) __declspec(deprecated(_Text))
+      |                                               ^
+E:\qv_build_tmp\QuickView\main.cpp(12758,45): error: '_wfopen' is deprecated: This function or variable may be unsafe. Consider using _wfopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details. [-Werror,-Wdeprecated-declarations]
+ 12758 |                             if (FILE* _fp = _wfopen(L"E:\\qv_thumb_debug.log", L"a")) {
+       |                                             ^
+D:\Windows Kits\10\include\10.0.26100.0\ucrt\corecrt_wstdio.h(132,20): note: '_wfopen' has been explicitly marked deprecated here
+  132 |     _Check_return_ _CRT_INSECURE_DEPRECATE(_wfopen_s)
+      |                    ^
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\vcruntime.h(368,55): note: expanded from macro '_CRT_INSECURE_DEPRECATE'
+  368 |         #define _CRT_INSECURE_DEPRECATE(_Replacement) _CRT_DEPRECATE_TEXT(    \
+      |                                                       ^
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\vcruntime.h(358,47): note: expanded from macro '_CRT_DEPRECATE_TEXT'
+  358 | #define _CRT_DEPRECATE_TEXT(_Text) __declspec(deprecated(_Text))
+      |                                               ^
+E:\qv_build_tmp\QuickView\main.cpp(14997,9): error: unused variable 'tW' [-Werror,-Wunused-variable]
+ 14997 |     int tW = (int)std::max(1L, (long)std::round(svgW * fitScale));
+       |         ^~
+E:\qv_build_tmp\QuickView\main.cpp(14998,9): error: unused variable 'tH' [-Werror,-Wunused-variable]
+ 14998 |     int tH = (int)std::max(1L, (long)std::round(svgH * fitScale));
+       |         ^~
+8 errors generated.
+ninja: build stopped: subcommand failed.
