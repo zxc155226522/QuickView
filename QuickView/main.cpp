@@ -2183,7 +2183,7 @@ static bool UpgradeSvgSurface(HWND hwnd, ImageResource& res) {
 
 static void RefreshSvgSurfaceAfterZoom(HWND hwnd) {
     const auto& zoomRes = GetPaneContext(PaneSlot::Primary).resource;
-    if ((!zoomRes.isSvg && !zoomRes.isResvg && !zoomRes.isMupdf) || !g_compEngine || !g_compEngine->IsInitialized()) {
+    if ((!zoomRes.isSvg && !zoomRes.isResvg && !zoomRes.isMupdf && !zoomRes.isPdfium) || !g_compEngine || !g_compEngine->IsInitialized()) {
         return;
     }
     KillTimer(hwnd, IDT_SVG_RERENDER);
@@ -2195,6 +2195,45 @@ static D2D1_SIZE_U ComputeDesiredBitmapSurfaceSize(UINT winW, UINT winH, const I
     if (!res.bitmap || res.isSvg) return D2D1::SizeU(0, 0);
     if (winW == 0 || winH == 0) return D2D1::SizeU(0, 0);
     if (GetPaneContext(PaneSlot::Primary).metadata.Width > 8192 || GetPaneContext(PaneSlot::Primary).metadata.Height > 8192) return D2D1::SizeU(0, 0);
+
+    // [PDFium] PDF is vector — surface should follow zoom (like SVG/resvg/mupdf).
+    // Skip the Titan check and bitmap qualityCap; use page points * zoom * fitScale.
+    if (res.isPdfium && res.pdfiumPageWidthPts > 0 && res.pdfiumPageHeightPts > 0) {
+        const ImageViewportLayout viewport = ComputeImageViewportLayout((float)winW, (float)winH);
+        const float kPtsToPx = 96.0f / 72.0f;
+        float pageWpx = res.pdfiumPageWidthPts * kPtsToPx;
+        float pageHpx = res.pdfiumPageHeightPts * kPtsToPx;
+        float fitScale = std::min(viewport.Width / pageWpx, viewport.Height / pageHpx);
+        if (fitScale < 0.01f) fitScale = 0.01f;
+        float zoom = GetPaneContext(PaneSlot::Primary).view.Zoom;
+        float desiredScale = fitScale * zoom;
+        // Allow upscaling beyond fitScale (vector source → no quality loss)
+        if (!(desiredScale > 0.0f)) return D2D1::SizeU(0, 0);
+        float desiredW = pageWpx * desiredScale;
+        float desiredH = pageHpx * desiredScale;
+        // Clamp to max surface size
+        if (desiredW > (float)g_maxBitmapSurfaceSize || desiredH > (float)g_maxBitmapSurfaceSize) {
+            float ratio = std::min((float)g_maxBitmapSurfaceSize / desiredW,
+                                   (float)g_maxBitmapSurfaceSize / desiredH);
+            desiredW *= ratio;
+            desiredH *= ratio;
+        }
+        // Ensure surface covers the window
+        if (desiredW < (float)winW || desiredH < (float)winH) {
+            float coverScale = std::max((float)winW / desiredW, (float)winH / desiredH);
+            desiredW *= coverScale;
+            desiredH *= coverScale;
+            if (desiredW > (float)g_maxBitmapSurfaceSize || desiredH > (float)g_maxBitmapSurfaceSize) {
+                float ratio = std::min((float)g_maxBitmapSurfaceSize / desiredW,
+                                       (float)g_maxBitmapSurfaceSize / desiredH);
+                desiredW *= ratio;
+                desiredH *= ratio;
+            }
+        }
+        UINT outW = (UINT)std::max(1.0f, std::round(desiredW));
+        UINT outH = (UINT)std::max(1.0f, std::round(desiredH));
+        return D2D1::SizeU(outW, outH);
+    }
 
     float originalW = 0.0f;
     float originalH = 0.0f;
@@ -2316,6 +2355,41 @@ static void TryUpgradeBitmapSurface(HWND hwnd) {
         return;
     }
 
+    // [PDFium] Async re-rasterization for PDF/AI on zoom change.
+    // PDFium is not thread-safe and runs on DocumentRenderController's worker
+    // thread, so we send an async render request with the current zoom level.
+    // The result arrives via WM_APP+24 → HandlePdfPageResult.
+    if (GetPaneContext(PaneSlot::Primary).resource.isPdfium) {
+        if (GetPaneContext(PaneSlot::Primary).view.IsInteracting) return;
+        const auto& res = GetPaneContext(PaneSlot::Primary).resource;
+        RECT rc; GetClientRect(hwnd, &rc);
+        if (rc.right <= 0 || rc.bottom <= 0) return;
+        D2D1_SIZE_U desired = ComputeDesiredBitmapSurfaceSize((UINT)rc.right, (UINT)rc.bottom, res);
+        // Only re-rasterize if the desired size differs significantly
+        if (desired.width == 0 || desired.height == 0) return;
+        const int kThreshold = 64;
+        if (std::abs((int)res.pdfiumRasterW - (int)desired.width) <= kThreshold &&
+            std::abs((int)res.pdfiumRasterH - (int)desired.height) <= kThreshold) return;
+        // DocumentRenderController discards old pending requests when a new one arrives,
+        // so duplicate requests are harmless.
+        if (!g_docRenderCtrl) {
+            g_docRenderCtrl = std::make_unique<QuickView::DocumentRenderController>();
+        }
+        if (!g_docRenderCtrl->IsAvailable()) return;
+        QuickView::DocumentRenderRequest req;
+        req.notifyWindow = hwnd;
+        req.path = res.pdfiumPath;
+        req.pageIndex = res.pdfiumPageIndex;
+        req.viewportWidth = (int)desired.width;
+        req.viewportHeight = (int)desired.height;
+        // viewport = desired surface size, zoom = 1.0 so RenderPage calculates
+        // fitScale = max(desiredW/pageWpts, desiredH/pageHpts) which yields
+        // the correct rasterization resolution directly.
+        req.zoom = 1.0f;
+        g_pagedDoc.requestId = g_docRenderCtrl->Request(std::move(req));
+        return;
+    }
+
     if (IsCompareModeActive()) return;
     if (g_isLoading) return;
     if (GetPaneContext(PaneSlot::Primary).metadata.Width > 8192 || GetPaneContext(PaneSlot::Primary).metadata.Height > 8192) return;
@@ -2415,6 +2489,16 @@ bool RenderImageToDComp(HWND hwnd, ImageResource& res, bool isFastUpgrade) {
         ComputeSvgSurfaceSize((float)winW, (float)winH, sW, sH, ds);
         surfW = (UINT)std::max(1L, (long)std::round(sW));
         surfH = (UINT)std::max(1L, (long)std::round(sH));
+    } else if (res.isPdfium) {
+        // [PDFium] Surface follows zoom (vector source → re-rasterize on zoom).
+        // Use the same ComputeDesiredBitmapSurfaceSize logic that accounts for
+        // page points * fitScale * zoom, so the surface matches the desired
+        // rasterization resolution.
+        D2D1_SIZE_U desired = ComputeDesiredBitmapSurfaceSize(winW, winH, res);
+        if (desired.width > 0 && desired.height > 0) {
+            surfW = desired.width;
+            surfH = desired.height;
+        }
     }
 
     // [Titan Detection]
@@ -12385,6 +12469,25 @@ void ProcessEngineEvents(HWND hwnd) {
                          GetPaneContext(PaneSlot::Primary).resource.Reset();
                          GetPaneContext(PaneSlot::Primary).resource.bitmap = bitmap;
                          g_isImageDirty = false; // [v10.3.1] Force refresh consumed, preventing redundant OnPaint cycle
+
+                         // [PDFium] Detect PDF/AI format and set up re-rasterization data.
+                         // PDF is inherently vector — PDFium can re-rasterize at any
+                         // resolution. Storing the source path + page dimensions
+                         // enables zoom-driven re-rasterization (like resvg/mupdf).
+                         if (evt.rawFrame && evt.rawFrame->dpiX > 0 && evt.rawFrame->dpiY > 0) {
+                             const auto& fmt = evt.metadata.Format;
+                             if (fmt == L"PDF" || fmt == L"AI") {
+                                 auto& res = GetPaneContext(PaneSlot::Primary).resource;
+                                 res.isPdfium = true;
+                                 res.pdfiumPath = evt.filePath;
+                                 res.pdfiumPageIndex = 0;
+                                 // pageWidthPts = pixelWidth / (dpiX/72)
+                                 res.pdfiumPageWidthPts = (float)evt.rawFrame->width * 72.0f / (float)evt.rawFrame->dpiX;
+                                 res.pdfiumPageHeightPts = (float)evt.rawFrame->height * 72.0f / (float)evt.rawFrame->dpiY;
+                                 res.pdfiumRasterW = evt.rawFrame->width;
+                                 res.pdfiumRasterH = evt.rawFrame->height;
+                             }
+                         }
                          
                          // [v10.3.1] Restore AuxLayer from frame if present
                          if (evt.rawFrame && evt.rawFrame->auxLayer) {
@@ -14870,10 +14973,16 @@ void HandlePdfPageStep(HWND hwnd, bool forward) {
     req.path = GetPaneContext(PaneSlot::Primary).path;
     req.pageIndex = targetPage;
 
-    // [Fix] Use a large fixed viewport (4K) to ensure high-res rasterization
-    // regardless of current window size (small window -> low-res -> blurry).
-    req.viewportWidth = 3840;
-    req.viewportHeight = 2160;
+    // [PDFium] Use window size for viewport so the rasterization matches the
+    // display resolution (fit-to-window). This ensures the initial page view is
+    // sharp without wasting memory on unnecessary 4K rasterization.
+    RECT rcStep; GetClientRect(hwnd, &rcStep);
+    int vpW = (std::max)(1, (int)rcStep.right);
+    int vpH = (std::max)(1, (int)rcStep.bottom);
+    // Fallback to 4K if client rect is too small (minimized window etc.)
+    if (vpW < 256 || vpH < 256) { vpW = 3840; vpH = 2160; }
+    req.viewportWidth = vpW;
+    req.viewportHeight = vpH;
     req.zoom = 1.0f;
 
     g_pagedDoc.requestId = g_docRenderCtrl->Request(std::move(req));
@@ -14894,9 +15003,13 @@ void HandlePdfPageJump(HWND hwnd, uint32_t targetPage) {
     req.path = GetPaneContext(PaneSlot::Primary).path;
     req.pageIndex = targetPage;
 
-    // [Fix] Use a large fixed viewport (4K) to ensure high-res rasterization
-    req.viewportWidth = 3840;
-    req.viewportHeight = 2160;
+    // [PDFium] Use window size for viewport (same as HandlePdfPageStep).
+    RECT rcJump; GetClientRect(hwnd, &rcJump);
+    int vpW = (std::max)(1, (int)rcJump.right);
+    int vpH = (std::max)(1, (int)rcJump.bottom);
+    if (vpW < 256 || vpH < 256) { vpW = 3840; vpH = 2160; }
+    req.viewportWidth = vpW;
+    req.viewportHeight = vpH;
     req.zoom = 1.0f;
 
     g_pagedDoc.requestId = g_docRenderCtrl->Request(std::move(req));
@@ -14943,15 +15056,29 @@ void HandlePdfPageResult(HWND hwnd) {
     pane.resource.Reset();
     pane.resource.bitmap = newBitmap;
 
+    // [PDFium] Set re-rasterization data for zoom-driven sharpness.
+    pane.resource.isPdfium = true;
+    pane.resource.pdfiumPath = result.path;
+    pane.resource.pdfiumPageIndex = result.pageIndex;
+    pane.resource.pdfiumPageWidthPts = result.pageWidthPoints;
+    pane.resource.pdfiumPageHeightPts = result.pageHeightPoints;
+    pane.resource.pdfiumRasterW = result.frame->width;
+    pane.resource.pdfiumRasterH = result.frame->height;
+
     // Update metadata for new page dimensions
     pane.metadata.Width = (UINT)result.frame->width;
     pane.metadata.Height = (UINT)result.frame->height;
     pane.metadata.DpiX = result.frame->dpiX;
     pane.metadata.DpiY = result.frame->dpiY;
 
-    // Reset view for new page (different pages may have different dimensions)
-    pane.view.Reset();
-    pane.view.ExifOrientation = 1;
+    // [PDFium] Only reset view for actual page changes (navigation).
+    // Re-rasterization requests (same page, triggered by zoom) must preserve
+    // the current pan/zoom position to avoid jarring jumps.
+    const bool isPageChange = (result.pageIndex != g_pagedDoc.currentPage);
+    if (isPageChange || !pane.resource.isPdfium) {
+        pane.view.Reset();
+        pane.view.ExifOrientation = 1;
+    }
 
     // Render to DComp
     RenderImageToDComp(hwnd, pane.resource, true);

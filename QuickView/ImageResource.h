@@ -55,6 +55,18 @@ struct ImageResource {
     UINT mupdfRasterW = 0;  // current bitmap resolution
     UINT mupdfRasterH = 0;
 
+    // [PDFium] PDF/AI rendered via PDFium (vector rasterizer).
+    // PDF is inherently vector — PDFium can re-rasterize at any resolution.
+    // On zoom, the surface is re-rasterized via DocumentRenderController to
+    // maintain sharp text/lines (same principle as resvg/mupdf re-raster).
+    bool isPdfium = false;
+    std::wstring pdfiumPath;           // source PDF file path
+    uint32_t pdfiumPageIndex = 0;      // current page index
+    float pdfiumPageWidthPts = 0.0f;  // page width in points (72dpi)
+    float pdfiumPageHeightPts = 0.0f;  // page height in points
+    UINT pdfiumRasterW = 0;           // current rasterized bitmap width
+    UINT pdfiumRasterH = 0;            // current rasterized bitmap height
+
     QuickView::GpuBlendOp blendOp = QuickView::GpuBlendOp::None;
     QuickView::GpuShaderPayload shaderPayload = {};
     std::unique_ptr<QuickView::AuxLayer> auxLayer;
@@ -76,6 +88,13 @@ struct ImageResource {
         mupdfSrc.reset();
         mupdfRasterW = 0;
         mupdfRasterH = 0;
+        isPdfium = false;
+        pdfiumPath.clear();
+        pdfiumPageIndex = 0;
+        pdfiumPageWidthPts = 0.0f;
+        pdfiumPageHeightPts = 0.0f;
+        pdfiumRasterW = 0;
+        pdfiumRasterH = 0;
         blendOp = QuickView::GpuBlendOp::None;
         shaderPayload = {};
         auxLayer.reset();
@@ -104,6 +123,13 @@ struct ImageResource {
         cloned.mupdfSrc = mupdfSrc;
         cloned.mupdfRasterW = mupdfRasterW;
         cloned.mupdfRasterH = mupdfRasterH;
+        cloned.isPdfium = isPdfium;
+        cloned.pdfiumPath = pdfiumPath;
+        cloned.pdfiumPageIndex = pdfiumPageIndex;
+        cloned.pdfiumPageWidthPts = pdfiumPageWidthPts;
+        cloned.pdfiumPageHeightPts = pdfiumPageHeightPts;
+        cloned.pdfiumRasterW = pdfiumRasterW;
+        cloned.pdfiumRasterH = pdfiumRasterH;
         cloned.blendOp = blendOp;
         cloned.shaderPayload = shaderPayload;
         if (auxLayer) {
@@ -116,7 +142,13 @@ struct ImageResource {
 
     D2D1_SIZE_F GetSize() const {
         // [resvg/MuPDF] rasterized SVGs store intrinsic dimensions in svgW/svgH.
+        // [PDFium] PDF pages store intrinsic dimensions in pdfiumPageWidthPts/HeightPts
+        // (converted to pixels at 96dpi for consistent layout with other images).
         if (isSvg || isResvg || isMupdf) return D2D1::SizeF(svgW, svgH);
+        if (isPdfium && pdfiumPageWidthPts > 0 && pdfiumPageHeightPts > 0) {
+            const float kPtsToPx = 96.0f / 72.0f;
+            return D2D1::SizeF(pdfiumPageWidthPts * kPtsToPx, pdfiumPageHeightPts * kPtsToPx);
+        }
         if (bitmap) return bitmap->GetSize();
         return D2D1::SizeF(0.0f, 0.0f);
     }
