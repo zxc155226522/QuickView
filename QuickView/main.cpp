@@ -12505,17 +12505,72 @@ void ProcessEngineEvents(HWND hwnd) {
                             return true;
                         };
 
-                        // [CDR Fix] Route ALL CDR/CMX SVGs through MuPDF display list.
-                        // MuPDF has full SVG support (BMP data URIs via file header
-                        // detection, CSS styles, filters, clips, masks) — unlike D2D's
-                        // ID2D1SvgDocument subset. display list is built once; zoom
-                        // re-rasterization only needs a new transform matrix.
-                        bool mupdfOk = renderSvgViaMupdf();
-                        if (mupdfOk) {
-                            resourceReady = true;
-                            hr = S_OK;
+                        // [Vector Fix] PLT/DXF/DWG: use D2D native ID2D1SvgDocument
+                        // for crisp vector rendering (lossless zoom). These formats
+                        // produce pure-vector SVG (<path> only, no <image>/filters),
+                        // so D2D's SVG 1.1 subset is sufficient. No need for MuPDF
+                        // rasterization which causes blur on large-coordinate files.
+                        // CDR/CMX still route through MuPDF for embedded bitmap support.
+                        const std::wstring& fmtDetails = evt.rawFrame->formatDetails;
+                        const bool isPureVectorFormat =
+                            fmtDetails == L"PLT" || fmtDetails == L"DXF" || fmtDetails == L"DWG";
+
+                        if (isPureVectorFormat) {
+                            // === D2D Native SVG Path (vector, lossless zoom) ===
+                            // Create ID2D1SvgDocument from the in-memory SVG XML.
+                            // CreateSvgDocument requires IStream*; use SHCreateMemStream
+                            // (from shlwapi) to wrap the XML buffer.
+                            ComPtr<ID2D1SvgDocument> svgDoc;
+                            ComPtr<IStream> xmlStream;
+                            xmlStream.Attach(SHCreateMemStream(
+                                (const BYTE*)xml.data(), (UINT)xml.size()));
+                            if (xmlStream) {
+                                hr = ctx5->CreateSvgDocument(
+                                    xmlStream.Get(),
+                                    D2D1::SizeF(svgW, svgH),
+                                    &svgDoc);
+                            } else {
+                                hr = E_OUTOFMEMORY;
+                            }
+                            if (SUCCEEDED(hr) && svgDoc) {
+                                auto& vecRes = GetPaneContext(PaneSlot::Primary).resource;
+                                vecRes.Reset();
+                                vecRes.isSvg = true;
+                                vecRes.svgDoc = svgDoc;
+                                vecRes.svgW = evt.rawFrame->svg->viewBoxW;
+                                vecRes.svgH = evt.rawFrame->svg->viewBoxH;
+                                resourceReady = true;
+                                hr = S_OK;
+
+                                char diag[256];
+                                snprintf(diag, sizeof(diag),
+                                    "[VEC-DIAG] D2D native SVG: format=%ls svgW=%.1f svgH=%.1f\n",
+                                    fmtDetails.c_str(), svgW, svgH);
+                                OutputDebugStringA(diag);
+                            } else {
+                                // Fallback to MuPDF if D2D SVG creation fails
+                                char diag[256];
+                                snprintf(diag, sizeof(diag),
+                                    "[VEC-DIAG] D2D CreateSvgDocument failed HR=0x%lX, fallback to MuPDF\n",
+                                    (unsigned long)hr);
+                                OutputDebugStringA(diag);
+                                bool mupdfFallback = renderSvgViaMupdf();
+                                if (mupdfFallback) {
+                                    resourceReady = true;
+                                    hr = S_OK;
+                                } else {
+                                    hr = E_FAIL;
+                                }
+                            }
                         } else {
-                            hr = E_FAIL;
+                            // [CDR Fix] Route CDR/CMX/other SVGs through MuPDF.
+                            bool mupdfOk = renderSvgViaMupdf();
+                            if (mupdfOk) {
+                                resourceReady = true;
+                                hr = S_OK;
+                            } else {
+                                hr = E_FAIL;
+                            }
                         }
                      } else hr = E_NOINTERFACE;
                      
