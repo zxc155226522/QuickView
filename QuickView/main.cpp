@@ -75,7 +75,9 @@ static UINT GetSvgSurfaceSizeLimit();
 #include "DebugMetrics.h"
 #include "DocumentRenderController.h"  // [PDF/AI] Multi-page async rendering
 #include "PagedDocument.h"             // [PDF/AI] Paged document state
-#include "PageThumbnailPanel.h"        // [PDF Sidebar] Left-side page thumbnails
+#include "ThumbnailPanelBase.h"
+#include "PdfPageThumbnailPanel.h"   // [PDF Sidebar] Page thumbnails
+#include "ImageListThumbnailPanel.h" // [Image Sidebar] Folder thumbnails
 #include <psapi.h>  // For GetProcessMemoryInfo
 #pragma comment(lib, "psapi.lib")
 
@@ -395,7 +397,94 @@ std::unique_ptr<QuickView::DocumentRenderController> g_docRenderCtrl;
 QuickView::PagedDocumentState g_pagedDoc;
 
 // [PDF Sidebar] Left-side embedded page thumbnail panel
-PageThumbnailPanel g_thumbnailPanel;
+PdfPageThumbnailPanel g_pdfThumbPanel;     // PDF page thumbnails
+ImageListThumbnailPanel g_imageThumbPanel; // Folder image thumbnails
+
+// Helper: get active thumbnail panel (for shared layout/interaction)
+static ThumbnailPanelBase* GetActiveThumbPanel() {
+    if (g_pdfThumbPanel.IsVisible()) return &g_pdfThumbPanel;
+    if (g_imageThumbPanel.IsVisible()) return &g_imageThumbPanel;
+    return nullptr;
+}
+
+// Helper: check if any panel hits (x,y)
+static bool AnyThumbPanelHitTest(float x, float y) {
+    if (g_pdfThumbPanel.IsVisible() && g_pdfThumbPanel.HitTestPanel(x, y)) return true;
+    if (g_imageThumbPanel.IsVisible() && g_imageThumbPanel.HitTestPanel(x, y)) return true;
+    return false;
+}
+
+// Helper: check if any panel has resize hit
+static bool AnyThumbPanelResizeHit(float x, float y) {
+    if (g_pdfThumbPanel.IsVisible() && g_pdfThumbPanel.IsResizeHit(x, y)) return true;
+    if (g_imageThumbPanel.IsVisible() && g_imageThumbPanel.IsResizeHit(x, y)) return true;
+    return false;
+}
+
+// Helper: begin resize on the panel that was hit
+static void BeginThumbPanelResize(float x, float y) {
+    if (g_pdfThumbPanel.IsVisible() && g_pdfThumbPanel.IsResizeHit(x, y)) {
+        g_pdfThumbPanel.BeginResize(x, y);
+        return;
+    }
+    if (g_imageThumbPanel.IsVisible() && g_imageThumbPanel.IsResizeHit(x, y)) {
+        g_imageThumbPanel.BeginResize(x, y);
+        return;
+    }
+}
+
+// Helper: update resize on the panel that is currently resizing
+static void UpdateThumbPanelResize(float x, float y, float windowWidth) {
+    if (g_pdfThumbPanel.IsResizing()) g_pdfThumbPanel.UpdateResize(x, y, windowWidth);
+    if (g_imageThumbPanel.IsResizing()) g_imageThumbPanel.UpdateResize(x, y, windowWidth);
+}
+
+// Helper: end all panel resizes
+static void EndThumbPanelResize() {
+    g_pdfThumbPanel.EndResize();
+    g_imageThumbPanel.EndResize();
+}
+
+// Helper: is any panel resizing?
+static bool IsAnyThumbPanelResizing() {
+    return g_pdfThumbPanel.IsResizing() || g_imageThumbPanel.IsResizing();
+}
+
+// Helper: update layout for both panels
+static void UpdateAllThumbPanelsLayout(const D2D1_RECT_F& fullRect) {
+    if (g_pdfThumbPanel.IsVisible()) g_pdfThumbPanel.UpdateLayout(fullRect);
+    if (g_imageThumbPanel.IsVisible()) g_imageThumbPanel.UpdateLayout(fullRect);
+}
+
+// Helper: OnMouseMove for both panels — returns true if any changed
+static bool ThumbPanelOnMouseMove(float x, float y) {
+    bool changed = false;
+    if (g_pdfThumbPanel.IsVisible()) changed |= g_pdfThumbPanel.OnMouseMove(x, y);
+    if (g_imageThumbPanel.IsVisible()) changed |= g_imageThumbPanel.OnMouseMove(x, y);
+    return changed;
+}
+
+// Helper: OnMouseWheel for active panel
+static bool ThumbPanelOnMouseWheel(int delta) {
+    if (g_pdfThumbPanel.IsVisible() && g_pdfThumbPanel.OnMouseWheel(delta)) return true;
+    if (g_imageThumbPanel.IsVisible() && g_imageThumbPanel.OnMouseWheel(delta)) return true;
+    return false;
+}
+
+// Helper: get total sidebar widths for layout
+static float GetLeftSidebarWidth() {
+    float w = 0;
+    if (g_pdfThumbPanel.IsVisible() && g_pdfThumbPanel.GetPanelSide() == 1) w += g_pdfThumbPanel.GetWidth();
+    if (g_imageThumbPanel.IsVisible() && g_imageThumbPanel.GetPanelSide() == 1) w += g_imageThumbPanel.GetWidth();
+    return w;
+}
+
+static float GetRightSidebarWidth() {
+    float w = 0;
+    if (g_pdfThumbPanel.IsVisible() && g_pdfThumbPanel.GetPanelSide() == 0) w += g_pdfThumbPanel.GetWidth();
+    if (g_imageThumbPanel.IsVisible() && g_imageThumbPanel.GetPanelSide() == 0) w += g_imageThumbPanel.GetWidth();
+    return w;
+}
 static bool RestoreDeletedFile(HWND hwnd, const std::wstring& targetPath) {
     if (targetPath.empty()) return false;
 
@@ -6835,11 +6924,13 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, [[maybe_unused]] LPWSTR lpCm
     g_settingsOverlay.Init(g_renderEngine->GetDeviceContext(), hwnd);
     g_helpOverlay.Init(g_renderEngine->GetDeviceContext(), hwnd);
 
-// [PDF Sidebar] Initialize thumbnail panel (controller is lazily assigned)
-g_thumbnailPanel.Initialize(hwnd, g_docRenderCtrl.get());
+// [Split Panels] Initialize both thumbnail panels
+g_pdfThumbPanel.InitializeEx(hwnd, g_docRenderCtrl.get());
+g_imageThumbPanel.InitializeEx(hwnd);
 
 // [Thumbnail Panel] Sync toolbar button state with config
-g_toolbar.SetThumbnailPanelState(g_config.ThumbnailPanelSide);
+g_toolbar.SetPdfThumbPanelState(g_config.PdfThumbPanelSide);
+g_toolbar.SetImageThumbPanelState(g_config.ImageThumbPanelSide);
 
     DragAcceptFiles(hwnd, TRUE);
     
@@ -7351,8 +7442,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
     }
     // [PDF Sidebar] Thumbnail render result from worker thread
     case QuickView::DocumentRenderController::ThumbnailResultMessage: {
-        if (g_thumbnailPanel.IsVisible()) {
-            g_thumbnailPanel.ProcessThumbnailResults();
+        if (g_pdfThumbPanel.IsVisible()) {
+            g_pdfThumbPanel.ProcessThumbnailResults();
             ::InvalidateRect(hwnd, nullptr, FALSE);
         }
         return 0;
@@ -8409,12 +8500,14 @@ if (wParam == 996) {
                       hoverEdge = AppContext::GetInstance().CompareCtrl->HitTestEdgeNav(hwnd, pt);
                   } else if (!IsCompareModeActive()) {
 // [Fix] Exclude thumbnail sidebar from nav hit area
-float sbW = g_thumbnailPanel.IsVisible() ? g_thumbnailPanel.GetWidth() : 0.0f;
-float navLeft = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 1) ? sbW : 0.0f;
-float navRight = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 0) ? (winW - sbW) : winW;
+float sbW = GetLeftSidebarWidth() + GetRightSidebarWidth();
+float navLeft = GetLeftSidebarWidth();
+float navRight = winW - GetRightSidebarWidth();
 // [Bottom Mode] Also exclude bottom panel area from nav hit zone
-float navBottom = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 3) ? g_thumbnailPanel.GetPanelRect().top : winH;
-D2D1_RECT_F fullRect = D2D1::RectF(navLeft, 0.0f, navRight, navBottom);
+float navBottomH = winH;
+if (g_pdfThumbPanel.IsVisible() && g_pdfThumbPanel.GetPanelSide() == 3) navBottomH = (std::min)(navBottomH, g_pdfThumbPanel.GetPanelRect().top);
+if (g_imageThumbPanel.IsVisible() && g_imageThumbPanel.GetPanelSide() == 3) navBottomH = (std::min)(navBottomH, g_imageThumbPanel.GetPanelRect().top);
+D2D1_RECT_F fullRect = D2D1::RectF(navLeft, 0.0f, navRight, navBottomH);
 hoverEdge = (HitTestNavButtonInPane(pt, fullRect) != 0);
                   }
               } else {
@@ -8440,23 +8533,23 @@ hoverEdge = (HitTestNavButtonInPane(pt, fullRect) != 0);
               POINT lastPt = g_uiRenderer->GetLastMousePos();
               g_uiRenderer->UpdateHoverState(pt, -1);
 
-              // [PDF Sidebar] Thumbnail panel hover tracking
-              if (g_thumbnailPanel.IsVisible()) {
+              // [Split Panels] Thumbnail panel hover tracking
+              if (g_pdfThumbPanel.IsVisible() || g_imageThumbPanel.IsVisible()) {
                   // [Resize] Handle drag-to-resize
-                  if (g_thumbnailPanel.IsResizing()) {
+                  if (IsAnyThumbPanelResizing()) {
                       RECT rc; GetClientRect(hwnd, &rc);
-                      g_thumbnailPanel.UpdateResize((float)pt.x, (float)pt.y, (float)rc.right);
+                      UpdateThumbPanelResize((float)pt.x, (float)pt.y, (float)rc.right);
                       D2D1_RECT_F fullRect = D2D1::RectF(0.0f, 0.0f,
                           (float)(rc.right - rc.left), (float)(rc.bottom - rc.top));
-                      g_thumbnailPanel.UpdateLayout(fullRect);
+                      UpdateAllThumbPanelsLayout(fullRect);
                       RequestRepaint(PaintLayer::Static);
                   } else {
-                      if (g_thumbnailPanel.OnMouseMove((float)pt.x, (float)pt.y)) {
+                      if (ThumbPanelOnMouseMove((float)pt.x, (float)pt.y)) {
                           RequestRepaint(PaintLayer::Static);
                       }
                   }
                   // Update cursor for resize handle
-                  if (g_thumbnailPanel.IsResizeHit((float)pt.x, (float)pt.y) || g_thumbnailPanel.IsResizing()) {
+                  if (AnyThumbPanelResizeHit((float)pt.x, (float)pt.y) || IsAnyThumbPanelResizing()) {
                       g_currentCursor = LoadCursor(nullptr, IDC_SIZEWE);
                   }
               }
@@ -8604,9 +8697,9 @@ hoverEdge = (HitTestNavButtonInPane(pt, fullRect) != 0);
                     if (w > 50 && h > 100) {
                         float edgeMargin = 64.0f * g_uiScale;
 // [Fix] Exclude thumbnail sidebar area from edge detection
-float sidebarW = g_thumbnailPanel.IsVisible() ? g_thumbnailPanel.GetWidth() : 0.0f;
-float panelLeft2 = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 1) ? sidebarW : 0.0f;
-float panelRight2 = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 0) ? ((float)w - sidebarW) : (float)w;
+float sidebarW = GetLeftSidebarWidth() + GetRightSidebarWidth();
+float panelLeft2 = GetLeftSidebarWidth();
+float panelRight2 = (float)w - GetRightSidebarWidth();
 bool inHRange = (pt.x >= panelLeft2 && pt.x < panelLeft2 + edgeMargin) || (pt.x > panelRight2 - edgeMargin);
                         bool inVRange;
 
@@ -9180,8 +9273,17 @@ RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);  // OSD and Border ind
         return 0;
 
     case WM_PAGE_THUMB_READY:
-        // [v6.0.8] Page thumbnail panel async result ready — trigger repaint
-        RequestRepaint(PaintLayer::Gallery);
+        // [Image Panel] Async image thumbnail ready — process and repaint
+        if (g_imageThumbPanel.IsVisible()) {
+            RequestRepaint(PaintLayer::Gallery);
+        }
+        return 0;
+
+    case WM_IMAGE_THUMB_READY:
+        // [Image Panel] Async image thumbnail result from worker thread
+        if (g_imageThumbPanel.IsVisible()) {
+            RequestRepaint(PaintLayer::Gallery);
+        }
         return 0;
 
     case WM_APP + 4: // WM_DEFERRED_REPAINT
@@ -9243,30 +9345,17 @@ RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);  // OSD and Border ind
             if (QuickView::PrintPreviewUI::GetInstance().OnLButtonDown(pt.x, pt.y)) return 0;
         }
 
-        // [Thumbnail Panel] Check resize drag first (before panel click)
-        if (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.IsResizeHit((float)pt.x, (float)pt.y)) {
-            g_thumbnailPanel.BeginResize((float)pt.x, (float)pt.y);
+        // [Split Panels] Check resize drag first (before panel click)
+        if (AnyThumbPanelResizeHit((float)pt.x, (float)pt.y)) {
+            BeginThumbPanelResize((float)pt.x, (float)pt.y);
             SetCapture(hwnd);
             return 0;
         }
 
-        // [PDF Sidebar] Thumbnail panel click - jump to page
-        if (g_thumbnailPanel.IsVisible()) {
-            int clickedPage = g_thumbnailPanel.OnLButtonDown((float)pt.x, (float)pt.y);
+        // [PDF Panel] Thumbnail panel click - jump to page
+        if (g_pdfThumbPanel.IsVisible()) {
+            int clickedPage = g_pdfThumbPanel.OnLButtonDown((float)pt.x, (float)pt.y);
             if (clickedPage >= 0) {
-                // [Image Mode] Navigate to file at index
-                if (g_thumbnailPanel.IsImageMode()) {
-                    auto& nav = GetPaneContext(PaneSlot::Primary).navigator;
-                    int currentIdx = nav.Index();
-                    if (clickedPage != currentIdx) {
-                        std::wstring targetPath = nav.GetFile(clickedPage);
-                        if (!targetPath.empty()) {
-                            nav.SetIndex(clickedPage);
-                            LoadImageAsync(hwnd, targetPath, true, clickedPage > currentIdx ? QuickView::BrowseDirection::FORWARD : QuickView::BrowseDirection::BACKWARD);
-                        }
-                    }
-                    return 0;
-                }
                 if (g_pagedDoc.active && g_pagedDoc.totalPages > 1) {
                     if (clickedPage < static_cast<int>(g_pagedDoc.totalPages)) {
                         HandlePdfPageJump(hwnd, static_cast<uint32_t>(clickedPage));
@@ -9274,6 +9363,23 @@ RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);  // OSD and Border ind
                 } else {
                     // CDR/CMX path - use existing page navigation
                     HandleCdrPageStep(hwnd, static_cast<uint32_t>(clickedPage));
+                }
+                return 0;
+            }
+        }
+
+        // [Image Panel] Thumbnail panel click - navigate to file
+        if (g_imageThumbPanel.IsVisible()) {
+            int clickedPage = g_imageThumbPanel.OnLButtonDown((float)pt.x, (float)pt.y);
+            if (clickedPage >= 0) {
+                auto& nav = GetPaneContext(PaneSlot::Primary).navigator;
+                int currentIdx = nav.Index();
+                if (clickedPage != currentIdx) {
+                    std::wstring targetPath = nav.GetFile(clickedPage);
+                    if (!targetPath.empty()) {
+                        nav.SetIndex(clickedPage);
+                        LoadImageAsync(hwnd, targetPath, true, clickedPage > currentIdx ? QuickView::BrowseDirection::FORWARD : QuickView::BrowseDirection::BACKWARD);
+                    }
                 }
                 return 0;
             }
@@ -9603,18 +9709,22 @@ RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);  // OSD and Border ind
                 }
             } else if (w > 50 && h > 100) {
 if (g_config.NavIndicator == 0) {
-float sbW = g_thumbnailPanel.IsVisible() ? g_thumbnailPanel.GetWidth() : 0.0f;
-float navLeft = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 1) ? sbW : 0.0f;
-float navRight = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 0) ? ((float)w - sbW) : (float)w;
-float navBottom = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 3) ? g_thumbnailPanel.GetPanelRect().top : (float)h;
+float sbW = GetLeftSidebarWidth() + GetRightSidebarWidth();
+float navLeft = GetLeftSidebarWidth();
+float navRight = (float)w - GetRightSidebarWidth();
+float navBottom = (float)h;
+if (g_pdfThumbPanel.IsVisible() && g_pdfThumbPanel.GetPanelSide() == 3) navBottom = (std::min)(navBottom, g_pdfThumbPanel.GetPanelRect().top);
+if (g_imageThumbPanel.IsVisible() && g_imageThumbPanel.GetPanelSide() == 3) navBottom = (std::min)(navBottom, g_imageThumbPanel.GetPanelRect().top);
 D2D1_RECT_F fullRect = D2D1::RectF(navLeft, 0.0f, navRight, navBottom);
 inEdgeZone = (HitTestNavButtonInPane(pt, fullRect) != 0);
 } else {
 float edgeMargin = 64.0f * g_uiScale;
-float sbW3 = g_thumbnailPanel.IsVisible() ? g_thumbnailPanel.GetWidth() : 0.0f;
-float panelLeft = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 1) ? sbW3 : 0.0f;
-float panelRight = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 0) ? ((float)w - sbW3) : (float)w;
-float panelBottom = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 3) ? g_thumbnailPanel.GetPanelRect().top : (float)h;
+float sbW3 = GetLeftSidebarWidth() + GetRightSidebarWidth();
+float panelLeft = GetLeftSidebarWidth();
+float panelRight = (float)w - GetRightSidebarWidth();
+float panelBottom = (float)h;
+if (g_pdfThumbPanel.IsVisible() && g_pdfThumbPanel.GetPanelSide() == 3) panelBottom = (std::min)(panelBottom, g_pdfThumbPanel.GetPanelRect().top);
+if (g_imageThumbPanel.IsVisible() && g_imageThumbPanel.GetPanelSide() == 3) panelBottom = (std::min)(panelBottom, g_imageThumbPanel.GetPanelRect().top);
 bool inHRange = (pt.x >= panelLeft && pt.x < panelLeft + edgeMargin) || (pt.x > panelRight - edgeMargin);
 bool inVRange = (pt.y > h * 0.30) && (pt.y < h * 0.70) && (pt.y < panelBottom);
                     inEdgeZone = inHRange && inVRange;
@@ -9652,9 +9762,9 @@ bool inVRange = (pt.y > h * 0.30) && (pt.y < h * 0.70) && (pt.y < panelBottom);
 case WM_LBUTTONUP: {
 POINT pt = { (short)LOWORD(lParam), (short)HIWORD(lParam) };
 
-// [Thumbnail Panel] End resize drag
-if (g_thumbnailPanel.IsResizing()) {
-    g_thumbnailPanel.EndResize();
+// [Split Panels] End resize drag
+if (IsAnyThumbPanelResizing()) {
+    EndThumbPanelResize();
     ReleaseCapture();
     return 0;
 }
@@ -10171,19 +10281,23 @@ case ToolbarButtonID::CompareToggle:
                     bool clickValid = false;
                     int direction = 0;
 if (g_config.NavIndicator == 0) {
-float sbW = g_thumbnailPanel.IsVisible() ? g_thumbnailPanel.GetWidth() : 0.0f;
-float navLeft = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 1) ? sbW : 0.0f;
-float navRight = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 0) ? ((float)width - sbW) : (float)width;
-float navBottom = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 3) ? g_thumbnailPanel.GetPanelRect().top : (float)height;
+float sbW = GetLeftSidebarWidth() + GetRightSidebarWidth();
+float navLeft = GetLeftSidebarWidth();
+float navRight = (float)width - GetRightSidebarWidth();
+float navBottom = (float)height;
+if (g_pdfThumbPanel.IsVisible() && g_pdfThumbPanel.GetPanelSide() == 3) navBottom = (std::min)(navBottom, g_pdfThumbPanel.GetPanelRect().top);
+if (g_imageThumbPanel.IsVisible() && g_imageThumbPanel.GetPanelSide() == 3) navBottom = (std::min)(navBottom, g_imageThumbPanel.GetPanelRect().top);
 D2D1_RECT_F fullRect = D2D1::RectF(navLeft, 0.0f, navRight, navBottom);
 direction = HitTestNavButtonInPane(pt, fullRect);
 clickValid = (direction != 0);
 } else {
 float edgeMargin = 64.0f * g_uiScale;
-float sbW2 = g_thumbnailPanel.IsVisible() ? g_thumbnailPanel.GetWidth() : 0.0f;
-float panelLeft = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 1) ? sbW2 : 0.0f;
-float panelRight = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 0) ? ((float)width - sbW2) : (float)width;
-float panelBottom = (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.GetPanelSide() == 3) ? g_thumbnailPanel.GetPanelRect().top : (float)height;
+float sbW2 = GetLeftSidebarWidth() + GetRightSidebarWidth();
+float panelLeft = GetLeftSidebarWidth();
+float panelRight = (float)width - GetRightSidebarWidth();
+float panelBottom = (float)height;
+if (g_pdfThumbPanel.IsVisible() && g_pdfThumbPanel.GetPanelSide() == 3) panelBottom = (std::min)(panelBottom, g_pdfThumbPanel.GetPanelRect().top);
+if (g_imageThumbPanel.IsVisible() && g_imageThumbPanel.GetPanelSide() == 3) panelBottom = (std::min)(panelBottom, g_imageThumbPanel.GetPanelRect().top);
 bool inHRange = (pt.x >= panelLeft && pt.x < panelLeft + edgeMargin) || (pt.x > panelRight - edgeMargin);
 bool inVRange = (pt.y > height * 0.30) && (pt.y < height * 0.70) && (pt.y < panelBottom);
                         if (inHRange && inVRange) {
@@ -10318,15 +10432,15 @@ RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);
              }
         }
 
-        // [PDF Sidebar] Mouse wheel over thumbnail panel scrolls the panel (not zoom image)
-        if (g_thumbnailPanel.IsVisible()) {
+        // [Split Panels] Mouse wheel over thumbnail panel scrolls the panel (not zoom image)
+        if (g_pdfThumbPanel.IsVisible() || g_imageThumbPanel.IsVisible()) {
             POINT ptScreen2 = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
             POINT ptClient2 = ptScreen2;
             ScreenToClient(hwnd, &ptClient2);
-            // Only intercept if cursor is within the panel area
-            if (g_thumbnailPanel.HitTestPanel((float)ptClient2.x, (float)ptClient2.y)) {
+            // Only intercept if cursor is within any panel area
+            if (AnyThumbPanelHitTest((float)ptClient2.x, (float)ptClient2.y)) {
                 int delta = GET_WHEEL_DELTA_WPARAM(wParam);
-                if (g_thumbnailPanel.OnMouseWheel(delta)) {
+                if (ThumbPanelOnMouseWheel(delta)) {
                     RequestRepaint(PaintLayer::Static);
                     return 0;
                 }
@@ -11953,7 +12067,78 @@ const std::wstring& contextPath = contextLeft ? GetPaneContext(PaneSlot::Left).p
             break;
         }
 
-        // [Thumbnail Panel] Position selection from popup menu
+        // [PDF Panel] Position selection from popup menu
+        case IDM_PDF_THUMB_RIGHT:
+        case IDM_PDF_THUMB_LEFT:
+        case IDM_PDF_THUMB_BOTTOM:
+        case IDM_PDF_THUMB_OFF: {
+            int newSide = 0;
+            if (cmdId == IDM_PDF_THUMB_LEFT) newSide = 1;
+            else if (cmdId == IDM_PDF_THUMB_OFF) newSide = 2;
+            else if (cmdId == IDM_PDF_THUMB_BOTTOM) newSide = 3;
+
+            g_config.PdfThumbPanelSide = newSide;
+            g_toolbar.SetPdfThumbPanelState(newSide);
+
+            RECT rcClient; GetClientRect(hwnd, &rcClient);
+            D2D1_RECT_F fullRect = D2D1::RectF(0.0f, 0.0f,
+                (float)(rcClient.right - rcClient.left),
+                (float)(rcClient.bottom - rcClient.top));
+
+            if (newSide == 2) {
+                g_pdfThumbPanel.OnDocumentClosed();
+            } else {
+                g_pdfThumbPanel.SetPanelSide(newSide);
+                if (g_pagedDoc.active && g_pagedDoc.totalPages > 1) {
+                    g_pdfThumbPanel.OnDocumentOpened(GetPaneContext(PaneSlot::Primary).path, g_pagedDoc.totalPages);
+                }
+                g_pdfThumbPanel.UpdateLayout(fullRect);
+            }
+
+            g_toolbar.UpdateLayout((float)rcClient.right, (float)rcClient.bottom);
+            RequestRepaint(PaintLayer::Static | PaintLayer::Dynamic);
+            InvalidateRect(hwnd, nullptr, FALSE);
+            break;
+        }
+
+        // [Image Panel] Position selection from popup menu
+        case IDM_IMG_THUMB_RIGHT:
+        case IDM_IMG_THUMB_LEFT:
+        case IDM_IMG_THUMB_BOTTOM:
+        case IDM_IMG_THUMB_OFF: {
+            int newSide = 0;
+            if (cmdId == IDM_IMG_THUMB_LEFT) newSide = 1;
+            else if (cmdId == IDM_IMG_THUMB_OFF) newSide = 2;
+            else if (cmdId == IDM_IMG_THUMB_BOTTOM) newSide = 3;
+
+            g_config.ImageThumbPanelSide = newSide;
+            g_toolbar.SetImageThumbPanelState(newSide);
+
+            RECT rcClient; GetClientRect(hwnd, &rcClient);
+            D2D1_RECT_F fullRect = D2D1::RectF(0.0f, 0.0f,
+                (float)(rcClient.right - rcClient.left),
+                (float)(rcClient.bottom - rcClient.top));
+
+            if (newSide == 2) {
+                g_imageThumbPanel.OnDocumentClosed();
+            } else {
+                g_imageThumbPanel.SetPanelSide(newSide);
+                if (!g_imagePath.empty()) {
+                    auto& nav = GetPaneContext(PaneSlot::Primary).navigator;
+                    if (nav.Count() > 1) {
+                        g_imageThumbPanel.ShowImageThumbnails(&nav, nav.Index(), (uint32_t)nav.Count());
+                    }
+                }
+                g_imageThumbPanel.UpdateLayout(fullRect);
+            }
+
+            g_toolbar.UpdateLayout((float)rcClient.right, (float)rcClient.bottom);
+            RequestRepaint(PaintLayer::Static | PaintLayer::Dynamic);
+            InvalidateRect(hwnd, nullptr, FALSE);
+            break;
+        }
+
+        // [Legacy] Old single-panel menu commands — map to image panel
         case IDM_THUMB_PANEL_RIGHT:
         case IDM_THUMB_PANEL_LEFT:
         case IDM_THUMB_PANEL_BOTTOM:
@@ -11963,8 +12148,8 @@ const std::wstring& contextPath = contextLeft ? GetPaneContext(PaneSlot::Left).p
             else if (cmdId == IDM_THUMB_PANEL_OFF) newSide = 2;
             else if (cmdId == IDM_THUMB_PANEL_BOTTOM) newSide = 3;
 
-            g_config.ThumbnailPanelSide = newSide;
-            g_toolbar.SetThumbnailPanelState(newSide);
+            g_config.ImageThumbPanelSide = newSide;
+            g_toolbar.SetImageThumbPanelState(newSide);
 
             RECT rcClient; GetClientRect(hwnd, &rcClient);
             D2D1_RECT_F fullRect = D2D1::RectF(0.0f, 0.0f,
@@ -11972,18 +12157,16 @@ const std::wstring& contextPath = contextLeft ? GetPaneContext(PaneSlot::Left).p
                 (float)(rcClient.bottom - rcClient.top));
 
             if (newSide == 2) {
-                g_thumbnailPanel.OnDocumentClosed();
+                g_imageThumbPanel.OnDocumentClosed();
             } else {
-                g_thumbnailPanel.SetPanelSide(newSide);
-                if (g_pagedDoc.active && g_pagedDoc.totalPages > 1) {
-                    g_thumbnailPanel.OnDocumentOpened(GetPaneContext(PaneSlot::Primary).path, g_pagedDoc.totalPages);
-                } else if (!g_imagePath.empty()) {
+                g_imageThumbPanel.SetPanelSide(newSide);
+                if (!g_imagePath.empty()) {
                     auto& nav = GetPaneContext(PaneSlot::Primary).navigator;
-                    if (nav.Count() > 0) {
-                        g_thumbnailPanel.ShowImageThumbnails(&nav, nav.Index(), (uint32_t)nav.Count());
+                    if (nav.Count() > 1) {
+                        g_imageThumbPanel.ShowImageThumbnails(&nav, nav.Index(), (uint32_t)nav.Count());
                     }
                 }
-                g_thumbnailPanel.UpdateLayout(fullRect);
+                g_imageThumbPanel.UpdateLayout(fullRect);
             }
 
             g_toolbar.UpdateLayout((float)rcClient.right, (float)rcClient.bottom);
@@ -12035,13 +12218,14 @@ SetTimer(hwnd, IDT_SVG_RERENDER, 100, nullptr);
     if (g_uiRenderer) g_uiRenderer->OnResize(width, height);
     g_toolbar.UpdateLayout((float)width, (float)height);
 
-    // [PDF Sidebar] Update panel layout on window resize
-    if (g_thumbnailPanel.IsVisible()) {
+    // [Split Panels] Update panel layouts on window resize
+    if (g_pdfThumbPanel.IsVisible() || g_imageThumbPanel.IsVisible()) {
         RECT rcClient; GetClientRect(hwnd, &rcClient);
         D2D1_RECT_F fullRect = D2D1::RectF(0.0f, 0.0f,
                                              (float)(rcClient.right - rcClient.left),
                                              (float)(rcClient.bottom - rcClient.top));
-        g_thumbnailPanel.UpdateLayout(fullRect);
+        if (g_pdfThumbPanel.IsVisible()) g_pdfThumbPanel.UpdateLayout(fullRect);
+        if (g_imageThumbPanel.IsVisible()) g_imageThumbPanel.UpdateLayout(fullRect);
     }
 
     if (IsCompareModeActive()) {
@@ -12757,30 +12941,30 @@ void ProcessEngineEvents(HWND hwnd) {
                             }
                         }
                         if (g_docRenderCtrl && g_docRenderCtrl->IsAvailable()) {
-                            g_thumbnailPanel.Initialize(hwnd, g_docRenderCtrl.get());
-                            g_thumbnailPanel.SetPanelSide(g_config.ThumbnailPanelSide);
-                            if (g_config.ThumbnailPanelSide != 2) {
-                                g_thumbnailPanel.OnDocumentOpened(GetPaneContext(PaneSlot::Primary).path, pages);
+                            g_pdfThumbPanel.InitializeEx(hwnd, g_docRenderCtrl.get());
+                            g_pdfThumbPanel.SetPanelSide(g_config.PdfThumbPanelSide);
+                            if (g_config.PdfThumbPanelSide != 2) {
+                                g_pdfThumbPanel.OnDocumentOpened(GetPaneContext(PaneSlot::Primary).path, pages);
                                 RECT rcClient; GetClientRect(hwnd, &rcClient);
                                 D2D1_RECT_F fullRect = D2D1::RectF(0.0f, 0.0f,
                                                                      (float)(rcClient.right - rcClient.left),
                                                                      (float)(rcClient.bottom - rcClient.top));
-                                g_thumbnailPanel.UpdateLayout(fullRect);
+                                g_pdfThumbPanel.UpdateLayout(fullRect);
                                 RequestRepaint(PaintLayer::Static);
                             }
                         }
                     } else {
                         // [Image Mode] Show folder image thumbnails if panel is not off
-                        if (g_config.ThumbnailPanelSide != 2) {
+                        if (g_config.ImageThumbPanelSide != 2) {
                             auto& nav = GetPaneContext(PaneSlot::Primary).navigator;
                             if (nav.Count() > 1) {
-                                g_thumbnailPanel.SetPanelSide(g_config.ThumbnailPanelSide);
-                                g_thumbnailPanel.ShowImageThumbnails(&nav, nav.Index(), (uint32_t)nav.Count());
+                                g_imageThumbPanel.SetPanelSide(g_config.ImageThumbPanelSide);
+                                g_imageThumbPanel.ShowImageThumbnails(&nav, nav.Index(), (uint32_t)nav.Count());
                                 RECT rcClient; GetClientRect(hwnd, &rcClient);
                                 D2D1_RECT_F fullRect = D2D1::RectF(0.0f, 0.0f,
                                                                      (float)(rcClient.right - rcClient.left),
                                                                      (float)(rcClient.bottom - rcClient.top));
-                                g_thumbnailPanel.UpdateLayout(fullRect);
+                                g_imageThumbPanel.UpdateLayout(fullRect);
                                 RequestRepaint(PaintLayer::Static);
                             }
                         }
@@ -12798,8 +12982,8 @@ void ProcessEngineEvents(HWND hwnd) {
                         RequestRepaint(PaintLayer::Static);
                     }
                     // [Thumbnail Panel] Update current image in panel
-                    if (g_thumbnailPanel.IsVisible() && g_thumbnailPanel.IsImageMode()) {
-                        g_thumbnailPanel.SetCurrentImageIndex(idx);
+if (g_imageThumbPanel.IsVisible()) {
+    g_imageThumbPanel.SetCurrentImageIndex(idx);
                     }
                 }
 
@@ -13519,8 +13703,8 @@ void StartNavigation(HWND hwnd, std::wstring path, [[maybe_unused]] bool showOSD
     }
 
     // [PDF Sidebar] Hide thumbnail panel when switching files
-    if (g_thumbnailPanel.IsVisible()) {
-        g_thumbnailPanel.OnDocumentClosed();
+    if (g_pdfThumbPanel.IsVisible()) g_pdfThumbPanel.OnDocumentClosed();
+    if (g_imageThumbPanel.IsVisible()) g_imageThumbPanel.OnDocumentClosed();
     }
 
     g_toolbar.ClearPageIndicator();
@@ -14523,15 +14707,24 @@ TryUpgradeBitmapSurface(hwnd);
         g_uiRenderer->Render(hwnd, dt);
     }
 
-    // [PDF Sidebar] Update thumbnail panel state (rendering happens in UIRenderer::RenderStaticLayer)
-    if (g_thumbnailPanel.IsVisible()) {
-        g_thumbnailPanel.UpdateThumbnailRequests();
-        g_thumbnailPanel.ProcessThumbnailResults();
-        // Request repaint if scrolling animation, loading, or just loaded new thumbnails
-        bool hasAnimation = std::abs(g_thumbnailPanel.GetScrollY() - g_thumbnailPanel.GetTargetScrollY()) > 0.5f;
-        bool hasLoadingSlots = g_thumbnailPanel.IsLoading();
-        bool needsRepaint = g_thumbnailPanel.ConsumeNeedsRepaint();
+    // [Split Panels] Update thumbnail panel states (rendering happens in UIRenderer::RenderStaticLayer)
+    if (g_pdfThumbPanel.IsVisible()) {
+        g_pdfThumbPanel.UpdateThumbnailRequests();
+        g_pdfThumbPanel.ProcessThumbnailResults();
+        bool hasAnimation = std::abs(g_pdfThumbPanel.GetScrollY() - g_pdfThumbPanel.GetTargetScrollY()) > 0.5f;
+        bool hasLoadingSlots = g_pdfThumbPanel.IsLoading();
+        bool needsRepaint = g_pdfThumbPanel.ConsumeNeedsRepaint();
         if (hasAnimation || hasLoadingSlots || needsRepaint) {
+            RequestRepaint(PaintLayer::Static);
+        }
+    }
+    if (g_imageThumbPanel.IsVisible()) {
+        g_imageThumbPanel.UpdateThumbnailRequests();
+        // Process async results if we have an RT
+        bool needsRepaintImg = g_imageThumbPanel.ConsumeNeedsRepaint();
+        bool hasAnimationImg = std::abs(g_imageThumbPanel.GetScrollY() - g_imageThumbPanel.GetTargetScrollY()) > 0.5f;
+        bool hasLoadingImg = g_imageThumbPanel.IsLoading();
+        if (hasAnimationImg || hasLoadingImg || needsRepaintImg) {
             RequestRepaint(PaintLayer::Static);
         }
     }
@@ -14912,9 +15105,9 @@ void HandlePdfPageResult(HWND hwnd) {
     g_toolbar.UpdateLayout((float)rcResult.right, (float)rcResult.bottom);
     RequestRepaint(PaintLayer::Static);
 
-    // [PDF Sidebar] Update current page in thumbnail panel
-    if (g_thumbnailPanel.IsVisible()) {
-        g_thumbnailPanel.SetCurrentPage(result.pageIndex);
+    // [PDF Panel] Update current page in thumbnail panel
+    if (g_pdfThumbPanel.IsVisible()) {
+        g_pdfThumbPanel.SetCurrentPage(result.pageIndex);
     }
 
     // Upload to GPU

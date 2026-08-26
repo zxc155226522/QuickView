@@ -116,7 +116,6 @@ set(QUICKVIEW_SOURCES
     QuickView/ThumbnailPanelBase.cpp
     QuickView/PdfPageThumbnailPanel.cpp
     QuickView/ImageListThumbnailPanel.cpp
-    QuickView/PageThumbnailPanel.cpp
     QuickView/VectorLoader.cpp
     QuickView/DwgLoader.cpp
     QuickView/ThumbDiskCache.cpp
