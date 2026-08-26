@@ -13683,9 +13683,11 @@ void StartNavigation(HWND hwnd, std::wstring path, [[maybe_unused]] bool showOSD
         g_pagedDoc.Reset();
     }
 
-    // [Split Panels] Hide thumbnail panels when switching files
+    // [Split Panels] Hide PDF thumbnail panel when switching files
+    // Note: Image list thumbnail panel should NOT be closed here — user may be
+    // clicking a thumbnail to navigate, and the panel should stay visible.
+    // The image panel will be refreshed after loading completes (see Image Mode show logic).
     if (g_pdfThumbPanel.IsVisible()) g_pdfThumbPanel.OnDocumentClosed();
-    if (g_imageThumbPanel.IsVisible()) g_imageThumbPanel.OnDocumentClosed();
 
     g_toolbar.ClearPageIndicator();
     // [Image Mode] Show image position indicator for regular images (not paged docs)
