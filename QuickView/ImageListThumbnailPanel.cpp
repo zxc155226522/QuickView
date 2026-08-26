@@ -331,6 +331,11 @@ void ImageListThumbnailPanel::ProcessAsyncResults(ID2D1RenderTarget* pRT) {
     }
 }
 
+void ImageListThumbnailPanel::ProcessAsyncResults() {
+    if (!m_currentRT) return;
+    ProcessAsyncResults(m_currentRT);
+}
+
 // ============================================================================
 // Async thumbnail loading — runs on background thread
 // ============================================================================

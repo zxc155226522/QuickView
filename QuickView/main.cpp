@@ -14700,7 +14700,8 @@ TryUpgradeBitmapSurface(hwnd);
     }
     if (g_imageThumbPanel.IsVisible()) {
         g_imageThumbPanel.UpdateThumbnailRequests();
-        // Process async results if we have an RT
+        // Process async thumbnail results from background worker thread
+        g_imageThumbPanel.ProcessAsyncResults();
         bool needsRepaintImg = g_imageThumbPanel.ConsumeNeedsRepaint();
         bool hasAnimationImg = std::abs(g_imageThumbPanel.GetScrollY() - g_imageThumbPanel.GetTargetScrollY()) > 0.5f;
         bool hasLoadingImg = g_imageThumbPanel.IsLoading();

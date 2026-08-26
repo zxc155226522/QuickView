@@ -39,6 +39,7 @@ public:
 
     // Process async thumbnail results (call from main thread via WM_IMAGE_THUMB_READY)
     void ProcessAsyncResults(ID2D1RenderTarget* pRT);
+    void ProcessAsyncResults(); // Uses m_currentRT from base class
 
 protected:
     // ThumbnailPanelBase interface
