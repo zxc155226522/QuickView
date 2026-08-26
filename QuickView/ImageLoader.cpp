@@ -4201,36 +4201,15 @@ HRESULT QvRasterizeSvgResvg(const std::vector<uint8_t> &xml, float zoom,
   resvg_render(tree, t, rW, rH, reinterpret_cast<char *>(pixmap.data()));
   resvg_tree_destroy(tree);
 
-  // resvg emits premultiplied RGBA8888; convert to straight BGRA8888.
-  outBgra.assign((size_t)rW * rH * 4, 0);
-  for (uint32_t i = 0; i < rW * rH; ++i) {
-    const uint8_t *src = pixmap.data() + (size_t)i * 4;
-    uint8_t *dst = outBgra.data() + (size_t)i * 4;
-    const uint8_t pa = src[3];
-    if (pa == 0) {
-      if (whiteBg) {
-        dst[0] = dst[1] = dst[2] = 255;
-        dst[3] = 255;
-      } else {
-        dst[0] = dst[1] = dst[2] = dst[3] = 0;
-      }
-    } else {
-      const uint32_t invA = 65025U / pa; // 255*255/pa
-      const uint8_t r = (uint8_t)((uint32_t)src[0] * invA / 255);
-      const uint8_t g = (uint8_t)((uint32_t)src[1] * invA / 255);
-      const uint8_t bl = (uint8_t)((uint32_t)src[2] * invA / 255);
-      if (whiteBg) {
-        dst[0] = (uint8_t)bl + (255 - pa);
-        dst[1] = (uint8_t)g + (255 - pa);
-        dst[2] = (uint8_t)r + (255 - pa);
-        dst[3] = 255;
-      } else {
-        dst[0] = bl;
-        dst[1] = g;
-        dst[2] = r;
-        dst[3] = pa;
-      }
-    }
+  // resvg emits premultiplied RGBA8888; convert to BGRA8888 via SIMD.
+  // - whiteBg=true:  premul RGBA + white composite → opaque BGRA (dst = src + (255-a))
+  // - whiteBg=false: premul RGBA → premul BGRA (just R/B swap, D2D uses premultiplied)
+  const size_t pixelCount = (size_t)rW * rH;
+  outBgra.resize(pixelCount * 4);
+  if (whiteBg) {
+    ImageLoaderSimd::PremulRGBAToWhiteBGRA(pixmap.data(), outBgra.data(), pixelCount);
+  } else {
+    ImageLoaderSimd::PremulRGBAToPremulBGRA(pixmap.data(), outBgra.data(), pixelCount);
   }
   return S_OK;
 }
@@ -11828,6 +11807,45 @@ float svgW = 0.0f, svgH = 0.0f;
       }
       if (svgW <= 0) svgW = 512;
       if (svgH <= 0) svgH = 512;
+
+      // [CDR Canvas Outside] fastMode 也需要扩展 viewBox 以包含画布外内容。
+      // 与 QvRasterizeSvgFrameToBgra 的 includeOutsidePage 逻辑对齐：用 resvg 的
+      // resvg_get_image_bbox 获取真实内容边界框，扩展 viewBox 覆盖画布外元素。
+      // 超过页面 8 倍时不扩展（隐藏/辅助元素膨胀 bbox 的防护）。
+      if (g_config.ShowCdrOutsidePage) {
+        double pageX = 0, pageY = 0, pageW = svgW, pageH = svgH;
+        if (ParseSvgViewBox(svgContent, &pageX, &pageY, &pageW, &pageH)
+            && pageW > 0 && pageH > 0) {
+          resvg_options* opt = resvg_options_create();
+          if (opt) {
+            resvg_render_tree* tree = nullptr;
+            if (resvg_parse_tree_from_data(svgContent.c_str(), svgContent.size(),
+                                           opt, &tree) == RESVG_OK && tree) {
+              resvg_rect cb = {};
+              if (resvg_get_image_bbox(tree, &cb)) {
+                double nx = std::min(pageX, (double)cb.x);
+                double ny = std::min(pageY, (double)cb.y);
+                double mx = std::max(pageX + pageW,
+                                     (double)cb.x + (double)cb.width);
+                double my = std::max(pageY + pageH,
+                                     (double)cb.y + (double)cb.height);
+                double rw = mx - nx, rh = my - ny;
+                if (!(rw > pageW * 8.0 || rh > pageH * 8.0)) {
+                  std::string rewritten = RewriteSvgRootViewBox(
+                      svgContent, nx, ny, rw, rh);
+                  if (!rewritten.empty()) {
+                    svgContent = std::move(rewritten);
+                    svgW = (float)rw;
+                    svgH = (float)rh;
+                  }
+                }
+              }
+              resvg_tree_destroy(tree);
+            }
+            resvg_options_destroy(opt);
+          }
+        }
+      }
 
       CdrPageData pageData;
       pageData.xmlData.assign(svgContent.begin(), svgContent.end());

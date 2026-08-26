@@ -220,6 +220,75 @@ void SwizzleRGBAToBGRAImpl(uint8_t* data, size_t pixelCount) {
 }
 
 // ============================================================================
+// PremulRGBAToWhiteBGRA - premul RGBA → opaque BGRA on white background
+// Formula: dst = premul_src + (255 - alpha), alpha_out = 255
+// Since premul_src <= alpha, dst <= 255 (no overflow), so plain add is safe.
+// ============================================================================
+void PremulRGBAToWhiteBGRAImpl(const uint8_t* src, uint8_t* dst, size_t pixelCount) {
+    const hn::ScalableTag<uint8_t> d8;
+    const size_t N = hn::Lanes(d8);
+    const size_t pixelsPerVec = N;
+    const auto v255 = hn::Set(d8, 255u);
+    size_t i = 0;
+
+    for (; i + pixelsPerVec <= pixelCount; i += pixelsPerVec) {
+        const uint8_t* px = src + i * 4;
+        hn::Vec<decltype(d8)> vR, vG, vB, vA;
+        hn::LoadInterleaved4(d8, px, vR, vG, vB, vA);
+
+        // white = 255 - alpha
+        const auto vWhite = hn::Sub(v255, vA);
+        // dst = premul + white (saturating not needed, math guarantees <= 255)
+        vR = hn::Add(vR, vWhite);
+        vG = hn::Add(vG, vWhite);
+        vB = hn::Add(vB, vWhite);
+
+        // Store as BGRA (swap R/B), alpha = 255
+        hn::StoreInterleaved4(d8, dst + i * 4, vB, vG, vR, v255);
+    }
+
+    // Scalar tail
+    for (; i < pixelCount; ++i) {
+        const uint8_t* px = src + i * 4;
+        const uint8_t r = px[0], g = px[1], b = px[2], a = px[3];
+        const uint8_t white = 255 - a;
+        uint8_t* out = dst + i * 4;
+        out[0] = b + white;  // B
+        out[1] = g + white;  // G
+        out[2] = r + white;  // R
+        out[3] = 255;        // A
+    }
+}
+
+// ============================================================================
+// PremulRGBAToPremulBGRA - premul RGBA → premul BGRA (just R/B swap)
+// ============================================================================
+void PremulRGBAToPremulBGRAImpl(const uint8_t* src, uint8_t* dst, size_t pixelCount) {
+    const hn::ScalableTag<uint8_t> d8;
+    const size_t N = hn::Lanes(d8);
+    const size_t pixelsPerVec = N;
+    size_t i = 0;
+
+    for (; i + pixelsPerVec <= pixelCount; i += pixelsPerVec) {
+        const uint8_t* px = src + i * 4;
+        hn::Vec<decltype(d8)> vR, vG, vB, vA;
+        hn::LoadInterleaved4(d8, px, vR, vG, vB, vA);
+        // Store as BGRA (swap R/B), keep premultiplied alpha
+        hn::StoreInterleaved4(d8, dst + i * 4, vB, vG, vR, vA);
+    }
+
+    // Scalar tail
+    for (; i < pixelCount; ++i) {
+        const uint8_t* px = src + i * 4;
+        uint8_t* out = dst + i * 4;
+        out[0] = px[2];  // B
+        out[1] = px[1];  // G
+        out[2] = px[0];  // R
+        out[3] = px[3];  // A
+    }
+}
+
+// ============================================================================
 // ConvertRGBToBGRARow - Swizzle 24-bit RGB → 32-bit BGRA (with prefetching)
 // ============================================================================
 void ConvertRGBToBGRARowImpl(const uint8_t* rowSrc, uint8_t* rowDst, int width) {
@@ -1475,6 +1544,8 @@ namespace ImageLoaderSimd {
 // Export dispatch tables
 HWY_EXPORT(PremultiplyAlphaImpl);
 HWY_EXPORT(SwizzleRGBAToBGRAImpl);
+HWY_EXPORT(PremulRGBAToWhiteBGRAImpl);
+HWY_EXPORT(PremulRGBAToPremulBGRAImpl);
 HWY_EXPORT(ConvertRGBToBGRARowImpl);
 HWY_EXPORT(ResizeBilinearImpl);
 HWY_EXPORT(Pack16to8Impl);
@@ -1505,6 +1576,14 @@ void PremultiplyAlpha(uint8_t* data, int width, int height, int stride) {
 
 void SwizzleRGBAToBGRA(uint8_t* data, size_t pixelCount) {
     HWY_DYNAMIC_DISPATCH(SwizzleRGBAToBGRAImpl)(data, pixelCount);
+}
+
+void PremulRGBAToWhiteBGRA(const uint8_t* src, uint8_t* dst, size_t pixelCount) {
+    HWY_DYNAMIC_DISPATCH(PremulRGBAToWhiteBGRAImpl)(src, dst, pixelCount);
+}
+
+void PremulRGBAToPremulBGRA(const uint8_t* src, uint8_t* dst, size_t pixelCount) {
+    HWY_DYNAMIC_DISPATCH(PremulRGBAToPremulBGRAImpl)(src, dst, pixelCount);
 }
 
 void ConvertRGBToBGRA(const uint8_t* src, uint8_t* dst, int width, int height, int dstStride) {

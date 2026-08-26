@@ -2605,10 +2605,12 @@ bool RenderImageToDComp(HWND hwnd, ImageResource& res, bool isFastUpgrade) {
         }
 
         // [resvg] Re-rasterize CDR/CMX via resvg when zoom changes by more than
-        // 32px. resvg re-parses SVG XML and rasterizes at the target resolution.
+        // 128px. Larger threshold reduces frequent re-rasterization on small
+        // zoom steps, improving responsiveness. SIMD conversion (PremulRGBAToWhiteBGRA)
+        // makes each rasterization significantly faster.
         if (res.isMupdf && res.mupdfSrc) {
-            if (std::abs((int)res.mupdfRasterW - (int)surfW) > 32 ||
-                std::abs((int)res.mupdfRasterH - (int)surfH) > 32) {
+            if (std::abs((int)res.mupdfRasterW - (int)surfW) > 128 ||
+                std::abs((int)res.mupdfRasterH - (int)surfH) > 128) {
                 // Calculate zoom from SVG intrinsic size to target surface size
                 float svgW = res.mupdfSrc->viewBoxW;
                 float svgH = res.mupdfSrc->viewBoxH;

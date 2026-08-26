@@ -19,6 +19,15 @@ void PremultiplyAlpha(uint8_t* data, int width, int height, int stride);
 /// Swizzle RGBA → BGRA with simultaneous alpha premultiplication (in-place).
 void SwizzleRGBAToBGRA(uint8_t* data, size_t pixelCount);
 
+/// Convert premultiplied RGBA8888 to straight BGRA8888 on white background.
+/// src: premultiplied RGBA8888, dst: opaque BGRA8888 (white composited).
+/// Formula: dst = src + (255 - alpha), alpha = 255.  Used by resvg rasterizer.
+void PremulRGBAToWhiteBGRA(const uint8_t* src, uint8_t* dst, size_t pixelCount);
+
+/// Convert premultiplied RGBA8888 to premultiplied BGRA8888 (no white bg).
+/// src: premultiplied RGBA8888, dst: premultiplied BGRA8888 (just R/B swap).
+void PremulRGBAToPremulBGRA(const uint8_t* src, uint8_t* dst, size_t pixelCount);
+
 /// Convert packed 24-bit RGB to 32-bit BGRA using Google Highway SIMD.
 /// OpenMP is used inside for multi-threaded row processing.
 void ConvertRGBToBGRA(const uint8_t* src, uint8_t* dst, int width, int height, int dstStride);
