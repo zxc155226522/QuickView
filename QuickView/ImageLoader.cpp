@@ -44,10 +44,8 @@ extern struct AppConfig g_config;
 #include <libcdr/libcdr.h>
 #include <librevenge-stream/librevenge-stream.h>
 
-// MuPDF: PDF and PDF-compatible AI rendering
-#include <mupdf/fitz.h>
-#include "MuPdfDocument.h"
-#include "WinRtPdfDocument.h"  // [WinRT PDF] Native vector rendering
+// PDFium: PDF and PDF-compatible AI rendering (Edge/Chrome engine)
+#include "PdfiumDocument.h"
 #include "DocumentRenderController.h"
 #include "VectorLoader.h"
 
@@ -61,33 +59,6 @@ using namespace QuickView;
 #include <wincrypt.h> // [BMP→PNG] CryptStringToBinary / CryptBinaryToString for base64
 #include <thread>
 #include "MiniTiff.h"
-
-// [Opt] MuPDF context reuse: fz_context is NOT thread-safe and must not be
-// shared across threads. Reuse one context per thread so the persistent
-// thumbnail server (and the main app) don't rebuild it on every PDF/AI decode.
-namespace {
-struct FzContextHolder {
-    fz_context* ctx = nullptr;
-    ~FzContextHolder() { if (ctx) fz_drop_context(ctx); }
-};
-thread_local FzContextHolder tlsFzContext;
-
-fz_context* AcquireThreadFzContext() {
-    if (tlsFzContext.ctx) return tlsFzContext.ctx;
-    fz_context* ctx = fz_new_context(nullptr, nullptr, FZ_STORE_DEFAULT);
-    if (!ctx) return nullptr;
-    fz_try(ctx) {
-        fz_register_document_handlers(ctx);
-    }
-    fz_catch(ctx) {
-        fz_drop_context(ctx);
-        tlsFzContext.ctx = nullptr;
-        return nullptr;
-    }
-    tlsFzContext.ctx = ctx;
-    return ctx;
-}
-}
 
 extern FileNavigator& g_navigator;
 
@@ -15468,111 +15439,55 @@ HRESULT CImageLoader::LoadToFrame(
     }
 
     // ========================================================================
-    // PDF/AI Path (MuPDF → BGRA pixels → RawImageFrame)
+    // PDF/AI Path (PDFium → BGRA pixels → RawImageFrame)
     // ========================================================================
-    // PDF and PDF-compatible AI files are rendered by MuPDF to BGRA pixels.
-    // Multi-page documents: first page is rendered here; page navigation
-    // is handled by DocumentRenderController in main.cpp.
+    // PDF and PDF-compatible AI files are rendered by PDFium (Edge/Chrome
+    // engine) to BGRA pixels. Multi-page documents: first page is rendered
+    // here; page navigation is handled by DocumentRenderController in main.cpp.
     // ========================================================================
     if (QuickView::ExtEqualsIgnoreCase(ext, L".pdf") ||
         QuickView::ExtEqualsIgnoreCase(ext, L".ai") ||
         format == L"PDF") {
-      // [WinRT PDF] Try native engine first for browser-quality vector rendering
-      {
-        QuickView::WinRtPdfDocument winRtDoc;
-        std::wstring errorMessage;
-        HRESULT hr = winRtDoc.Open(filePath, errorMessage);
-        if (SUCCEEDED(hr)) {
-          DocumentRenderResult renderResult;
-          int viewportW, viewportH;
-          if (targetWidth > 0 && targetHeight > 0) {
-            viewportW = targetWidth;
-            viewportH = targetHeight;
-          } else {
-            viewportW = 3840;
-            viewportH = 2160;
-          }
-          hr = winRtDoc.RenderPage(0, viewportW, viewportH, 1.0f, renderResult);
-          if (SUCCEEDED(hr) && renderResult.frame) {
-            *outFrame = std::move(*renderResult.frame);
-            outFrame->formatDetails = L"Windows.Data.Pdf (Native)";
-            if (pLoaderName)
-              *pLoaderName = L"WinRT PDF";
-            if (pMetadata) {
-              pMetadata->LoaderName = L"WinRT PDF";
-              pMetadata->Format = QuickView::ExtEqualsIgnoreCase(ext, L".ai") ? L"AI" : L"PDF";
-              pMetadata->FormatDetails = L"Document (Windows.Data.Pdf)";
-              pMetadata->Width = (UINT)outFrame->width;
-              pMetadata->Height = (UINT)outFrame->height;
-              pMetadata->pageCount = winRtDoc.PageCount();
-            }
-            outFrame->pageCount = winRtDoc.PageCount();
-            return S_OK;
-          }
-        }
-        // Fall through to MuPDF if WinRT fails
+      QuickView::PdfiumDocument doc;
+      std::wstring errorMessage;
+      HRESULT hr = doc.Open(filePath, errorMessage);
+      if (FAILED(hr)) {
+        if (pMetadata)
+          pMetadata->Format = L"PDF (Parse Failed)";
+        return hr;
       }
 
-      // [Fallback] MuPDF engine
-      // Reuse one fz_context per thread (MuPDF contexts are not thread-safe).
-      // AcquireThreadFzContext creates + registers once; drops on thread exit.
-      fz_context* ctx = AcquireThreadFzContext();
-      if (!ctx) return E_OUTOFMEMORY;
+      DocumentRenderResult renderResult;
+      int viewportW, viewportH;
+      if (targetWidth > 0 && targetHeight > 0) {
+        viewportW = targetWidth;
+        viewportH = targetHeight;
+      } else {
+        viewportW = 3840;
+        viewportH = 2160;
+      }
+      hr = doc.RenderPage(0, viewportW, viewportH, 1.0f, renderResult);
+      if (FAILED(hr) || !renderResult.frame) {
+        if (pMetadata)
+          pMetadata->Format = L"PDF (Render Failed)";
+        return hr;
+      }
 
-      // Scope doc so its destructor (which uses ctx) runs while ctx is valid.
-      // ctx is thread-local and reused across calls; it is dropped on thread exit.
-      HRESULT pdfHr;
-      {
-        MuPdfDocument doc(ctx);
-        std::wstring errorMessage;
-        HRESULT hr = doc.Open(filePath, errorMessage);
-        if (FAILED(hr)) {
-          if (pMetadata)
-            pMetadata->Format = L"PDF (Parse Failed)";
-          pdfHr = hr;
-        } else {
-          DocumentRenderResult renderResult;
-          // [Fix] When called from thumbnail worker (targetWidth/Height > 0),
-          // use the requested thumbnail dimensions instead of foreground window
-          // viewport (which is unreliable in background threads and may return
-          // NULL or a foreign window).
-          int viewportW, viewportH;
-          if (targetWidth > 0 && targetHeight > 0) {
-            viewportW = targetWidth;
-            viewportH = targetHeight;
-          } else {
-            // [Fix] Use a large fixed viewport (4K) instead of relying on
-            // GetForegroundWindow(), which returns the small initial window
-            // size during startup, causing low-res rasterization -> blurry.
-            viewportW = 3840;
-            viewportH = 2160;
-          }
-          hr = doc.RenderPage(0, viewportW, viewportH, 1.0f, renderResult);
-          if (FAILED(hr) || !renderResult.frame) {
-            if (pMetadata)
-              pMetadata->Format = L"PDF (Render Failed)";
-            pdfHr = hr;
-          } else {
-            *outFrame = std::move(*renderResult.frame);
-            outFrame->formatDetails = L"MuPDF 1.27.2";
+      *outFrame = std::move(*renderResult.frame);
+      outFrame->formatDetails = L"PDFium 154.0.8021.0";
 
-            if (pLoaderName)
-              *pLoaderName = L"MuPDF (PDF)";
-            if (pMetadata) {
-              pMetadata->LoaderName = L"MuPDF (PDF)";
-              pMetadata->Format = QuickView::ExtEqualsIgnoreCase(ext, L".ai") ? L"AI" : L"PDF";
-              pMetadata->FormatDetails = L"Document (MuPDF)";
-              pMetadata->Width = (UINT)outFrame->width;
-              pMetadata->Height = (UINT)outFrame->height;
-              pMetadata->pageCount = doc.PageCount();
-            }
-            outFrame->pageCount = doc.PageCount();
-            pdfHr = S_OK;
-          }
-        }
-      } // doc destructor runs here (ctx still valid; thread-local, reused)
-
-      return pdfHr;
+      if (pLoaderName)
+        *pLoaderName = L"PDFium (PDF)";
+      if (pMetadata) {
+        pMetadata->LoaderName = L"PDFium (PDF)";
+        pMetadata->Format = QuickView::ExtEqualsIgnoreCase(ext, L".ai") ? L"AI" : L"PDF";
+        pMetadata->FormatDetails = L"Document (PDFium)";
+        pMetadata->Width = (UINT)outFrame->width;
+        pMetadata->Height = (UINT)outFrame->height;
+        pMetadata->pageCount = doc.PageCount();
+      }
+      outFrame->pageCount = doc.PageCount();
+      return S_OK;
     }
   }
 

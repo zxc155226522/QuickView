@@ -1,4 +1,4 @@
-﻿# ===========================================================================
+﻿﻿# ===========================================================================
 # QuickView 编译发布脚本
 # 编译 Release-LTO 版本并输出到「发布」文件夹
 # ===========================================================================
@@ -64,6 +64,13 @@ New-Item -ItemType Directory -Force $releaseDir | Out-Null
 
 $exePath = Join-Path $ProjectPath "out\build\Release-LTO\QuickView.exe"
 Copy-Item $exePath $releaseDir -Force
+
+# 复制 PDFium DLL
+$pdfiumDll = Join-Path $ProjectPath "third_party\pdfium\bin\pdfium.dll"
+if (Test-Path $pdfiumDll) {
+    Copy-Item $pdfiumDll $releaseDir -Force
+    Write-Host "  PDFium DLL 已复制到发布目录" -ForegroundColor Green
+}
 
 # 删除 junction
 cmd /c rmdir $JunctionPath 2>$null

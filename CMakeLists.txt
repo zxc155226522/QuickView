@@ -110,8 +110,7 @@ set(QUICKVIEW_SOURCES
     QuickView/AvifAnimator.cpp
     QuickView/JxlAnimator.cpp
     QuickView/QuickViewETW.cpp
-    QuickView/MuPdfDocument.cpp
-    QuickView/WinRtPdfDocument.cpp
+    QuickView/PdfiumDocument.cpp
     QuickView/DocumentRenderController.cpp
     QuickView/ThumbnailPanelBase.cpp
     QuickView/PdfPageThumbnailPanel.cpp
@@ -156,22 +155,11 @@ set_source_files_properties(QuickView/WuffsImpl.cpp PROPERTIES SKIP_PRECOMPILED_
 set_source_files_properties(QuickView/ImageLoaderSimd.cpp PROPERTIES SKIP_PRECOMPILED_HEADERS ON)
 set_source_files_properties(third_party/yyjson/yyjson.c PROPERTIES SKIP_PRECOMPILED_HEADERS ON)
 
-# [WinRT PDF] WinRtPdfDocument.cpp needs C++ exceptions for WRL::Make<>()
-# Use clang-specific -fexceptions flags instead of /EHsc, because /EHsc triggers
-# a PCH mismatch error (PCH built with /EHs-c-).  The -f* flags enable exception
-# codegen without changing the MSVC exception model that PCH checks.
-set_source_files_properties(QuickView/WinRtPdfDocument.cpp PROPERTIES
+# [PDFium] PdfiumDocument.cpp requires C++ exceptions for std::mutex lock_guard
+# in the library init/destroy paths. Use clang-specific -fexceptions flags
+# to enable exception codegen without PCH mismatch.
+set_source_files_properties(QuickView/PdfiumDocument.cpp PROPERTIES
     COMPILE_OPTIONS "/clang:-fexceptions")
-
-# [WinRT PDF] Delay-load Windows.Data.Pdf.dll and runtimeobject.dll so the
-# EXE does not crash at startup when these system DLLs are missing (e.g. on
-# Windows Server / LTSC / stripped images).  The DLLs are loaded lazily on
-# first call to PdfCreateRenderer / RoActivateInstance.  If loading fails,
-# WinRtPdfDocument::Open() returns an error and the controller falls back to
-# MuPDF automatically.
-target_link_options(QuickView PRIVATE
-    "/DELAYLOAD:Windows.Data.Pdf.dll"
-    "/DELAYLOAD:runtimeobject.dll")
 
 # ============================================================================
 # Compiler & Linker Flags (Clang-CL Matrix)
@@ -179,6 +167,9 @@ target_link_options(QuickView PRIVATE
 if(MSVC OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     # Common strict warnings, encoding, standard conformance, and function-level linking
     target_compile_options(QuickView PRIVATE /W4 /WX /utf-8 /Gw /Gy /permissive- /clang:-Wno-cast-function-type-mismatch)
+
+    # Suppress CRT deprecation warnings (_wfopen, etc.) - these are used in debug logging
+    target_compile_definitions(QuickView PRIVATE _CRT_SECURE_NO_WARNINGS _CRT_SECURE_NO_DEPRECATE)
     
     # [Optimization] Disable compiler identification string to save bytes
     target_compile_options(QuickView PRIVATE /clang:-fno-ident)
@@ -312,8 +303,10 @@ find_package(libyuv CONFIG REQUIRED)
 # ZLIB
 find_package(ZLIB REQUIRED)
 
-# libmupdf (MuPDF - PDF/AI rendering)
-find_package(unofficial-libmupdf CONFIG REQUIRED)
+# PDFium (Edge/Chrome PDF engine - replaces MuPDF + WinRT PDF)
+# 使用预编译二进制 (third_party/pdfium/PDFiumConfig.cmake)
+set(PDFium_DIR "${CMAKE_SOURCE_DIR}/third_party/pdfium")
+find_package(PDFium REQUIRED)
 
 # libredwg (DXF/DWG vector format support, GNU LibreDWG)
 find_package(unofficial-libredwg CONFIG REQUIRED)
@@ -358,7 +351,7 @@ target_link_libraries(QuickView PRIVATE
     librevenge
     libcdr
     resvg_static
-    unofficial::libmupdf::libmupdf
+    pdfium
     unofficial::libredwg::libredwg
     # Windows system libraries
     imm32.lib
@@ -367,10 +360,6 @@ target_link_libraries(QuickView PRIVATE
     shlwapi.lib
     shell32.lib
     mscms.lib
-    # [WinRT PDF] Windows.Data.Pdf native rendering (delay-loaded)
-    windows.data.pdf.lib
-    runtimeobject.lib
-    delayimp.lib   # delay-load helper
     # resvg C-API 是 Rust 静态库，其 Rust std 依赖以下 Windows 导入库（否则 lld-link 报 undefined symbol）
     ntdll.lib
     userenv.lib

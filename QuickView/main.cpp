@@ -56,8 +56,7 @@ static UINT GetSvgSurfaceSizeLimit();
 #pragma comment(lib, "shlwapi.lib")
 #include "SupportedExtensions.h"
 
-// [CDR→PDF] MuPDF + libcdr includes for command-line CDR to PDF conversion
-#include <mupdf/fitz.h>
+// [CDR→PDF] libcdr includes for command-line CDR to PDF conversion
 #include <libcdr/libcdr.h>
 #include <librevenge-stream/librevenge-stream.h>
 #include <librevenge/librevenge.h>
@@ -2521,47 +2520,38 @@ bool RenderImageToDComp(HWND hwnd, ImageResource& res, bool isFastUpgrade) {
             }
         }
 
-        // [MuPDF] Re-rasterize CDR/CMX via MuPDF display list when zoom changes
-        // by more than 32px. MuPDF builds a display list once from SVG XML,
-        // then fz_run_display_list rasterizes at any resolution — no SVG
-        // re-parsing. Faster and sharper than resvg.
+        // [resvg] Re-rasterize CDR/CMX via resvg when zoom changes by more than
+        // 32px. resvg re-parses SVG XML and rasterizes at the target resolution.
         if (res.isMupdf && res.mupdfSrc) {
             if (std::abs((int)res.mupdfRasterW - (int)surfW) > 32 ||
                 std::abs((int)res.mupdfRasterH - (int)surfH) > 32) {
-                fz_context* ctx = fz_new_context(nullptr, nullptr, FZ_STORE_DEFAULT);
-                if (ctx) {
-                    bool ok = true;
-                    fz_try(ctx) { fz_register_document_handlers(ctx); }
-                    fz_catch(ctx) { ok = false; }
-                    if (ok) {
-                        QuickView::MuPdfDocument mupdfDoc(ctx);
-                        uint8_t* pixels = nullptr;
-                        int rW = 0, rH = 0, stride = 0;
-                        HRESULT hr = mupdfDoc.RenderSvgBufferToFrame(
-                            res.mupdfSrc->xmlData.data(),
-                            res.mupdfSrc->xmlData.size(),
-                            (int)surfW, (int)surfH,
-                            pixels, rW, rH, stride);
-                        mupdfDoc.Close(); // [Use-After-Free Fix] close before fz_drop_context
-                        if (SUCCEEDED(hr) && pixels && rW > 0 && rH > 0) {
-                            QuickView::RawImageFrame frame;
-                            frame.pixels = pixels;
-                            frame.width = rW;
-                            frame.height = rH;
-                            frame.stride = stride;
-                            frame.format = QuickView::PixelFormat::BGRA8888;
-                            frame.memoryDeleter = QuickView::MemoryDeleter::FromFree();
-                            ComPtr<ID2D1Bitmap> bmp;
-                            if (SUCCEEDED(g_renderEngine->UploadRawFrameToGPU(frame, &bmp)) && bmp) {
-                                res.bitmap = bmp;
-                                res.mupdfRasterW = rW;
-                                res.mupdfRasterH = rH;
-                            }
-                            std::free(pixels);
-                            frame.pixels = nullptr; // prevent ~RawImageFrame double-free
-                        }
+                // Calculate zoom from SVG intrinsic size to target surface size
+                float svgW = res.mupdfSrc->viewBoxW;
+                float svgH = res.mupdfSrc->viewBoxH;
+                float zoom = (svgW > 0 && svgH > 0)
+                    ? std::min((float)surfW / svgW, (float)surfH / svgH)
+                    : 1.0f;
+                if (zoom < 0.01f) zoom = 0.01f;
+
+                std::vector<uint8_t> svgData(res.mupdfSrc->xmlData.begin(),
+                                              res.mupdfSrc->xmlData.end());
+                std::vector<uint8_t> bgra;
+                uint32_t rW = 0, rH = 0;
+                HRESULT hr = QuickView::QvRasterizeSvgResvg(svgData, zoom, bgra, true, true,
+                                                  nullptr, nullptr, &rW, &rH);
+                if (SUCCEEDED(hr) && rW > 0 && rH > 0 && !bgra.empty()) {
+                    QuickView::RawImageFrame frame;
+                    frame.pixels = bgra.data();
+                    frame.width = (int)rW;
+                    frame.height = (int)rH;
+                    frame.stride = (int)rW * 4;
+                    frame.format = QuickView::PixelFormat::BGRA8888;
+                    ComPtr<ID2D1Bitmap> bmp;
+                    if (SUCCEEDED(g_renderEngine->UploadRawFrameToGPU(frame, &bmp)) && bmp) {
+                        res.bitmap = bmp;
+                        res.mupdfRasterW = rW;
+                        res.mupdfRasterH = rH;
                     }
-                    fz_drop_context(ctx);
                 }
             }
         }
@@ -6142,202 +6132,13 @@ return 0;
 
 // [CDR→PDF] Command-line tool: parse CDR via libcdr → SVG → MuPDF PDF writer.
 // Records per-stage timing to stdout for profiling.
-static int RunCdrToPdf(int argc, wchar_t** argv) {
-    std::wstring inPath, outPath;
-    for (int i = 1; i < argc; ++i) {
-        if (_wcsicmp(argv[i], L"--cdr-to-pdf") == 0) {
-            if (i + 1 < argc) inPath = argv[++i];
-            if (i + 1 < argc) outPath = argv[++i];
-        }
-    }
-    if (inPath.empty() || outPath.empty()) {
-        fwprintf(stderr, L"Usage: QuickView.exe --cdr-to-pdf <input.cdr> <output.pdf>\n");
-        return 2;
-    }
-
-    // Convert output path to UTF-8 for MuPDF
-    std::string outPathUtf8;
-    {
-        int len = WideCharToMultiByte(CP_UTF8, 0, outPath.c_str(), -1, nullptr, 0, nullptr, nullptr);
-        if (len > 0) {
-            outPathUtf8.resize(len - 1);
-            WideCharToMultiByte(CP_UTF8, 0, outPath.c_str(), -1, outPathUtf8.data(), len, nullptr, nullptr);
-        }
-    }
-
-    auto t0 = GetTickCount64();
-
-    // ---- Stage 1: Read CDR file ----
-    std::vector<uint8_t> fileData;
-    {
-        HANDLE hFile = CreateFileW(inPath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
-                                   OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (hFile == INVALID_HANDLE_VALUE) {
-            fwprintf(stderr, L"Cannot open input file: %s\n", inPath.c_str());
-            return 3;
-        }
-        LARGE_INTEGER sz; GetFileSizeEx(hFile, &sz);
-        fileData.resize(static_cast<size_t>(sz.QuadPart));
-        DWORD read = 0;
-        ReadFile(hFile, fileData.data(), static_cast<DWORD>(fileData.size()), &read, nullptr);
-        CloseHandle(hFile);
-    }
-    auto t1 = GetTickCount64();
-    fwprintf(stdout, L"[1/4] Read CDR file:        %llu ms  (%zu bytes)\n",
-             t1 - t0, fileData.size());
-
-    // ---- Stage 2: libcdr parse CDR → SVG ----
-    librevenge::RVNGStringStream input(fileData.data(), static_cast<unsigned>(fileData.size()));
-    bool isCdr = libcdr::CDRDocument::isSupported(&input);
-    bool isCmx = false;
-    if (!isCdr) {
-        isCmx = libcdr::CMXDocument::isSupported(&input);
-        if (!isCmx) {
-            fwprintf(stderr, L"CDR/CMX format not supported\n");
-            return 4;
-        }
-    }
-
-    librevenge::RVNGStringVector svgPages;
-    librevenge::RVNGSVGDrawingGenerator painter(svgPages, "");
-    bool parsed = false;
-    if (isCdr)
-        parsed = libcdr::CDRDocument::parse(&input, &painter);
-    else
-        parsed = libcdr::CMXDocument::parse(&input, &painter);
-
-    if (!parsed || svgPages.empty()) {
-        fwprintf(stderr, L"libcdr parse failed\n");
-        return 5;
-    }
-    auto t2 = GetTickCount64();
-    fwprintf(stdout, L"[2/4] libcdr parse → SVG:    %llu ms  (%zu pages)\n",
-             t2 - t1, svgPages.size());
-
-    // ---- Stage 2b: SVG post-processing (same as LoadCDR) ----
-    // Crop whitespace, inline styles, insert page boundary rect, expand
-    // viewBox for out-of-canvas content — ensures PDF matches viewer.
-    std::vector<std::string> rawPages;
-    rawPages.reserve(svgPages.size());
-    for (size_t i = 0; i < svgPages.size(); ++i)
-        rawPages.emplace_back(svgPages[i].cstr());
-    auto processedPages = ProcessCdrSvgPages(rawPages);
-    auto t2b = GetTickCount64();
-    fwprintf(stdout, L"[2b/5] SVG post-process:     %llu ms  (%zu pages)\n",
-             t2b - t2, processedPages.size());
-
-    // [Debug] Check if BMP data URIs were converted to PNG
-    if (!processedPages.empty()) {
-        const auto& firstSvg = processedPages[0].xmlData;
-        bool hasBmp = false, hasPng = false;
-        for (size_t j = 0; j + 20 < firstSvg.size(); ++j) {
-            if (!memcmp(firstSvg.data() + j, "data:image/bmp", 14)) hasBmp = true;
-            if (!memcmp(firstSvg.data() + j, "data:image/png", 14)) hasPng = true;
-        }
-        fwprintf(stdout, L"[DBG] After post-process: image/bmp=%s image/png=%s svgSize=%zu\n",
-                 hasBmp ? L"YES" : L"no", hasPng ? L"YES" : L"no", firstSvg.size());
-    }
-
-    if (processedPages.empty()) {
-        fwprintf(stderr, L"SVG post-processing produced no pages\n");
-        return 5;
-    }
-
-    // ---- Stage 3: MuPDF open SVG → display list (all pages) ----
-    fz_context* ctx = fz_new_context(nullptr, nullptr, FZ_STORE_DEFAULT);
-    if (!ctx) { fwprintf(stderr, L"fz_new_context failed\n"); return 6; }
-    fz_try(ctx) { fz_register_document_handlers(ctx); }
-    fz_catch(ctx) { fwprintf(stderr, L"fz_register_document_handlers failed\n"); fz_drop_context(ctx); return 7; }
-
-    // Build a display list for each processed page
-    struct PageDL {
-        fz_buffer* buf = nullptr;
-        fz_document* doc = nullptr;
-        fz_display_list* dl = nullptr;
-        float w = 0, h = 0;
-    };
-    std::vector<PageDL> pageDLs;
-    bool openFailed = false;
-
-    for (size_t pi = 0; pi < processedPages.size(); ++pi) {
-        PageDL pd;
-        fz_try(ctx) {
-            pd.buf = fz_new_buffer_from_shared_data(ctx,
-                processedPages[pi].xmlData.data(), processedPages[pi].xmlData.size());
-            pd.doc = fz_open_document_with_buffer(ctx, "image/svg+xml", pd.buf);
-            pd.dl = fz_new_display_list_from_page_number(ctx, pd.doc, 0);
-            fz_page* page = fz_load_page(ctx, pd.doc, 0);
-            fz_rect bounds = fz_bound_page(ctx, page);
-            pd.w = bounds.x1 - bounds.x0;
-            pd.h = bounds.y1 - bounds.y0;
-            fz_drop_page(ctx, page);
-        }
-        fz_catch(ctx) {
-            fwprintf(stderr, L"MuPDF open SVG page %zu failed: %S\n", pi, fz_caught_message(ctx));
-            if (pd.dl) fz_drop_display_list(ctx, pd.dl);
-            if (pd.doc) fz_drop_document(ctx, pd.doc);
-            if (pd.buf) fz_drop_buffer(ctx, pd.buf);
-            openFailed = true;
-            break;
-        }
-        pageDLs.push_back(pd);
-    }
-
-    if (openFailed) {
-        for (auto& p : pageDLs) {
-            if (p.dl) fz_drop_display_list(ctx, p.dl);
-            if (p.doc) fz_drop_document(ctx, p.doc);
-            if (p.buf) fz_drop_buffer(ctx, p.buf);
-        }
-        fz_drop_context(ctx);
-        return 8;
-    }
-
-    auto t3 = GetTickCount64();
-    fwprintf(stdout, L"[3/5] MuPDF open SVG:        %llu ms  (%zu pages, %.1f x %.1f pt first)\n",
-             t3 - t2b, pageDLs.size(), pageDLs[0].w, pageDLs[0].h);
-
-    // ---- Stage 4: MuPDF write PDF (all pages) ----
-    fz_document_writer* writer = nullptr;
-    fz_device* dev = nullptr;
-    bool writeFailed = false;
-    fz_try(ctx) {
-        writer = fz_new_document_writer(ctx, outPathUtf8.c_str(), "pdf", nullptr);
-        for (size_t pi = 0; pi < pageDLs.size(); ++pi) {
-            dev = fz_begin_page(ctx, writer, fz_make_rect(0, 0, pageDLs[pi].w, pageDLs[pi].h));
-            fz_run_display_list(ctx, pageDLs[pi].dl, dev, fz_identity, fz_infinite_rect, nullptr);
-            fz_close_device(ctx, dev);
-            fz_end_page(ctx, writer);
-            fz_drop_device(ctx, dev);
-            dev = nullptr;
-        }
-        fz_close_document_writer(ctx, writer);
-    }
-    fz_always(ctx) {
-        if (dev) fz_drop_device(ctx, dev);
-    }
-    fz_catch(ctx) {
-        fwprintf(stderr, L"MuPDF write PDF failed: %S\n", fz_caught_message(ctx));
-        writeFailed = true;
-    }
-
-    if (writer) fz_drop_document_writer(ctx, writer);
-    for (auto& p : pageDLs) {
-        if (p.dl) fz_drop_display_list(ctx, p.dl);
-        if (p.doc) fz_drop_document(ctx, p.doc);
-        if (p.buf) fz_drop_buffer(ctx, p.buf);
-    }
-    fz_drop_context(ctx);
-
-    if (writeFailed) return 9;
-
-    auto t4 = GetTickCount64();
-    fwprintf(stdout, L"[4/5] MuPDF write PDF:       %llu ms\n", t4 - t3);
-    fwprintf(stdout, L"------------------------------------\n");
-    fwprintf(stdout, L"Total:                       %llu ms\n", t4 - t0);
-    fwprintf(stdout, L"Output: %s\n", outPath.c_str());
-
-    return 0;
+static int RunCdrToPdf(int /*argc*/, wchar_t** /*argv*/) {
+    // [MuPDF removed] CDR→PDF 导出功能依赖 MuPDF 的 fz_document_writer。
+    // MuPDF 已被 PDFium 替换，PDFium 不支持写 PDF。
+    // 如需此功能，可使用 LibreOffice 命令行: soffice --convertto pdf input.cdr
+    fwprintf(stderr, L"--cdr-to-pdf is no longer supported after MuPDF removal.\n");
+    fwprintf(stderr, L"Use LibreOffice instead: soffice --convertto pdf <input.cdr>\n");
+    return 1;
 }
 
 static int RunExportPng(int argc, wchar_t** argv) {
@@ -12454,43 +12255,25 @@ void ProcessEngineEvents(HWND hwnd) {
                             constexpr float kDpiScale = 96.0f / 72.0f;
                             float fitScale = (std::min)(paneW / svgW, paneH / svgH) * kDpiScale;
                             if (fitScale < 0.01f) fitScale = 0.01f;
-                            int tW = (int)std::max(1L, (long)std::round(svgW * fitScale));
-                            int tH = (int)std::max(1L, (long)std::round(svgH * fitScale));
 
-                            // Create a MuPDF context and render.
-                            fz_context* ctx = fz_new_context(nullptr, nullptr, FZ_STORE_DEFAULT);
-                            if (!ctx) return false;
-                            fz_try(ctx) { fz_register_document_handlers(ctx); }
-                            fz_catch(ctx) { fz_drop_context(ctx); return false; }
-
-                            uint8_t* pixels = nullptr;
-                            int rW = 0, rH = 0, stride = 0;
-                            QuickView::MuPdfDocument mupdfDoc(ctx);
-                            HRESULT hr = mupdfDoc.RenderSvgBufferToFrame(
-                                evt.rawFrame->svg->xmlData.data(),
-                                evt.rawFrame->svg->xmlData.size(),
-                                tW, tH, pixels, rW, rH, stride);
-                            // [Use-After-Free Fix] Must close mupdfDoc BEFORE dropping
-                            // ctx. ~MuPdfDocument() calls Close() which uses m_context
-                            // to drop displayList/document/buffer.
-                            mupdfDoc.Close();
-                            fz_drop_context(ctx);
-                            if (FAILED(hr) || !pixels || rW == 0 || rH == 0) return false;
+                            // [resvg] Render CDR/CMX SVG via resvg rasterizer.
+                            float zoom = fitScale;
+                            std::vector<uint8_t> svgData(evt.rawFrame->svg->xmlData.begin(),
+                                                          evt.rawFrame->svg->xmlData.end());
+                            std::vector<uint8_t> bgra;
+                            uint32_t rW = 0, rH = 0;
+                            HRESULT hr = QuickView::QvRasterizeSvgResvg(svgData, zoom, bgra, true, true,
+                                                             nullptr, nullptr, &rW, &rH);
+                            if (FAILED(hr) || rW == 0 || rH == 0 || bgra.empty()) return false;
 
                             QuickView::RawImageFrame frame;
-                            frame.pixels = pixels;
-                            frame.width = rW;
-                            frame.height = rH;
-                            frame.stride = stride;
+                            frame.pixels = bgra.data();
+                            frame.width = (int)rW;
+                            frame.height = (int)rH;
+                            frame.stride = (int)rW * 4;
                             frame.format = QuickView::PixelFormat::BGRA8888;
-                            frame.memoryDeleter = QuickView::MemoryDeleter::FromFree();
                             ComPtr<ID2D1Bitmap> bmp;
                             hr = g_renderEngine->UploadRawFrameToGPU(frame, &bmp);
-                            // frame.Release() would free pixels; but UploadRawFrameToGPU
-                            // copies to GPU. Free the CPU buffer now and null the pointer
-                            // to prevent ~RawImageFrame() from double-freeing it.
-                            std::free(pixels);
-                            frame.pixels = nullptr;
                             if (FAILED(hr) || !bmp)
                                 return false;
                             auto& mupdfRes = GetPaneContext(PaneSlot::Primary).resource;
@@ -12508,9 +12291,9 @@ void ProcessEngineEvents(HWND hwnd) {
                         // [Vector Fix] PLT/DXF/DWG: use D2D native ID2D1SvgDocument
                         // for crisp vector rendering (lossless zoom). These formats
                         // produce pure-vector SVG (<path> only, no <image>/filters),
-                        // so D2D's SVG 1.1 subset is sufficient. No need for MuPDF
+                        // so D2D's SVG 1.1 subset is sufficient. No need for resvg
                         // rasterization which causes blur on large-coordinate files.
-                        // CDR/CMX still route through MuPDF for embedded bitmap support.
+                        // CDR/CMX route through resvg for embedded bitmap support.
                         const std::wstring& fmtDetails = evt.rawFrame->formatDetails;
                         const bool isPureVectorFormat =
                             fmtDetails == L"PLT" || fmtDetails == L"DXF" || fmtDetails == L"DWG";
@@ -15209,41 +14992,26 @@ void HandleCdrPageStep(HWND hwnd, uint32_t targetPage) {
     constexpr float kDpiScale = 96.0f / 72.0f;
     float fitScale = (std::min)(paneW / svgW, paneH / svgH) * kDpiScale;
     if (fitScale < 0.01f) fitScale = 0.01f;
-    int tW = (int)std::max(1L, (long)std::round(svgW * fitScale));
-    int tH = (int)std::max(1L, (long)std::round(svgH * fitScale));
 
-    fz_context* ctx = fz_new_context(nullptr, nullptr, FZ_STORE_DEFAULT);
-    if (!ctx) {
-        g_osd.Show(hwnd, L"MuPDF 初始化失败", true);
-        return;
-    }
-    fz_try(ctx) { fz_register_document_handlers(ctx); }
-    fz_catch(ctx) { fz_drop_context(ctx); g_osd.Show(hwnd, L"MuPDF 初始化失败", true); return; }
-
-    QuickView::MuPdfDocument mupdfDoc(ctx);
-    uint8_t* pixels = nullptr;
-    int rW = 0, rH = 0, stride = 0;
-    HRESULT hr = mupdfDoc.RenderSvgBufferToFrame(
-        pageData.xmlData.data(), pageData.xmlData.size(),
-        tW, tH, pixels, rW, rH, stride);
-    mupdfDoc.Close(); // [Use-After-Free Fix] close before fz_drop_context
-    fz_drop_context(ctx);
-    if (FAILED(hr) || !pixels || rW == 0 || rH == 0) {
+    // [resvg] Render CDR/CMX page via resvg rasterizer
+    std::vector<uint8_t> svgData(pageData.xmlData.begin(), pageData.xmlData.end());
+    std::vector<uint8_t> bgra;
+    uint32_t rW = 0, rH = 0;
+    HRESULT hr = QuickView::QvRasterizeSvgResvg(svgData, fitScale, bgra, true, true,
+                                     nullptr, nullptr, &rW, &rH);
+    if (FAILED(hr) || rW == 0 || rH == 0 || bgra.empty()) {
         g_osd.Show(hwnd, L"SVG 页面渲染失败", true);
         return;
     }
 
     ComPtr<ID2D1Bitmap> bmp;
     QuickView::RawImageFrame frame;
-    frame.pixels = pixels;
-    frame.width = rW;
-    frame.height = rH;
-    frame.stride = stride;
+    frame.pixels = bgra.data();
+    frame.width = (int)rW;
+    frame.height = (int)rH;
+    frame.stride = (int)rW * 4;
     frame.format = QuickView::PixelFormat::BGRA8888;
-    frame.memoryDeleter = QuickView::MemoryDeleter::FromFree();
     hr = g_renderEngine->UploadRawFrameToGPU(frame, &bmp);
-    std::free(pixels);
-    frame.pixels = nullptr; // prevent ~RawImageFrame double-free
     if (FAILED(hr) || !bmp) {
         g_osd.Show(hwnd, L"GPU 上传失败", true);
         return;

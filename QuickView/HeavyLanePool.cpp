@@ -830,13 +830,9 @@ void HeavyLanePool::ResumeDeferredJobs(ImageID imageId, int lod) {
 void HeavyLanePool::WorkerLoop(int workerId, std::stop_token st) {
     Worker& self = m_workers[workerId];
 
-    // [PDF Fix] Initialize COM (MTA) + WinRT for this worker thread.
-    // WinRtPdfDocument::Open uses CreateRandomAccessStreamOnFile,
-    // RoGetActivationFactory, WindowsCreateString, etc. which require
-    // COM/WinRT initialization. Without this, opening PDF files crashes
-    // the worker thread (0xC0000005 access violation).
+    // [COM Fix] Initialize COM (MTA) for this worker thread.
+    // PDFium and shell interactions require COM initialization.
     HRESULT coInitHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    HRESULT roInitHr = RoInitialize(RO_INIT_MULTITHREADED);
     // S_OK / S_FALSE / RPC_E_CHANGED_MODE are all acceptable — the thread
     // is initialized either way.
 
@@ -1001,8 +997,7 @@ void HeavyLanePool::WorkerLoop(int workerId, std::stop_token st) {
         }
     }
 
-    // [PDF Fix] Uninitialize WinRT + COM on thread exit (reverse order).
-    if (SUCCEEDED(roInitHr)) RoUninitialize();
+    // [COM Fix] Uninitialize COM on thread exit.
     if (SUCCEEDED(coInitHr)) CoUninitialize();
 }
 

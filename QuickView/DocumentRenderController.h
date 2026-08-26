@@ -1,7 +1,6 @@
 #pragma once
 
-#include "MuPdfDocument.h"
-#include "WinRtPdfDocument.h"
+#include "PdfiumDocument.h"
 
 #include <condition_variable>
 #include <cstdint>
@@ -59,9 +58,7 @@ private:
     HRESULT EnsureDocument(const std::wstring& path, std::wstring& errorMessage) noexcept;
     void ProcessThumbnailRequest(const ThumbnailRequest& request, ThumbnailResult& result) noexcept;
 
-    fz_context* m_context = nullptr;
-    std::unique_ptr<MuPdfDocument> m_document;
-    std::unique_ptr<WinRtPdfDocument> m_winRtDoc;  // [WinRT PDF] Native engine (preferred)
+    std::unique_ptr<PdfiumDocument> m_pdfiumDoc;  // [PDFium] Edge/Chrome PDF engine
     std::thread m_worker;
     std::mutex m_mutex;
     std::condition_variable m_condition;
@@ -82,7 +79,7 @@ private:
     std::priority_queue<ThumbnailQueueEntry> m_thumbQueue;
     std::vector<ThumbnailResult> m_thumbResults;
     uint64_t m_nextThumbId = 0;
-    std::optional<uint64_t> m_currentFullDocPathHash;  // Track current document to invalidate thumbnails
+    std::optional<uint64_t> m_currentFullDocPathHash;
 };
 
 } // namespace QuickView

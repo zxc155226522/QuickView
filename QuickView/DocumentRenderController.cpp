@@ -1,32 +1,11 @@
 #include "pch.h"
 #include "DocumentRenderController.h"
 
-#include <mupdf/fitz.h>
-#include <roapi.h>      // [PDF Fix] RoInitialize/RoUninitialize for WinRT PDF
-#include <objbase.h>     // [PDF Fix] CoInitializeEx/CoUninitialize
+#include <objbase.h>     // CoInitializeEx/CoUninitialize (for thumbnail shell)
 
 namespace QuickView {
 
-// [WinRT PDF] Check if Windows.Data.Pdf.dll is available on this system.
-// On Windows Server / LTSC / stripped images the DLL may be absent.
-// We use a lightweight LoadLibraryEx probe (LOAD_LIBRARY_AS_IMAGE_RESOURCE
-// to avoid executing any code) before creating WinRtPdfDocument.
-static bool IsWinRtPdfAvailable() noexcept {
-    // Both DLLs must be present for WinRT PDF rendering to work.
-    // LOAD_LIBRARY_AS_IMAGE_RESOURCE avoids executing any DLL code.
-    HMODULE h1 = LoadLibraryExW(L"Windows.Data.Pdf.dll", nullptr,
-                                LOAD_LIBRARY_AS_IMAGE_RESOURCE);
-    if (!h1) return false;
-    FreeLibrary(h1);
-
-    HMODULE h2 = LoadLibraryExW(L"runtimeobject.dll", nullptr,
-                                LOAD_LIBRARY_AS_IMAGE_RESOURCE);
-    if (!h2) return false;
-    FreeLibrary(h2);
-    return true;
-}
-
-// [PDF Sidebar] Helper: compute a stable hash from path for cache invalidation
+// Helper: compute a stable hash from path for cache invalidation
 static uint64_t HashPath(const std::wstring& path) noexcept {
     uint64_t h = 14695981039346656037ull;
     for (wchar_t c : path) {
@@ -37,37 +16,14 @@ static uint64_t HashPath(const std::wstring& path) noexcept {
 }
 
 DocumentRenderController::DocumentRenderController() {
-    // 1. [WinRT PDF] Try native Windows PDF engine first
-    if (IsWinRtPdfAvailable()) {
-        m_winRtDoc = std::make_unique<WinRtPdfDocument>();
-    }
+    // [PDFium] Single engine — replaces WinRT PDF + MuPDF
+    m_pdfiumDoc = std::make_unique<PdfiumDocument>();
 
-    // 2. [MuPDF] Try fallback engine
-    m_context = fz_new_context(nullptr, nullptr, FZ_STORE_DEFAULT);
-    if (m_context) {
-        fz_try(m_context) {
-            fz_register_document_handlers(m_context);
-        }
-        fz_catch(m_context) {
-            fz_drop_context(m_context);
-            m_context = nullptr;
-        }
-        if (m_context) {
-            m_document = std::make_unique<MuPdfDocument>(m_context);
-        }
-    }
-
-    // Controller is available if either WinRT PDF or MuPDF engine is initialized
-    m_available = (m_winRtDoc != nullptr) || (m_document != nullptr);
+    m_available = (m_pdfiumDoc != nullptr);
     if (m_available) {
         m_worker = std::thread(&DocumentRenderController::WorkerMain, this);
     }
-    OutputDebugStringW(L"[ThumbPanel] DocumentRenderController constructed!\n");
-    if (FILE* _fp = _wfopen(L"E:\\qv_thumb_debug.log", L"a")) {
-        fwprintf(_fp, L"[ThumbPanel] DocumentRenderController constructed (winRt=%d, muPdf=%d, available=%d)\n",
-                 m_winRtDoc != nullptr, m_document != nullptr, m_available);
-        fflush(_fp); fclose(_fp);
-    }
+    OutputDebugStringW(L"[PDFium] DocumentRenderController constructed!\n");
 }
 
 DocumentRenderController::~DocumentRenderController() {
@@ -78,10 +34,7 @@ DocumentRenderController::~DocumentRenderController() {
     }
     m_condition.notify_one();
     if (m_worker.joinable()) m_worker.join();
-    m_winRtDoc.reset();
-    m_document.reset();
-    if (m_context) fz_drop_context(m_context);
-    m_context = nullptr;
+    m_pdfiumDoc.reset();
 }
 
 uint64_t DocumentRenderController::Request(DocumentRenderRequest request) {
@@ -93,7 +46,6 @@ uint64_t DocumentRenderController::Request(DocumentRenderRequest request) {
         requestId = ++m_nextRequestId;
         request.requestId = requestId;
         m_pendingRequest = std::move(request);
-        // Mark current full document path for thumbnail invalidation
         m_currentFullDocPathHash = HashPath(request.path);
     }
     m_condition.notify_one();
@@ -154,26 +106,13 @@ void DocumentRenderController::ClearThumbnailCache() noexcept {
 
 HRESULT DocumentRenderController::EnsureDocument(const std::wstring& path,
                                                   std::wstring& errorMessage) noexcept {
-    if (!m_winRtDoc && !m_document) return E_UNEXPECTED;
+    if (!m_pdfiumDoc) return E_UNEXPECTED;
 
-    // [WinRT PDF] Try native engine first (browser-quality vector rendering)
-    if (m_winRtDoc) {
-        if (m_winRtDoc->IsOpen() && m_winRtDoc->Path() == path) return S_OK;
-        HRESULT hr = m_winRtDoc->Open(path, errorMessage);
-        if (SUCCEEDED(hr)) return S_OK;
-        // Fall back to MuPDF if native engine fails
-    }
-
-    // [Fallback] MuPDF engine
-    if (m_document) {
-        if (m_document->IsOpen() && m_document->Path() == path) return S_OK;
-        return m_document->Open(path, errorMessage);
-    }
-
-    return E_FAIL;
+    if (m_pdfiumDoc->IsOpen() && m_pdfiumDoc->Path() == path) return S_OK;
+    return m_pdfiumDoc->Open(path, errorMessage);
 }
 
-// [PDF Sidebar] Render a single thumbnail page and produce a ThumbnailResult
+// [PDF Sidebar] Render a single thumbnail page
 void DocumentRenderController::ProcessThumbnailRequest(const ThumbnailRequest& request,
                                                         ThumbnailResult& result) noexcept {
     result.requestId = request.requestId;
@@ -191,22 +130,11 @@ void DocumentRenderController::ProcessThumbnailRequest(const ThumbnailRequest& r
     int w = (std::max)(request.targetWidth, 64);
     int h = (std::max)(request.targetHeight, 64);
 
-    if (m_winRtDoc && m_winRtDoc->IsOpen()) {
-        hr = m_winRtDoc->RenderPage(request.pageIndex, w, h, 1.0f, fullResult);
-        if (FAILED(hr) && m_document) {
-            // Fallback to MuPDF
-            fullResult = {};
-            hr = m_document->RenderPage(request.pageIndex, w, h, 1.0f, fullResult);
-        }
-    } else if (m_document) {
-        hr = m_document->RenderPage(request.pageIndex, w, h, 1.0f, fullResult);
-    }
+    hr = m_pdfiumDoc->RenderPage(request.pageIndex, w, h, 1.0f, fullResult);
 
     if (SUCCEEDED(hr) && fullResult.frame && fullResult.frame->IsValid()) {
-        // Deep copy the frame pixels for safe hand-off to the main thread
         auto copied = std::make_shared<RawImageFrame>();
         if (fullResult.frame->IsSvg()) {
-            // Should not happen for PDF thumbnails
             result.status = E_FAIL;
             return;
         }
@@ -235,14 +163,8 @@ void DocumentRenderController::ProcessThumbnailRequest(const ThumbnailRequest& r
 }
 
 void DocumentRenderController::WorkerMain() noexcept {
-    // [PDF Fix] Initialize COM (MTA) + WinRT for this worker thread.
-    // WinRtPdfDocument::Open uses CreateRandomAccessStreamOnFile,
-    // RoGetActivationFactory, CoWaitForMultipleHandles, etc. which require
-    // COM/WinRT initialization. Without this, the WinRT async callback for
-    // LoadFromStreamAsync cannot be dispatched → deadloop/hang.
+    // COM init for shell interactions (thumbnail provider, etc.)
     HRESULT coInitHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    HRESULT roInitHr = RoInitialize(RO_INIT_MULTITHREADED);
-    // S_OK / S_FALSE / RPC_E_CHANGED_MODE are all acceptable.
 
     while (true) {
         enum class TaskType { None, FullRender, Thumbnail };
@@ -257,7 +179,6 @@ void DocumentRenderController::WorkerMain() noexcept {
             });
             if (m_stopping) break;
 
-            // Priority: full-size render requests first
             if (m_pendingRequest.has_value()) {
                 taskType = TaskType::FullRender;
                 fullRequest = std::move(*m_pendingRequest);
@@ -278,47 +199,12 @@ void DocumentRenderController::WorkerMain() noexcept {
             std::wstring errorMessage;
             HRESULT hr = EnsureDocument(fullRequest.path, errorMessage);
             if (SUCCEEDED(hr)) {
-                // [WinRT PDF] Prefer native engine; fall back to MuPDF
-                bool rendered = false;
-                if (m_winRtDoc && m_winRtDoc->IsOpen()) {
-                    hr = m_winRtDoc->RenderPage(fullRequest.pageIndex,
-                                                fullRequest.viewportWidth,
-                                                fullRequest.viewportHeight,
-                                                fullRequest.zoom,
-                                                result);
-                    if (SUCCEEDED(hr)) {
-                        rendered = true;
-                    } else {
-                        // Native render failed, try MuPDF
-                        // [Fix] Guard against m_document being nullptr
-                        // (MuPDF context initialization can fail).
-                        if (m_document) {
-                            std::wstring mupdfError;
-                            HRESULT mupdfHr = m_document->Open(fullRequest.path, mupdfError);
-                            if (SUCCEEDED(mupdfHr)) {
-                                hr = m_document->RenderPage(fullRequest.pageIndex,
-                                                            fullRequest.viewportWidth,
-                                                            fullRequest.viewportHeight,
-                                                            fullRequest.zoom,
-                                                            result);
-                                rendered = SUCCEEDED(hr);
-                            }
-                        }
-                    }
-                }
-                if (!rendered) {
-                    // [Fix] Guard against m_document being nullptr.
-                    if (m_document) {
-                        hr = m_document->RenderPage(fullRequest.pageIndex,
-                                                    fullRequest.viewportWidth,
-                                                    fullRequest.viewportHeight,
-                                                    fullRequest.zoom,
-                                                    result);
-                    } else {
-                        hr = E_FAIL;
-                        result.errorMessage = L"No PDF rendering engine available.";
-                    }
-                }
+                // [PDFium] Single engine — no fallback needed
+                hr = m_pdfiumDoc->RenderPage(fullRequest.pageIndex,
+                                             fullRequest.viewportWidth,
+                                             fullRequest.viewportHeight,
+                                             fullRequest.zoom,
+                                             result);
             } else {
                 result.status = hr;
                 result.errorMessage = std::move(errorMessage);
@@ -352,8 +238,6 @@ void DocumentRenderController::WorkerMain() noexcept {
         }
     }
 
-    // [PDF Fix] Uninitialize WinRT + COM on thread exit (reverse order).
-    if (SUCCEEDED(roInitHr)) RoUninitialize();
     if (SUCCEEDED(coInitHr)) CoUninitialize();
 }
 

@@ -1,4 +1,4 @@
-﻿# ===========================================================================
+﻿﻿# ===========================================================================
 # QuickView 编译并启动脚本
 # 解决中文路径导致 NASM 汇编器乱码的问题
 # 原理：创建无中文路径的 junction，从 junction 编译，完成后删除 junction
@@ -72,6 +72,14 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 Write-Host "  编译成功！" -ForegroundColor Green
+
+# 4.5 复制 PDFium DLL
+$pdfiumDll = Join-Path $ProjectPath "third_party\pdfium\bin\pdfium.dll"
+$outDir = Join-Path $ProjectPath "out\build\Release-LTO"
+if (Test-Path $pdfiumDll) {
+    Copy-Item $pdfiumDll -Destination $outDir -Force
+    Write-Host "  PDFium DLL 已复制到输出目录" -ForegroundColor Green
+}
 
 # 5. 启动
 $exePath = Join-Path $ProjectPath "out\build\Release-LTO\QuickView.exe"
