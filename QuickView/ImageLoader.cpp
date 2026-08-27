@@ -11593,7 +11593,7 @@ static void InlineSvgStyleAttrs(std::string &svg) {
 // calls fz_new_image_from_buffer which detects format by file header,
 // so simply rewriting the prefix is sufficient — no re-encoding needed.
 // ----------------------------------------------------------------------------
-static void RewriteUnsupportedDataUriPrefixes(std::string &svg) {
+[[maybe_unused]] static void RewriteUnsupportedDataUriPrefixes(std::string &svg) {
   // MuPDF svg_run_image only recognizes these two prefixes:
   //   data:image/jpeg;base64,
   //   data:image/png;base64,
