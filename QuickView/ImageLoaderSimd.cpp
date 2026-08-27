@@ -244,7 +244,7 @@ void PremulRGBAToWhiteBGRAImpl(const uint8_t* src, uint8_t* dst, size_t pixelCou
         vB = hn::Add(vB, vWhite);
 
         // Store as BGRA (swap R/B), alpha = 255
-        hn::StoreInterleaved4(d8, dst + i * 4, vB, vG, vR, v255);
+        hn::StoreInterleaved4(vB, vG, vR, v255, d8, dst + i * 4);
     }
 
     // Scalar tail
@@ -274,7 +274,7 @@ void PremulRGBAToPremulBGRAImpl(const uint8_t* src, uint8_t* dst, size_t pixelCo
         hn::Vec<decltype(d8)> vR, vG, vB, vA;
         hn::LoadInterleaved4(d8, px, vR, vG, vB, vA);
         // Store as BGRA (swap R/B), keep premultiplied alpha
-        hn::StoreInterleaved4(d8, dst + i * 4, vB, vG, vR, vA);
+        hn::StoreInterleaved4(vB, vG, vR, vA, d8, dst + i * 4);
     }
 
     // Scalar tail
