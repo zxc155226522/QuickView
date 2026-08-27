@@ -11783,12 +11783,10 @@ std::vector<CdrPageData> ProcessCdrSvgPages(
   for (size_t i = 0; i < rawSvgPages.size(); ++i) {
     std::string svgContent(rawSvgPages[i]);
 
-    // [BMP→PNG] fastMode(MuPDF 看图): 只改前缀（MuPDF 靠文件头检测格式，极快）。
-    // 完整模式(CLI 导出 PDF): 真编码 BMP→PNG（其他 PDF 阅读器可能不支持 BMP data URI）。
-    if (fastMode)
-      RewriteUnsupportedDataUriPrefixes(svgContent);
-    else
-      ConvertBmpDataUrisToPng(svgContent);
+    // [BMP→PNG] CDR/CMX 在主查看器中走 resvg 渲染（不是 MuPDF）。
+    // resvg 不支持 BMP data URI（不靠文件头检测格式），必须真正解码 BMP→重编码 PNG。
+    // 无论 fastMode 还是完整模式，都需要真编码以支持 resvg 渲染。
+    ConvertBmpDataUrisToPng(svgContent);
 
 if (fastMode) {
 // 快速模式：BMP前缀重写 + style inlining + 尺寸解析，跳过裁白边/页面矩形/viewBox 扩展。
