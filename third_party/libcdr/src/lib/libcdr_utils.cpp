@@ -19,6 +19,9 @@
 #include <unicode/utypes.h>
 #include <unicode/utf8.h>
 
+// [CDR Text Fix] Windows API for charset conversion (replacing ICU stub)
+#include <windows.h>
+
 #define CDR_NUM_ELEMENTS(array) sizeof(array)/sizeof(array[0])
 
 #define SURROGATE_VALUE(h,l) (((h) - 0xd800) * 0x400 + (l) - 0xdc00 + 0x10000)
@@ -97,50 +100,92 @@ static unsigned short getEncodingFromICUName(const char *name)
   return 0;
 }
 
+// [CDR Text Fix] Map libcdr charset code to Windows Code Page ID.
+static unsigned int charsetToCodePage(unsigned short charset)
+{
+  switch (charset)
+  {
+  case 0x02: return 0;           // SYMBOL - handled separately
+  case 0x80: return 932;         // SHIFTJIS
+  case 0x81: return 949;         // HANGUL
+  case 0x86: return 936;         // GB2312
+  case 0x88: return 950;         // CHINESEBIG5
+  case 0xa1: return 1253;        // GREEK
+  case 0xa2: return 1254;        // TURKISH
+  case 0xa3: return 1258;        // VIETNAMESE
+  case 0xb1: return 1255;        // HEBREW
+  case 0xb2: return 1256;        // ARABIC
+  case 0xba: return 1257;        // BALTIC
+  case 0xcc: return 1251;        // RUSSIAN
+  case 0xde: return 874;         // THAI
+  case 0xee: return 1250;        // CENTRAL EUROPE
+  default:  return 1252;        // default: windows-1252
+  }
+}
+
+// [CDR Text Fix] Simple heuristic charset detection without ICU.
+// Tries to detect if the data is UTF-16, GB2312, Big5, ShiftJIS, etc.
 static unsigned short getEncoding(const unsigned char *buffer, unsigned long bufferLength)
 {
-  if (!buffer)
+  if (!buffer || bufferLength == 0)
     return 0;
-  UErrorCode status = U_ZERO_ERROR;
-  UCharsetDetector *csd = nullptr;
-  try
-  {
-    csd = ucsdet_open(&status);
-    if (U_FAILURE(status) || !csd)
-      return 0;
-    ucsdet_enableInputFilter(csd, true);
-    ucsdet_setText(csd, (const char *)buffer, (unsigned)bufferLength, &status);
-    if (U_FAILURE(status))
-      throw libcdr::EncodingException();
-    const UCharsetMatch *csm = ucsdet_detect(csd, &status);
-    if (U_FAILURE(status) || !csm)
-      throw libcdr::EncodingException();
-    const char *name = ucsdet_getName(csm, &status);
-    if (U_FAILURE(status) || !name)
-      throw libcdr::EncodingException();
-    int32_t confidence = ucsdet_getConfidence(csm, &status);
-    if (U_FAILURE(status))
-      throw libcdr::EncodingException();
-    CDR_DEBUG_MSG(("UCSDET: getEncoding name %s, confidence %i\n", name, confidence));
-    unsigned short encoding = getEncodingFromICUName(name);
-    ucsdet_close(csd);
-    /* From ICU documentation
-     * A confidence value of ten does have a general meaning - it is used
-     * for charsets that can represent the input data, but for which there
-     * is no other indication that suggests that the charset is the correct
-     * one. Pure 7 bit ASCII data, for example, is compatible with a great
-     * many charsets, most of which will appear as possible matches with
-     * a confidence of 10.
-     */
-    if (confidence == 10)
-      return 0;
-    return encoding;
-  }
-  catch (const libcdr::EncodingException &)
-  {
-    ucsdet_close(csd);
+
+  // Check for UTF-16LE BOM
+  if (bufferLength >= 2 && buffer[0] == 0xFF && buffer[1] == 0xFE)
+    return 0; // Let the UTF-16 path handle it
+
+  // Check for UTF-8 BOM
+  if (bufferLength >= 3 && buffer[0] == 0xEF && buffer[1] == 0xBB && buffer[2] == 0xBF)
     return 0;
+
+  // Check if all bytes are ASCII (0x00-0x7F)
+  bool allAscii = true;
+  for (unsigned long i = 0; i < bufferLength; ++i)
+  {
+    if (buffer[i] > 0x7F)
+    {
+      allAscii = false;
+      break;
+    }
   }
+  if (allAscii)
+    return 0; // ASCII is compatible with everything
+
+  // Heuristic: check for common CJK encoding patterns.
+  // GB2312/GBK: lead byte 0x81-0xFE, trail byte 0x40-0xFE (excl 0x7F)
+  // Big5: lead byte 0x81-0xFE, trail byte 0x40-0x7E or 0xA1-0xFE
+  // ShiftJIS: lead byte 0x81-0x9F or 0xE0-0xFC, trail byte 0x40-0xFC (excl 0x7F)
+
+  // Count byte patterns for each encoding
+  int gbCount = 0, big5Count = 0, sjisCount = 0;
+  for (unsigned long i = 0; i + 1 < bufferLength; ++i)
+  {
+    unsigned char b0 = buffer[i];
+    unsigned char b1 = buffer[i + 1];
+
+    // GB2312/GBK
+    if (b0 >= 0x81 && b0 <= 0xFE && b1 >= 0x40 && b1 <= 0xFE && b1 != 0x7F)
+      gbCount++;
+
+    // Big5
+    if (b0 >= 0x81 && b0 <= 0xFE && ((b1 >= 0x40 && b1 <= 0x7E) || (b1 >= 0xA1 && b1 <= 0xFE)))
+      big5Count++;
+
+    // ShiftJIS
+    if (((b0 >= 0x81 && b0 <= 0x9F) || (b0 >= 0xE0 && b0 <= 0xFC)) &&
+        b1 >= 0x40 && b1 <= 0xFC && b1 != 0x7F)
+      sjisCount++;
+  }
+
+  // Return the encoding with the highest match count
+  if (gbCount == 0 && big5Count == 0 && sjisCount == 0)
+    return 0; // Can't determine, fall back to default
+
+  if (gbCount >= big5Count && gbCount >= sjisCount)
+    return 0x86; // GB2312
+  if (big5Count >= sjisCount)
+    return 0x88; // BIG5
+  return 0x80;   // SHIFTJIS
 }
 
 static void _appendUCS4(librevenge::RVNGString &text, UChar32 ucs4Character)
@@ -376,66 +421,39 @@ void libcdr::appendCharacters(librevenge::RVNGString &text, std::vector<unsigned
   }
   else
   {
-    UErrorCode status = U_ZERO_ERROR;
-    UConverter *conv = nullptr;
-    switch (charset)
+    // [CDR Text Fix] Use Windows API MultiByteToWideChar instead of ICU
+    // (ICU stub returns nullptr from ucnv_open, so no conversion happens).
+    unsigned int codePage = charsetToCodePage(charset);
+    int srcLen = (int)characters.size();
+
+    // Convert multi-byte to UTF-16
+    int wideLen = MultiByteToWideChar(codePage, 0,
+                                      (const char *)&characters[0], srcLen,
+                                      nullptr, 0);
+    if (wideLen > 0)
     {
-    case 0x80: // SHIFTJIS
-      conv = ucnv_open("windows-932", &status);
-      break;
-    case 0x81: // HANGUL
-      conv = ucnv_open("windows-949", &status);
-      break;
-    case 0x86: // GB2312
-      conv = ucnv_open("windows-936", &status);
-      break;
-    case 0x88: // CHINESEBIG5
-      conv = ucnv_open("windows-950", &status);
-      break;
-    case 0xa1: // GREEEK
-      conv = ucnv_open("windows-1253", &status);
-      break;
-    case 0xa2: // TURKISH
-      conv = ucnv_open("windows-1254", &status);
-      break;
-    case 0xa3: // VIETNAMESE
-      conv = ucnv_open("windows-1258", &status);
-      break;
-    case 0xb1: // HEBREW
-      conv = ucnv_open("windows-1255", &status);
-      break;
-    case 0xb2: // ARABIC
-      conv = ucnv_open("windows-1256", &status);
-      break;
-    case 0xba: // BALTIC
-      conv = ucnv_open("windows-1257", &status);
-      break;
-    case 0xcc: // RUSSIAN
-      conv = ucnv_open("windows-1251", &status);
-      break;
-    case 0xde: // THAI
-      conv = ucnv_open("windows-874", &status);
-      break;
-    case 0xee: // CENTRAL EUROPE
-      conv = ucnv_open("windows-1250", &status);
-      break;
-    default:
-      conv = ucnv_open("windows-1252", &status);
-      break;
-    }
-    if (U_SUCCESS(status) && conv)
-    {
-      const auto *src = (const char *)&characters[0];
-      const char *srcLimit = (const char *)src + characters.size();
-      while (src < srcLimit)
+      std::vector<wchar_t> wbuf(wideLen);
+      MultiByteToWideChar(codePage, 0,
+                          (const char *)&characters[0], srcLen,
+                          wbuf.data(), wideLen);
+      // Convert each UTF-16 code unit to UCS4 and append as UTF-8
+      for (int i = 0; i < wideLen; ++i)
       {
-        UChar32 ucs4Character = ucnv_getNextUChar(conv, &src, srcLimit, &status);
-        if (U_SUCCESS(status) && U_IS_UNICODE_CHAR(ucs4Character))
-          _appendUCS4(text, ucs4Character);
+        UChar32 ucs4 = (UChar32)wbuf[i];
+        // Handle surrogate pairs
+        if (ucs4 >= 0xD800 && ucs4 <= 0xDBFF && i + 1 < wideLen)
+        {
+          UChar32 low = (UChar32)wbuf[i + 1];
+          if (low >= 0xDC00 && low <= 0xDFFF)
+          {
+            ucs4 = ((ucs4 - 0xD800) << 10) + (low - 0xDC00) + 0x10000;
+            ++i;
+          }
+        }
+        if (U_IS_UNICODE_CHAR(ucs4))
+          _appendUCS4(text, ucs4);
       }
     }
-    if (conv)
-      ucnv_close(conv);
   }
 }
 
@@ -444,22 +462,26 @@ void libcdr::appendCharacters(librevenge::RVNGString &text, std::vector<unsigned
   if (characters.empty())
     return;
 
-  UErrorCode status = U_ZERO_ERROR;
-  UConverter *conv = ucnv_open("UTF-16LE", &status);
-
-  if (U_SUCCESS(status) && conv)
+  // [CDR Text Fix] Interpret as UTF-16LE directly (no ICU needed).
+  // Each pair of bytes is a UTF-16LE code unit; handle surrogate pairs.
+  const unsigned char *src = &characters[0];
+  size_t srcLen = characters.size();
+  for (size_t i = 0; i + 1 < srcLen; i += 2)
   {
-    const auto *src = (const char *)&characters[0];
-    const char *srcLimit = (const char *)src + characters.size();
-    while (src < srcLimit)
+    UChar32 ucs4 = (UChar32)(src[i] | (src[i + 1] << 8));
+    // Handle surrogate pairs
+    if (ucs4 >= 0xD800 && ucs4 <= 0xDBFF && i + 3 < srcLen)
     {
-      UChar32 ucs4Character = ucnv_getNextUChar(conv, &src, srcLimit, &status);
-      if (U_SUCCESS(status) && U_IS_UNICODE_CHAR(ucs4Character))
-        _appendUCS4(text, ucs4Character);
+      UChar32 low = (UChar32)(src[i + 2] | (src[i + 3] << 8));
+      if (low >= 0xDC00 && low <= 0xDFFF)
+      {
+        ucs4 = ((ucs4 - 0xD800) << 10) + (low - 0xDC00) + 0x10000;
+        i += 2; // skip the low surrogate pair
+      }
     }
+    if (U_IS_UNICODE_CHAR(ucs4))
+      _appendUCS4(text, ucs4);
   }
-  if (conv)
-    ucnv_close(conv);
 }
 
 void libcdr::appendUTF8Characters(librevenge::RVNGString &text, std::vector<unsigned char> characters)

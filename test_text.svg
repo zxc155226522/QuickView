@@ -1,5 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 200" width="400" height="200">
-  <rect width="400" height="200" fill="white"/>
-  <text x="50" y="100" font-family="Arial" font-size="32" fill="black">Hello Text Test</text>
-  <text x="50" y="150" font-family="SimSun" font-size="24" fill="red">中文测试</text>
-</svg>
