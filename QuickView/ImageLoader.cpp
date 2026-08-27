@@ -4191,6 +4191,17 @@ HRESULT QvRasterizeSvgResvg(const std::vector<uint8_t> &xml, float zoom,
     rW = (uint32_t)std::lround(rW * k);
     rH = (uint32_t)std::lround(rH * k);
   }
+  // [MemSafe] Verify the pixmap allocation won't exceed 512MB (BGRA = 4 bytes/pixel).
+  // std::vector allocation in /EHs-c- (no-exceptions) mode can silently fail or
+  // crash on huge allocations — clamp before allocating to prevent white-screen.
+  constexpr size_t kMaxPixmapBytes = 512ULL * 1024 * 1024;
+  if ((size_t)rW * rH * 4 > kMaxPixmapBytes) {
+    size_t maxPixels = kMaxPixmapBytes / 4;
+    float k = (float)maxPixels / (float)((size_t)rW * rH);
+    k = (float)sqrt((double)k);
+    rW = (uint32_t)std::max(1u, (uint32_t)std::lround(rW * k));
+    rH = (uint32_t)std::max(1u, (uint32_t)std::lround(rH * k));
+  }
   if (outNaturalW) *outNaturalW = nW;
   if (outNaturalH) *outNaturalH = nH;
   if (outW) *outW = rW;
@@ -16638,3 +16649,116 @@ HRESULT CImageLoader::GetEmbeddedPreviewInfo(LPCWSTR filePath, int *width,
 
   return S_OK;
 }
+
+// ============================================================================
+// [Async Resvg] Async SVG rasterization controller implementation
+// ============================================================================
+// Rasterizes SVG on a background thread to avoid blocking the UI thread
+// during zoom. Results are delivered via PostMessage to the main window.
+// ============================================================================
+
+namespace QuickView {
+
+AsyncRasterizer& AsyncRasterizer::Instance() {
+    static AsyncRasterizer instance;
+    return instance;
+}
+
+AsyncRasterizer::AsyncRasterizer()
+    : m_worker(&AsyncRasterizer::WorkerMain, this) {}
+
+AsyncRasterizer::~AsyncRasterizer() {
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_stopping = true;
+        m_pendingRequest.reset();
+    }
+    m_cv.notify_all();
+    if (m_worker.joinable()) m_worker.join();
+}
+
+uint64_t AsyncRasterizer::Submit(AsyncRasterizeRequest&& req) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    // If the worker is currently busy, the pending request will replace
+    // whatever is waiting. If the worker already picked up a request, the
+    // new one will be processed next.
+    m_pendingRequest = std::move(req);
+    if (m_pendingRequest->requestId == 0) {
+        m_pendingRequest->requestId = ++m_nextRequestId;
+    }
+    m_cv.notify_one();
+    return m_pendingRequest->requestId;
+}
+
+void AsyncRasterizer::Cancel() noexcept {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_pendingRequest.reset();
+}
+
+bool AsyncRasterizer::IsBusy() const noexcept {
+    return m_busy.load(std::memory_order_relaxed);
+}
+
+bool AsyncRasterizer::TakeResult(AsyncRasterizeResult& out) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (!m_latestResult) return false;
+    out = std::move(*m_latestResult);
+    m_latestResult.reset();
+    return true;
+}
+
+void AsyncRasterizer::WorkerMain() noexcept {
+    // CoInitializeEx for WIC (ConvertBmpDataUrisToPng may be called)
+    HRESULT coInit = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    (void)coInit;
+
+    while (true) {
+        std::unique_lock<std::mutex> lock(m_mutex);
+        m_cv.wait(lock, [this] { return m_stopping || m_pendingRequest.has_value(); });
+        if (m_stopping) break;
+        if (!m_pendingRequest) continue;
+
+        AsyncRasterizeRequest req = std::move(*m_pendingRequest);
+        m_pendingRequest.reset();
+        m_busy.store(true, std::memory_order_relaxed);
+        lock.unlock();
+
+        // Perform rasterization
+        AsyncRasterizeResult result;
+        result.requestId = req.requestId;
+
+        if (!req.svgXml.empty() && req.zoom > 0.0f) {
+            std::vector<uint8_t> bgra;
+            uint32_t rW = 0, rH = 0;
+            HRESULT hr = QvRasterizeSvgResvg(
+                req.svgXml, req.zoom, bgra, req.whiteBg, true,
+                nullptr, nullptr, &rW, &rH);
+            if (SUCCEEDED(hr) && rW > 0 && rH > 0 && !bgra.empty()) {
+                result.status = S_OK;
+                result.bgra = std::move(bgra);
+                result.width = rW;
+                result.height = rH;
+            } else {
+                result.status = FAILED(hr) ? hr : E_FAIL;
+            }
+        } else {
+            result.status = E_INVALIDARG;
+        }
+
+        // Store result and notify
+        {
+            std::lock_guard<std::mutex> resultLock(m_mutex);
+            m_latestResult = std::move(result);
+        }
+        m_busy.store(false, std::memory_order_relaxed);
+
+        // Notify main window via PostMessage
+        if (req.notifyWindow) {
+            PostMessage(req.notifyWindow, WM_APP_ASYNC_RASTERIZE, 0, 0);
+        }
+    }
+
+    if (SUCCEEDED(coInit)) CoUninitialize();
+}
+
+} // namespace QuickView

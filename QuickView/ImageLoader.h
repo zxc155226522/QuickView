@@ -63,6 +63,72 @@ HRESULT QvRasterizeSvgFrameToBgra(const RawImageFrame::SvgData &svgData,
                                   int targetW = 0,
                                   int targetH = 0);
 
+// ============================================================================
+// [Async Resvg] Async SVG rasterization controller for CDR/CMX zoom
+// ============================================================================
+// Rasterizes SVG on a background thread to avoid blocking the UI thread
+// during zoom. Results are delivered via PostMessage to the main window.
+// While rasterization is in progress, the old bitmap is kept on screen
+// (stretched by DComp) — preventing the white-screen-on-zoom bug.
+// ============================================================================
+
+// WM_APP message ID used by the async rasterizer to notify the main window.
+// Main window handles this in WndProc to apply the rasterized result.
+inline constexpr UINT WM_APP_ASYNC_RASTERIZE = WM_APP + 26;
+
+struct AsyncRasterizeRequest {
+    std::vector<uint8_t> svgXml;    // SVG XML data (copied)
+    float zoom = 1.0f;             // Zoom factor
+    bool whiteBg = true;           // Composite over white background
+    uint64_t requestId = 0;        // Unique ID for deduplication
+    HWND notifyWindow = nullptr;   // Window to PostMessage results to
+};
+
+struct AsyncRasterizeResult {
+    uint64_t requestId = 0;
+    HRESULT status = E_FAIL;
+    std::vector<uint8_t> bgra;      // Rasterized BGRA pixels
+    uint32_t width = 0;
+    uint32_t height = 0;
+};
+
+class AsyncRasterizer {
+public:
+    static AsyncRasterizer& Instance();
+
+    // Submit a rasterization request. If a request with the same requestId
+    // is already pending, it is replaced. Returns the requestId.
+    // Thread-safe. Call from main thread.
+    uint64_t Submit(AsyncRasterizeRequest&& req);
+
+    // Cancel any pending request. Thread-safe.
+    void Cancel() noexcept;
+
+    // Check if a request is currently in progress.
+    bool IsBusy() const noexcept;
+
+    // Take the latest completed result (if any). Returns false if no result.
+    // Thread-safe. Call from main thread.
+    bool TakeResult(AsyncRasterizeResult& out);
+
+private:
+    AsyncRasterizer();
+    ~AsyncRasterizer();
+    AsyncRasterizer(const AsyncRasterizer&) = delete;
+    AsyncRasterizer& operator=(const AsyncRasterizer&) = delete;
+
+    void WorkerMain() noexcept;
+
+    std::thread m_worker;
+    std::mutex m_mutex;
+    std::condition_variable m_cv;
+    std::optional<AsyncRasterizeRequest> m_pendingRequest;
+    std::optional<AsyncRasterizeResult> m_latestResult;
+    uint64_t m_nextRequestId = 0;
+    bool m_stopping = false;
+    std::atomic<bool> m_busy{false};
+};
+
 } // namespace QuickView
 
 // [CDR/CMX] Forward declaration — defined after CImageLoader below.

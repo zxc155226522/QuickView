@@ -2604,41 +2604,35 @@ bool RenderImageToDComp(HWND hwnd, ImageResource& res, bool isFastUpgrade) {
             }
         }
 
-        // [resvg] Re-rasterize CDR/CMX via resvg when zoom changes by more than
-        // 128px. Larger threshold reduces frequent re-rasterization on small
-        // zoom steps, improving responsiveness. SIMD conversion (PremulRGBAToWhiteBGRA)
-        // makes each rasterization significantly faster.
+        // [Async Resvg] Re-rasterize CDR/CMX via async resvg when zoom changes
+        // by more than 128px. Rasterization runs on a background thread to
+        // avoid blocking the UI (which caused lag and white-screen-on-zoom).
+        // While the background rasterization is in progress, the old bitmap
+        // is kept and stretched by DComp — no white screen.
         if (res.isMupdf && res.mupdfSrc) {
             if (std::abs((int)res.mupdfRasterW - (int)surfW) > 128 ||
                 std::abs((int)res.mupdfRasterH - (int)surfH) > 128) {
-                // Calculate zoom from SVG intrinsic size to target surface size
-                float svgW = res.mupdfSrc->viewBoxW;
-                float svgH = res.mupdfSrc->viewBoxH;
-                float zoom = (svgW > 0 && svgH > 0)
-                    ? std::min((float)surfW / svgW, (float)surfH / svgH)
-                    : 1.0f;
-                if (zoom < 0.01f) zoom = 0.01f;
+                // Only submit if the async rasterizer is not already busy
+                if (!QuickView::AsyncRasterizer::Instance().IsBusy()) {
+                    float svgW = res.mupdfSrc->viewBoxW;
+                    float svgH = res.mupdfSrc->viewBoxH;
+                    float zoom = (svgW > 0 && svgH > 0)
+                        ? std::min((float)surfW / svgW, (float)surfH / svgH)
+                        : 1.0f;
+                    if (zoom < 0.01f) zoom = 0.01f;
 
-                std::vector<uint8_t> svgData(res.mupdfSrc->xmlData.begin(),
-                                              res.mupdfSrc->xmlData.end());
-                std::vector<uint8_t> bgra;
-                uint32_t rW = 0, rH = 0;
-                HRESULT hr = QuickView::QvRasterizeSvgResvg(svgData, zoom, bgra, true, true,
-                                                  nullptr, nullptr, &rW, &rH);
-                if (SUCCEEDED(hr) && rW > 0 && rH > 0 && !bgra.empty()) {
-                    QuickView::RawImageFrame frame;
-                    frame.pixels = bgra.data();
-                    frame.width = (int)rW;
-                    frame.height = (int)rH;
-                    frame.stride = (int)rW * 4;
-                    frame.format = QuickView::PixelFormat::BGRA8888;
-                    ComPtr<ID2D1Bitmap> bmp;
-                    if (SUCCEEDED(g_renderEngine->UploadRawFrameToGPU(frame, &bmp)) && bmp) {
-                        res.bitmap = bmp;
-                        res.mupdfRasterW = rW;
-                        res.mupdfRasterH = rH;
-                    }
+                    QuickView::AsyncRasterizeRequest req;
+                    req.svgXml.assign(res.mupdfSrc->xmlData.begin(),
+                                      res.mupdfSrc->xmlData.end());
+                    req.zoom = zoom;
+                    req.whiteBg = true;
+                    req.notifyWindow = hwnd;
+                    QuickView::AsyncRasterizer::Instance().Submit(std::move(req));
                 }
+                // While async rasterization is pending, continue drawing the
+                // old bitmap (stretched to fill the surface). This prevents
+                // the white-screen-on-zoom bug — the user sees a stretched
+                // (slightly blurry) image instead of a blank surface.
             }
         }
 
@@ -7325,6 +7319,38 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
         if (g_pdfThumbPanel.IsVisible()) {
             g_pdfThumbPanel.ProcessThumbnailResults();
             ::InvalidateRect(hwnd, nullptr, FALSE);
+        }
+        return 0;
+    }
+    // [Async Resvg] CDR/CMX async rasterization result from background thread.
+    // The background rasterizer finished rendering the SVG at the requested
+    // zoom. Upload the result to GPU and trigger a repaint to replace the
+    // stale (stretched) bitmap with the freshly rasterized one.
+    case QuickView::WM_APP_ASYNC_RASTERIZE: {
+        QuickView::AsyncRasterizeResult result;
+        while (QuickView::AsyncRasterizer::Instance().TakeResult(result)) {
+            if (result.status == S_OK && result.width > 0 && result.height > 0 &&
+                !result.bgra.empty() && g_renderEngine) {
+                QuickView::RawImageFrame frame;
+                frame.pixels = result.bgra.data();
+                frame.width = (int)result.width;
+                frame.height = (int)result.height;
+                frame.stride = (int)result.width * 4;
+                frame.format = QuickView::PixelFormat::BGRA8888;
+                ComPtr<ID2D1Bitmap> bmp;
+                if (SUCCEEDED(g_renderEngine->UploadRawFrameToGPU(frame, &bmp)) && bmp) {
+                    auto& res = GetPaneContext(PaneSlot::Primary).resource;
+                    if (res.isMupdf) {
+                        res.bitmap = bmp;
+                        res.mupdfRasterW = result.width;
+                        res.mupdfRasterH = result.height;
+                        g_isImageDirty = true;
+                        ::InvalidateRect(hwnd, nullptr, FALSE);
+                    }
+                }
+            }
+            // Drain: loop to consume any additional results (rare, but possible
+            // if multiple zooms completed before the main thread processed them).
         }
         return 0;
     }
