@@ -26,6 +26,7 @@
 #include "GeekIconRenderer.h"
 #include "ThumbnailExts.h"  // 缩略图扩展名单一真相源（与 DLL 共享）
 #include "FileTypeNames.h"  // 每扩展名的资源管理器类型名（按类型分组的区分依据）
+#include "FormatIcons.h"    // 每格式专属图标资源表（DefaultIcon 按资源 ID 引用）
 #include "UserChoiceHash.h" // UserChoice 合法哈希写入（默认应用强制接管）
 
 // Windows headers
@@ -351,7 +352,15 @@ static void RegisterPerExtProgId(const std::wstring& extStr, const std::wstring&
     std::wstring base = L"Software\\Classes\\" + progId;
     std::wstring typeName = QuickView::MakeFriendlyTypeName(extStr);
     SafeRegSetString(HKEY_CURRENT_USER, (base + L"\\shell\\open\\command").c_str(), NULL, cmd);
-    SafeRegSetString(HKEY_CURRENT_USER, (base + L"\\DefaultIcon").c_str(), NULL, (exePathStr + L",0").c_str());
+    // DefaultIcon 指向该格式专属图标（QuickView logo + 右下角类别色格式字母章，
+    // 资源 ID 100 起，见 FormatIcons.h）。",-<ID>" 按资源 ID 引用，不受图标资源
+    // 增删导致的索引漂移影响；查表未命中退回 ",0" 主图标。
+    std::wstring dotted = (!extStr.empty() && extStr[0] != L'.') ? (L"." + extStr) : extStr;
+    const int iconId = QuickView::IconResourceIdForExt(dotted);
+    const std::wstring iconRef = (iconId > 0)
+        ? (exePathStr + L",-" + std::to_wstring(iconId))
+        : (exePathStr + L",0");
+    SafeRegSetString(HKEY_CURRENT_USER, (base + L"\\DefaultIcon").c_str(), NULL, iconRef.c_str());
     SafeRegSetString(HKEY_CURRENT_USER, base.c_str(), L"FriendlyTypeName", typeName);
     SafeRegSetString(HKEY_CURRENT_USER, base.c_str(), NULL, typeName); // ProgID 描述 = 类型名
 }

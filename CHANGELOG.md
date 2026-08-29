@@ -1,5 +1,16 @@
 # Changelog
 
+## [6.30.6] - 每格式专属文件图标（右下角格式字母章，Ps/Ai 风格）
+**Release Date**: 2026-08-30
+
+### ✨ Features & UX
+- **70 个受支持格式各一枚专属文件图标**:
+  - 图标 = QuickView logo 底图 + **右下角类别色圆角字母章**（格式缩写：JPG/PNG 绿、CR3/DNG 紫、CDR/SVG 蓝、PDF 红、PLT/DXF 青、PSD 靛……），不同格式字母+颜色不同，列表/详细信息/小图标视图一眼区分格式（Adobe Ps/Ai 风格）。
+  - 由 `_gen_format_icons.py` 从 SupportedExtensions.h 派生，生成 `QuickView/icons/*.ico`（16–256px 各尺寸单独合成，≤48 BMP 帧、≥64 调色板 PNG 帧，共约 2.2MB）+ `FormatIcons.h`（扩展名→资源 ID 表）+ `format_icons.rc`（QuickView.rc include 编入 exe，资源 ID 100 起）。
+  - 每扩展名 ProgID 的 `DefaultIcon` 改为 `",-<资源ID>"` 按资源 ID 引用（不受图标增删的索引漂移影响）；`QuickView.Image`/`QuickView.Vector` 通用 ProgID 保持主图标。
+  - 版本升至 6.30.6 触发 `IsRegistrationNeeded` 全量重注册，DefaultIcon 自动刷新。
+- **缩略图行为不变**：缩略图上的右上角类型胶囊角标保持原样。
+
 ## [6.30.5] - 未勾选的格式绝不自动关联
 **Release Date**: 2026-08-30
 

@@ -10,10 +10,15 @@
 // IDI_APPLICATION will be overridden by this
 1 ICON "..\\QuickView.ico"
 
+// 每格式专属文件图标（资源 ID 100 起）：QuickView logo 底图 + 右下角类别色格式
+// 字母章（自动生成）。关联 ProgID 的 DefaultIcon 以 ",-<ID>" 按资源 ID 引用，
+// 使每个关联格式在列表/详细信息/小图标视图显示各自的角标图标（Ps/Ai 风格）。
+#include "format_icons.rc"
+
 // Version Information - This sets the display name in Windows
  VS_VERSION_INFO VERSIONINFO
- FILEVERSION 6,30,5,0
- PRODUCTVERSION 6,30,5,0
+ FILEVERSION 6,30,6,0
+ PRODUCTVERSION 6,30,6,0
 FILEFLAGSMASK 0x3fL
 FILEFLAGS 0x0L
 FILEOS 0x40004L
@@ -26,12 +31,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "QuickView"
             VALUE "FileDescription", "QuickView"
-            VALUE "FileVersion", "6.30.5.0"
+            VALUE "FileVersion", "6.30.6.0"
             VALUE "InternalName", "QuickView"
             VALUE "LegalCopyright", "Copyright (C) 2026"
             VALUE "OriginalFilename", "QuickView.exe"
             VALUE "ProductName", "QuickView"
-            VALUE "ProductVersion", "6.30.5.0"
+            VALUE "ProductVersion", "6.30.6.0"
         END
     END
     BLOCK "VarFileInfo"
