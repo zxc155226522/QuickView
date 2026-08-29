@@ -278,7 +278,6 @@ namespace AppStrings {
     extern const wchar_t* Settings_Label_NavLoopMode;
     extern const wchar_t* Settings_Label_SortOrder;
     extern const wchar_t* Settings_Label_SortDescending;
-    extern const wchar_t* Settings_Label_SortArchivesByNameAscending;
     extern const wchar_t* Settings_Label_ConfirmDel;
     extern const wchar_t* Settings_Label_Portable;
     extern const wchar_t* Settings_Tooltip_Portable;

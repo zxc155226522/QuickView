@@ -283,14 +283,8 @@ FireAndForget CompareController::LoadImageIntoLeftSlot([[maybe_unused]] HWND hwn
     SetTimer(hwnd, 995, 16, nullptr); // Start UI Heartbeat timer for animating progress bar
 
     uintmax_t fileSize = 0;
-    std::wstring archivePath;
-    size_t entryIndex = 0;
-    if (FileNavigator::ParseVirtualPath(localPath, archivePath, entryIndex)) {
-        // Virtual archive entry
-    } else {
-        std::error_code ec;
-        fileSize = std::filesystem::file_size(localPath, ec);
-    }
+    std::error_code ec;
+    fileSize = std::filesystem::file_size(localPath, ec);
 
     // Increment generation ID on Left slot to invalidate stale loads
     auto& leftPane = GetPaneContext(PaneSlot::Left);

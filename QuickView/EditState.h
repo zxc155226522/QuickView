@@ -495,7 +495,6 @@ struct AppConfig {
     bool NavTraverse = false;           // Reach outside current folder (Subfolders)
     int SortOrder = 0;                  // 0=Auto(Name), 1=Name, 2=Modified, 3=DateTaken, 4=Size, 5=Type
     bool SortDescending = false;
-    bool SortArchivesByNameAscending = true;
     bool ConfirmDelete = true;
     bool PortableMode = false;
     int UIScalePreset = 0;               // 0=Auto(DPI), 1=90%, 2=100%, 3=110%, 4=125%

@@ -15,7 +15,6 @@
 #include "EditState.h" // for g_runtime
 #include "exif.h"      // for easyexif
 #include "SupportedExtensions.h" // Unified supported extensions
-#include "ArchiveVFS.h"
 
 #pragma comment(lib, "Shlwapi.lib")
 
@@ -78,15 +77,6 @@ public:
     std::wstring GetResolvedPath(const std::wstring& requestedPath) const;
     int FindIndex(const std::wstring& path) const;
 
-    // Virtual file system accessors
-    inline bool IsVirtualPath(const std::wstring& path) const {
-        return path.find(L"|") != std::wstring::npos;
-    }
-
-    // Parse virtual path avoiding exceptions
-    static bool ParseVirtualPath(const std::wstring& path, std::wstring& outArchivePath, size_t& outIndex);
-
-    inline QuickView::IArchive* GetArchive() const { return m_archive.get(); }
     inline const std::vector<std::wstring>& GetAllFiles() const { return m_files; }
 
     inline uintmax_t GetFileSize(int index) const {
@@ -184,7 +174,6 @@ public:
     static void SetCaptureTimeFallbackReader(CaptureTimeFallbackReader reader) { s_captureTimeFallback = reader; }
 
 private:
-    static std::wstring_view GetPhysicalHostPath(std::wstring_view vfsPath);
     static std::vector<std::wstring> GetSortedSiblings(const std::filesystem::path& parentDir);
     std::wstring FindAdjacentFolderImage(bool next);
 
@@ -221,9 +210,6 @@ private:
     bool m_hitEnd = false;
     std::wstring m_crossFolderMessage;
 
-    // VFS Support
-    std::unique_ptr<QuickView::IArchive> m_archive;
-
     // [Directory Watcher] Background monitoring state
     HWND m_hwnd = nullptr;
     std::wstring m_watchedDir;
@@ -231,7 +217,4 @@ private:
     std::thread m_watcherThread;
     std::mutex m_scanResultMutex;
     std::optional<DirectoryScanResult> m_pendingScanResult;
-
-public:
-    std::wstring m_archivePath;
 };

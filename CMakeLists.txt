@@ -84,7 +84,6 @@ set(QUICKVIEW_SOURCES
     QuickView/StbLoader.cpp
     QuickView/TinyExrLoader.cpp
     QuickView/WuffsImpl.cpp
-    QuickView/ArchiveVFS.cpp
     QuickView/ContextMenu.cpp
     QuickView/GalleryOverlay.cpp
     QuickView/ThumbnailManager.cpp
@@ -131,7 +130,6 @@ set(QUICKVIEW_SOURCES
 # ============================================================================
 # Executable Target
 # ============================================================================
-add_subdirectory(third_party/unrar-mini)
 
 add_executable(QuickView WIN32 ${QUICKVIEW_SOURCES})
 
@@ -145,7 +143,7 @@ endif()
 set_target_properties(QuickView PROPERTIES LINK_FLAGS "${QUICKVIEW_LINK_FLAGS}")
 
 # Include paths
-target_include_directories(QuickView PRIVATE QuickView third_party/yyjson third_party/unrar-mini third_party/resvg/include)
+target_include_directories(QuickView PRIVATE QuickView third_party/yyjson third_party/resvg/include)
 
 # Precompiled Headers (PCH) - CXX only to avoid conflict with C source (yyjson.c)
 target_precompile_headers(QuickView PRIVATE $<$<COMPILE_LANGUAGE:CXX>:pch.h>)
@@ -347,7 +345,6 @@ target_link_libraries(QuickView PRIVATE
     libraw::raw
     yuv
     ZLIB::ZLIB
-    unrar-mini
     librevenge
     libcdr
     resvg_static
@@ -393,8 +390,7 @@ if(GTest_FOUND)
         QuickView/MiniTiffLzw.cpp
         QuickView/MiniTiffCmyk.cpp
         QuickView/ColorMath.cpp 
-        QuickView/FileNavigator.cpp 
-        QuickView/ArchiveVFS.cpp 
+        QuickView/FileNavigator.cpp
         QuickView/exif.cpp
         QuickView/QuickViewETW.cpp
         QuickView/pch.cpp
@@ -411,10 +407,9 @@ if(GTest_FOUND)
         shlwapi.lib 
         shell32.lib 
         mscms.lib
-        unrar-mini
         ZLIB::ZLIB
     )
-    target_include_directories(QuickViewTests PRIVATE QuickView third_party/unrar-mini)
+    target_include_directories(QuickViewTests PRIVATE QuickView)
     target_compile_definitions(QuickViewTests PRIVATE UNICODE _UNICODE)
     add_test(NAME QuickViewTests COMMAND QuickViewTests)
 endif()
@@ -424,9 +419,6 @@ endif()
 # ============================================================================
 if(WIN32 AND ADAPTIVE_MSVC_INCLUDE_PATHS)
     target_include_directories(QuickView SYSTEM PRIVATE ${ADAPTIVE_MSVC_INCLUDE_PATHS})
-    if(TARGET unrar-mini)
-        target_include_directories(unrar-mini SYSTEM PRIVATE ${ADAPTIVE_MSVC_INCLUDE_PATHS})
-    endif()
     if(TARGET QuickViewTests)
         target_include_directories(QuickViewTests SYSTEM PRIVATE ${ADAPTIVE_MSVC_INCLUDE_PATHS})
     endif()

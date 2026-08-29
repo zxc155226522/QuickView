@@ -691,9 +691,6 @@ const wchar_t *GetTooltipText(const ToolbarButton &btn) {
     return btn.isToggled ? AppStrings::Toolbar_Tooltip_Unpin
                          : AppStrings::Toolbar_Tooltip_Pin;
   case ToolbarButtonID::CompareToggle:
-    if (g_navigator.GetArchive() != nullptr) {
-      return btn.isToggled ? AppStrings::Toolbar_Tooltip_SinglePage : AppStrings::Toolbar_Tooltip_DualPage;
-    }
     return btn.isToggled ? AppStrings::Toolbar_Tooltip_NormalMode : AppStrings::Toolbar_Tooltip_CompareMode;
   case ToolbarButtonID::CompareOpen:
     return AppStrings::Toolbar_Tooltip_CompareOpen;

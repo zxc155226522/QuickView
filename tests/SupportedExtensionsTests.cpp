@@ -109,7 +109,8 @@ TEST(SupportedExtensionsTest, FilterStringIsWellFormed) {
     const std::wstring filter = GetSupportedExtensionsFilter();
     EXPECT_NE(filter.find(L"*.jpg"), std::wstring::npos);
     EXPECT_NE(filter.find(L"*.crw"), std::wstring::npos);
-    EXPECT_NE(filter.find(L"*.rar"), std::wstring::npos);
+    // Archives are no longer supported — must not be offered by the filter
+    EXPECT_EQ(filter.find(L"*.rar"), std::wstring::npos);
     // Extended (non-browsable) RAW must NOT be offered by the folder filter
     EXPECT_EQ(filter.find(L"*.braw"), std::wstring::npos);
 }

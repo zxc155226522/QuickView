@@ -57,7 +57,8 @@ inline constexpr std::array<std::wstring_view, 21> EXTENDED_RAW_EXTENSIONS = {
     L".iiq", L".k25", L".mdc", L".obm", L".ptx", L".pxn", L".r3d", L".rwl", L".rwz", L".srf", L".sti"
 };
 
-// Archive container formats browsed via the VFS
+// Archive container formats — NOT supported anymore. Kept only as a deny-list
+// so folder scans and the navigation playlist keep skipping these files.
 inline constexpr std::array<std::wstring_view, 4> ARCHIVE_EXTENSIONS_SEG = {
     L".cbz", L".zip", L".cbr", L".rar"
 };
@@ -67,13 +68,14 @@ inline constexpr std::array<std::wstring_view, 4> ARCHIVE_EXTENSIONS_SEG = {
 // Everything QuickView can open from a folder scan
 inline constexpr auto SUPPORTED_EXTENSIONS = detail::Concat(
     detail::STANDARD_EXTENSIONS, detail::WEB_MODERN_EXTENSIONS, detail::PRO_LEGACY_EXTENSIONS,
-    detail::CAMERA_RAW_EXTENSIONS, detail::ARCHIVE_EXTENSIONS_SEG);
+    detail::CAMERA_RAW_EXTENSIONS);
 
 // Every extension classified as camera RAW (decode-routing, RAW toggles, etc.)
 inline constexpr auto RAW_EXTENSIONS = detail::Concat(
     detail::CAMERA_RAW_EXTENSIONS, detail::EXTENDED_RAW_EXTENSIONS);
 
-// Archive container formats (VFS)
+// Archive container formats — NOT supported anymore. Kept as a deny-list so
+// folder scans and the navigation playlist keep skipping them.
 inline constexpr auto ARCHIVE_EXTENSIONS = detail::ARCHIVE_EXTENSIONS_SEG;
 
 // ============================================================================
@@ -164,7 +166,7 @@ constexpr bool IsRenderedPairExtension(std::wstring_view ext) {
 }
 
 // Compile-time regression tests (zero runtime cost)
-static_assert(SUPPORTED_EXTENSIONS.size() == 74);
+static_assert(SUPPORTED_EXTENSIONS.size() == 70);
 static_assert(RAW_EXTENSIONS.size() == 43);
 static_assert(IsRawExtension(L".crw"));   // was missing from main.cpp's IsRawFile
 static_assert(IsRawExtension(L".CR3"));   // case-insensitive

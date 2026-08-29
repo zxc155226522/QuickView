@@ -558,48 +558,8 @@ namespace Codec {
 // File I/O Helpers
 // ------------------------------------------------------------------------
 
-// Helper to get raw data from VFS or physical file
-static bool GetVfsFileData(LPCWSTR filePath, std::vector<uint8_t> &buffer) {
-  std::wstring pathStr(filePath);
-  if (pathStr.find(L"|") == std::wstring::npos)
-    return false;
-
-  std::wstring archivePath;
-  size_t entryIndex;
-  if (FileNavigator::ParseVirtualPath(pathStr, archivePath, entryIndex)) {
-    QuickView::IArchive *archive = g_navigator.GetArchive();
-    std::shared_ptr<QuickView::IArchive> cachedArchive;
-    if (!archive || archivePath != g_navigator.m_archivePath) {
-      cachedArchive = QuickView::IArchive::OpenCached(archivePath);
-      archive = cachedArchive.get();
-    }
-    if (archive && archive->IsValid() &&
-        entryIndex < archive->GetEntryCount()) {
-      const auto &entry = archive->GetEntry(entryIndex);
-      buffer.resize(entry.uncompSize);
-      size_t written =
-          archive->ExtractEntry(entryIndex, buffer.data(), buffer.size());
-      if (written > 0) {
-        if (written < buffer.size())
-          buffer.resize(written);
-        return true;
-      }
-      return false;
-    }
-  }
-  return false;
-}
-
 // Peek first 4KB of file (for format detection)
 static size_t PeekHeader(LPCWSTR filePath, uint8_t *buffer, size_t bufferSize) {
-  std::vector<uint8_t> vfsData;
-  if (GetVfsFileData(filePath, vfsData)) {
-    size_t toCopy = (std::min)(bufferSize, vfsData.size());
-    if (toCopy > 0)
-      memcpy(buffer, vfsData.data(), toCopy);
-    return toCopy;
-  }
-
   HANDLE hFile = CreateFileW(filePath, GENERIC_READ, FILE_SHARE_READ, nullptr,
                              OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
   if (hFile == INVALID_HANDLE_VALUE)
@@ -1974,9 +1934,6 @@ PopulateMetadataFromEasyExif_Refined(const easyexif::EXIFInfo &exif,
 
 // Helper to read file to vector
 bool ReadFileToVector(LPCWSTR filePath, std::vector<uint8_t> &buffer) {
-  if (QuickView::Codec::GetVfsFileData(filePath, buffer))
-    return true;
-
   HANDLE hFile = CreateFileW(filePath, GENERIC_READ, FILE_SHARE_READ, nullptr,
                              OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
   if (hFile == INVALID_HANDLE_VALUE)
@@ -4664,7 +4621,6 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
   const ImageHeaderInfo headerInfo = PeekHeader(filePath);
   const uint64_t fallbackFileSize = static_cast<uint64_t>(headerInfo.fileSize);
 
-  std::vector<uint8_t> extractedData;
   const uint8_t *mappedData = nullptr;
   size_t mappedSize = 0;
   std::unique_ptr<QuickView::MappedFile> mapping;
@@ -4673,8 +4629,7 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
 
   // [Opt] 优先读取系统 Shell 缓存缩略图（INCACHEONLY）。
   // 资源管理器已生成的缓存可直接复用，毫秒级返回。
-  // 仅对真实文件路径尝试（压缩包虚拟路径跳过）。
-  if (pathStr.find(L"|") == std::wstring::npos) {
+  {
     HRESULT shellHr = LoadShellThumbnail(filePath, targetSize, pData,
                                          /*cacheOnly=*/true);
     if (SUCCEEDED(shellHr) && pData->isValid) {
@@ -4683,37 +4638,6 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
     // 缓存未命中或失败，清空状态后走自建生成路径
     pData->isValid = false;
     pData->pixels.clear();
-  }
-  if (pathStr.find(L"|") != std::wstring::npos) {
-    std::wstring archivePath;
-    size_t entryIndex;
-    if (FileNavigator::ParseVirtualPath(pathStr, archivePath, entryIndex)) {
-      QV_LOG("LoadThumbnail_Archive",
-             TraceLoggingWideString(archivePath.c_str(), "Archive"),
-             TraceLoggingUInt64(entryIndex, "Index"));
-      QuickView::IArchive *archive = g_navigator.GetArchive();
-      std::shared_ptr<QuickView::IArchive> cachedArchive;
-      if (!archive || archivePath != g_navigator.m_archivePath) {
-        cachedArchive = QuickView::IArchive::OpenCached(archivePath);
-        archive = cachedArchive.get();
-      }
-      if (archive && archive->IsValid() &&
-          entryIndex < archive->GetEntryCount()) {
-        const auto &entry = archive->GetEntry(entryIndex);
-        extractedData.resize(entry.uncompSize);
-        size_t written = archive->ExtractEntry(entryIndex, extractedData.data(),
-                                               extractedData.size());
-        if (written > 0) {
-          mappedData = extractedData.data();
-          mappedSize = written;
-          QV_LOG("LoadThumbnail_Extracted",
-                 TraceLoggingUInt64(mappedSize, "Size"));
-        } else {
-          QV_LOG("LoadThumbnail_ExtractFailed",
-                 TraceLoggingWideString(archivePath.c_str(), "Archive"));
-        }
-      }
-    }
   }
 
   if (!mappedData) {
@@ -14987,53 +14911,6 @@ CImageLoader::ImageHeaderInfo CImageLoader::PeekHeader(LPCWSTR filePath) {
   if (!filePath)
     return result;
 
-  // === Archive VFS Support ===
-  std::wstring pathStr(filePath);
-  if (pathStr.find(L"|") != std::wstring::npos) {
-    result.type = ImageType::TypeA_Sprint; // VFS entries route through memory
-                                           // decoder usually small enough
-
-    std::wstring archivePath;
-    size_t entryIndex;
-    if (FileNavigator::ParseVirtualPath(pathStr, archivePath, entryIndex)) {
-      QuickView::IArchive *archive = g_navigator.GetArchive();
-      // Thread-safety: Reading from already valid archive metadata is generally
-      // safe
-      if (archive && archive->IsValid() &&
-          archivePath == g_navigator.m_archivePath) {
-        if (entryIndex < archive->GetEntryCount()) {
-          result.fileSize = archive->GetEntry(entryIndex).uncompSize;
-        }
-      }
-    }
-
-    // Zero-allocation extension extraction for format guessing
-    size_t lastDot = pathStr.find_last_of(L".");
-    if (lastDot != std::wstring::npos) {
-      std::wstring ext = pathStr.substr(lastDot);
-      std::transform(ext.begin(), ext.end(), ext.begin(), ::towlower);
-      if (ext == L".png")
-        result.format = L"PNG";
-      else if (ext == L".webp")
-        result.format = L"WEBP";
-      else if (ext == L".avif")
-        result.format = L"AVIF";
-      else if (ext == L".jxl")
-        result.format = L"JXL";
-      else
-        result.format = L"JPEG"; // Fallback
-    } else {
-      result.format = L"JPEG";
-    }
-
-    // [v6.0.8] Set minimum dimensions to prevent Layout/Titan logic from
-    // stalling on 0x0
-    result.width = 1693; // Assume typical smartphone photo for layout hint
-    result.height = 2472;
-
-    return result;
-  }
-
   // Get file size
   std::error_code ec;
   result.fileSize = std::filesystem::file_size(filePath, ec);
@@ -15228,51 +15105,6 @@ HRESULT CImageLoader::LoadToFrame(
       return static_cast<uint8_t *>(_aligned_malloc(size, 64));
     }
   };
-
-  // === Archive VFS Support ===
-  std::wstring pathStr(filePath);
-  if (pathStr.find(L"|") != std::wstring::npos) {
-    std::wstring archivePath;
-    size_t entryIndex;
-    if (FileNavigator::ParseVirtualPath(pathStr, archivePath, entryIndex)) {
-      QV_LOG("LoadToFrame_Archive",
-             TraceLoggingWideString(archivePath.c_str(), "Archive"),
-             TraceLoggingUInt64(entryIndex, "Index"));
-      QuickView::IArchive *archive = g_navigator.GetArchive();
-      std::shared_ptr<QuickView::IArchive> cachedArchive;
-      if (!archive || archivePath != g_navigator.m_archivePath) {
-        cachedArchive = QuickView::IArchive::OpenCached(archivePath);
-        archive = cachedArchive.get();
-      }
-
-      if (archive && archive->IsValid() &&
-          entryIndex < archive->GetEntryCount()) {
-        const QuickView::ArchiveEntry &entry = archive->GetEntry(entryIndex);
-        size_t rawSize = entry.uncompSize;
-
-        // Zero-allocation buffer provisioning (No new/delete needed here)
-        uint8_t *rawData = AllocateBuffer(rawSize);
-
-        size_t written = archive->ExtractEntry(entryIndex, rawData, rawSize);
-        if (rawData && written > 0) {
-          QV_LOG("LoadToFrame_Extracted", TraceLoggingUInt64(written, "Size"));
-          HRESULT hr = LoadToFrameFromMemory(
-              rawData, written, outFrame, arena, targetWidth, targetHeight,
-              pLoaderName, pMetadata, targetHdrHeadroomStops);
-          // rawData lifecycle is managed by LoadToFrameFromMemory or the Arena.
-          // No manual delete here!
-          if (!arena)
-            _aligned_free(rawData); // Fallback free if arena was null
-          return hr;
-        } else {
-        }
-        if (!arena && rawData)
-          _aligned_free(rawData);
-      }
-      return E_FAIL;
-    }
-  }
-  // ===========================
 
   // Detect format from magic bytes
   std::wstring format = DetectFormatFromContent(filePath);

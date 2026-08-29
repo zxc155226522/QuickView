@@ -1162,12 +1162,6 @@ void SettingsOverlay::BuildMenu() {
     };
     tabGeneral.items.push_back(itemSortDesc);
 
-    SettingsItem itemSortArchives = { AppStrings::Settings_Label_SortArchivesByNameAscending, OptionType::Toggle, &g_config.SortArchivesByNameAscending };
-    itemSortArchives.onChange = []([[maybe_unused]] SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) {
-        SaveConfig();
-    };
-    tabGeneral.items.push_back(itemSortArchives);
-    
     // [Phase 2] Cross-Monitor
     SettingsItem itemCrossMon = { AppStrings::Settings_Label_SpanDisplays, OptionType::Toggle, &g_config.EnableCrossMonitor };
     itemCrossMon.onChange = []([[maybe_unused]] SettingsOverlay* overlay, [[maybe_unused]] SettingsItem* item) {

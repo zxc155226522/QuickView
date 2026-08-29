@@ -464,112 +464,59 @@ static bool CreateMockZip(const std::wstring& zipPath, const std::string& entryN
     return true;
 }
 
-// Integration Test to verify navigation and archive traversal matching the user's scenario
-TEST(FileNavigatorTest, TraverseFolderAndArchives) {
+// Integration Test: archive (zip/cbz) support has been removed — traversal
+// must skip archive files like any other unsupported file.
+TEST(FileNavigatorTest, TraverseFolderSkipsArchives) {
     namespace fs = std::filesystem;
-    
-    // 1. Setup temporary directory structure on disk
+
     fs::path tempDir = fs::current_path() / "test_traverse_dir";
     std::error_code ec;
     fs::create_directory(tempDir, ec);
     ASSERT_FALSE(ec);
-    
+
     fs::path p1 = tempDir / "1.png";
     fs::path p2 = tempDir / "2.png";
     fs::path p3 = tempDir / "3.png";
     fs::path zip3 = tempDir / "3.zip";
     fs::path p4 = tempDir / "4.png";
-    fs::path zipMpv = tempDir / "mpv_window_screen.zip";
-    
-    // Create empty images
+
     std::ofstream(p1).close();
     std::ofstream(p2).close();
     std::ofstream(p3).close();
     std::ofstream(p4).close();
-    
-    // Create valid mock zip files with supported images inside
     ASSERT_TRUE(CreateMockZip(zip3.wstring(), "inner.png"));
-    ASSERT_TRUE(CreateMockZip(zipMpv.wstring(), "screen.png"));
-    
-    // 2. Initialize FileNavigator starting at 1.png
+
     g_runtime.SortOrder = 1; // Sort by Name
     g_runtime.SortDescending = false;
-    g_runtime.NavTraverse = true; // Enable through subfolders/archives
+    g_runtime.NavTraverse = true;
     g_runtime.NavLoop = false;
-    
+
     FileNavigator nav;
     nav.Initialize(p1.wstring(), nullptr);
-    
-    // 3. Verify normal playlist (zip archives must be skipped)
-    // Playlist should be: 1.png, 2.png, 3.png, 4.png
+
+    // Zips are skipped: playlist is 1.png, 2.png, 3.png, 4.png
     ASSERT_EQ(nav.Count(), 4u);
     EXPECT_EQ(nav.GetFile(0), p1.wstring());
     EXPECT_EQ(nav.GetFile(1), p2.wstring());
     EXPECT_EQ(nav.GetFile(2), p3.wstring());
     EXPECT_EQ(nav.GetFile(3), p4.wstring());
-    
-    // 4. Verify Forward Traverse Navigation
-    // 1.png -> 2.png
+
+    // Forward: 3.zip is not a container anymore — Next goes straight to 4.png
     EXPECT_EQ(nav.Next(), p2.wstring());
-    // 2.png -> 3.png
     EXPECT_EQ(nav.Next(), p3.wstring());
-    
-    // 3.png -> 3.zip (since 3.zip is a container sibling that comes alphabetically before 4.png)
-    std::wstring nextPath = nav.Next();
-    std::wstring expectedVirtual = zip3.wstring() + L"|0|inner.png";
-    EXPECT_EQ(nextPath, expectedVirtual);
-    
-    // Initialize navigator on entering 3.zip
-    nav.Initialize(nextPath, nullptr);
-    ASSERT_EQ(nav.Count(), 1u);
-    EXPECT_EQ(nav.GetFile(0), expectedVirtual);
-    
-    // At the end of 3.zip, press Next -> should traverse to 4.png (its next sibling alphabetically)
-    nextPath = nav.Next();
-    EXPECT_EQ(nextPath, p4.wstring());
-    
-    // Initialize navigator on 4.png
-    nav.Initialize(nextPath, nullptr);
-    ASSERT_EQ(nav.Count(), 4u);
-    
-    // At 4.png, press Next -> should traverse into mpv_window_screen.zip (next sibling after 4.png)
-    nextPath = nav.Next();
-    std::wstring expectedMpvVirtual = zipMpv.wstring() + L"|0|screen.png";
-    EXPECT_EQ(nextPath, expectedMpvVirtual);
-    
-    // Initialize navigator on mpv_window_screen.zip
-    nav.Initialize(nextPath, nullptr);
-    // At end of mpv_window_screen.zip, press Next -> no more siblings, should return L"" (NavLoop = false)
-    EXPECT_EQ(nav.Next(), L"");
-    
-    // 5. Verify Backward Traverse Navigation
-    // Start inside mpv_window_screen.zip, press Previous -> should traverse backward to 4.png
-    std::wstring prevPath = nav.Previous();
-    EXPECT_EQ(prevPath, p4.wstring());
-    
-    // Initialize navigator on 4.png
-    nav.Initialize(prevPath, nullptr);
-    // At 4.png, press Previous -> should traverse backward into 3.zip (last page)
-    prevPath = nav.Previous();
-    EXPECT_EQ(prevPath, expectedVirtual);
-    
-    // Initialize navigator on 3.zip
-    nav.Initialize(prevPath, nullptr);
-    // At first page of 3.zip, press Previous -> should traverse backward to 3.png
-    prevPath = nav.Previous();
-    EXPECT_EQ(prevPath, p3.wstring());
-    
-    // Initialize navigator on 3.png
-    nav.Initialize(prevPath, nullptr);
-    // At 3.png, press Previous -> 3.png -> 2.png
+    EXPECT_EQ(nav.Next(), p4.wstring());
+
+    // Backward
+    EXPECT_EQ(nav.Previous(), p3.wstring());
     EXPECT_EQ(nav.Previous(), p2.wstring());
-    // 2.png -> 1.png
     EXPECT_EQ(nav.Previous(), p1.wstring());
-    
-    // At 1.png (first file), press Previous -> no more siblings, should return L"" (NavLoop = false)
     EXPECT_EQ(nav.Previous(), L"");
-    
-    // 6. Cleanup
+
+    // Opening a zip directly leaves an empty playlist (unsupported)
+    FileNavigator zipNav;
+    zipNav.Initialize(zip3.wstring(), nullptr);
+    EXPECT_EQ(zipNav.Count(), 0u);
+
     fs::remove_all(tempDir, ec);
 }
 
@@ -677,74 +624,6 @@ static bool CreateMockZipMultiple(const std::wstring& zipPath, const std::vector
     fs.write(reinterpret_cast<char*>(&commentLen), 2);
 
     return true;
-}
-
-TEST(FileNavigatorTest, SortArchivesByNameAscendingOverride) {
-    // Save current config
-    bool oldOverride = g_config.SortArchivesByNameAscending;
-    int oldSortOrder = g_runtime.SortOrder;
-    bool oldSortDescending = g_runtime.SortDescending;
-
-    // Enable override
-    g_config.SortArchivesByNameAscending = true;
-    
-    // Set global sorting to Sort by Size (4) and Descending (true)
-    g_runtime.SortOrder = 4;
-    g_runtime.SortDescending = true;
-
-    namespace fs = std::filesystem;
-    fs::path tempDir = fs::current_path() / "test_sort_override_dir";
-    std::error_code ec;
-    fs::create_directory(tempDir, ec);
-    ASSERT_FALSE(ec);
-
-    fs::path zipFile = tempDir / "archive.zip";
-    
-    // Write out-of-order images with different sizes
-    // We want to verify that they are sorted alphabetically by filename, NOT by size or descending.
-    // e.g. "image002.png" (size 1), "image003.png" (size 1), "image001.png" (size 1)
-    std::vector<std::string> fileNames = { "image002.png", "image003.png", "image001.png" };
-    ASSERT_TRUE(CreateMockZipMultiple(zipFile.wstring(), fileNames));
-
-    FileNavigator nav;
-    // Initialize starting with the first entry in virtual path format
-    std::wstring startPath = zipFile.wstring() + L"|0|image002.png";
-    nav.Initialize(startPath, nullptr);
-
-    // Verify file count
-    ASSERT_EQ(nav.Count(), 3u);
-
-    // Even though global sort is descending or size, it must sort by filename ascending because of the override:
-    // Expected order:
-    // 0: image001.png
-    // 1: image002.png
-    // 2: image003.png
-    EXPECT_TRUE(nav.GetFile(0).find(L"image001.png") != std::wstring::npos);
-    EXPECT_TRUE(nav.GetFile(1).find(L"image002.png") != std::wstring::npos);
-    EXPECT_TRUE(nav.GetFile(2).find(L"image003.png") != std::wstring::npos);
-
-    // Now test with SortArchivesByNameAscending = false
-    g_config.SortArchivesByNameAscending = false;
-    // Re-initialize to re-sort
-    nav.Initialize(startPath, nullptr);
-    
-    // Since SortArchivesByNameAscending is false, it uses the global sort order (4: Size, Descending).
-    // Because all files have same size (1) in our mock zip, they fallback to natural name sort descending.
-    // Expected order:
-    // 0: image003.png
-    // 1: image002.png
-    // 2: image001.png
-    EXPECT_TRUE(nav.GetFile(0).find(L"image003.png") != std::wstring::npos);
-    EXPECT_TRUE(nav.GetFile(1).find(L"image002.png") != std::wstring::npos);
-    EXPECT_TRUE(nav.GetFile(2).find(L"image001.png") != std::wstring::npos);
-
-    // Cleanup
-    fs::remove_all(tempDir, ec);
-
-    // Restore config
-    g_config.SortArchivesByNameAscending = oldOverride;
-    g_runtime.SortOrder = oldSortOrder;
-    g_runtime.SortDescending = oldSortDescending;
 }
 
 #include "UndoManager.h"

@@ -4352,7 +4352,7 @@ void SaveConfig() {
     WritePrivateProfileStringW(L"General", L"NavLoopMode", nullptr, iniPath.c_str());   // [Clean] Remove legacy key
     WriteConfigInt(L"General", L"SortOrder", g_config.SortOrder, iniPath.c_str());
     WriteConfigBool(L"General", L"SortDescending", g_config.SortDescending, iniPath.c_str());
-    WriteConfigBool(L"General", L"SortArchivesByNameAscending", g_config.SortArchivesByNameAscending, iniPath.c_str());
+    WritePrivateProfileStringW(L"General", L"SortArchivesByNameAscending", nullptr, iniPath.c_str()); // [Clean] Archive support removed
     WriteConfigBool(L"General", L"ConfirmDelete", g_config.ConfirmDelete, iniPath.c_str());
     WriteConfigBool(L"General", L"PortableMode", g_config.PortableMode, iniPath.c_str());
     WriteConfigInt(L"General", L"UIScalePreset", g_config.UIScalePreset, iniPath.c_str());
@@ -4621,7 +4621,7 @@ void LoadConfig() {
 
     g_config.SortOrder = GetPrivateProfileIntW(L"General", L"SortOrder", 0, iniPath.c_str());
     g_config.SortDescending = GetPrivateProfileIntW(L"General", L"SortDescending", 0, iniPath.c_str()) != 0;
-    g_config.SortArchivesByNameAscending = GetPrivateProfileIntW(L"General", L"SortArchivesByNameAscending", 1, iniPath.c_str()) != 0;
+    WritePrivateProfileStringW(L"General", L"SortArchivesByNameAscending", nullptr, iniPath.c_str()); // [Clean] Archive support removed
     g_config.ConfirmDelete = GetPrivateProfileIntW(L"General", L"ConfirmDelete", 1, iniPath.c_str()) != 0;
     g_config.PortableMode = GetPrivateProfileIntW(L"General", L"PortableMode", 0, iniPath.c_str()) != 0;
     int uiScalePreset = GetPrivateProfileIntW(L"General", L"UIScalePreset", -1, iniPath.c_str());
@@ -13911,8 +13911,9 @@ void StartNavigation(HWND hwnd, std::wstring path, [[maybe_unused]] bool showOSD
         g_runtime.CmsModeOverride = -1;
     }
     
-    // Update Comic Mode state
-    g_toolbar.SetComicMode(GetPaneContext(PaneSlot::Primary).navigator.GetArchive() != nullptr);
+    // Comic mode was tied to archive (CBZ/CBR) browsing, which is no longer
+    // supported — keep it permanently off.
+    g_toolbar.SetComicMode(false);
 
     GetPaneContext(PaneSlot::Primary).path = path; // Set target path immediately for UI consistency
     

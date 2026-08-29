@@ -9,8 +9,8 @@
 //   * 在 .ext 级注册（Shell 解析链的最高优先级，先于 ProgID / UserChoice）能保证
 //     无论哪个程序持有该格式的默认应用哈希，角标都稳定显示。
 //
-// 清单从 QuickView::SUPPORTED_EXTENSIONS（全部可浏览图像格式）派生，剔除 VFS
-// 归档容器（.zip/.cbz/...）——它们不是单张图像，且 Windows 原生处理。因为是从
+// 清单从 QuickView::SUPPORTED_EXTENSIONS（全部可浏览图像格式）派生。归档容器
+// （.zip/.cbz/...）已不再受支持，不在 SUPPORTED_EXTENSIONS 中。因为是从
 // SUPPORTED_EXTENSIONS 派生，所以它永远不可能与之漂移：任何新增的可浏览格式都会
 // 自动获得 provider 覆盖。
 // ============================================================================
@@ -18,9 +18,9 @@
 
 namespace QuickView {
 
-// 全部可浏览图像格式（SUPPORTED_EXTENSIONS 减去归档容器）。
+// 全部可浏览图像格式（即 SUPPORTED_EXTENSIONS，保留过滤逻辑作为防漂移护栏）。
 inline constexpr auto kThumbnailExts = []() consteval {
-    constexpr size_t N = SUPPORTED_EXTENSIONS.size() - ARCHIVE_EXTENSIONS.size();
+    constexpr size_t N = SUPPORTED_EXTENSIONS.size();
     std::array<std::wstring_view, N> out{};
     size_t i = 0;
     for (std::wstring_view e : SUPPORTED_EXTENSIONS) {

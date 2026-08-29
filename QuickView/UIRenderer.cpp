@@ -2923,18 +2923,7 @@ namespace {
             return;
         }
         
-        // 2. Parse virtual path if it's within archive
-        std::wstring archivePath;
-        size_t entryIndex = (size_t)-1;
-        if (FileNavigator::ParseVirtualPath(path, archivePath, entryIndex)) {
-            if (archivePath == g_navigator.m_archivePath) {
-                outIndex = (int)entryIndex;
-                outCount = g_navigator.Count();
-            }
-            return;
-        }
-        
-        // 3. Scan directory
+        // 2. Scan directory
         namespace fs = std::filesystem;
         std::error_code ec;
         fs::path p(path);

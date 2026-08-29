@@ -285,15 +285,6 @@ void ThumbnailManager::QueueRequest(size_t imageId, LPCWSTR path, int priority) 
     t.priorityDistance = priority;
     t.generation = m_currentGeneration;
 
-    // Detect if this is a virtual archive path
-    std::wstring archivePath;
-    size_t archiveIndex = 0;
-    if (FileNavigator::ParseVirtualPath(path, archivePath, archiveIndex)) {
-        t.isArchive = true;
-        t.archiveIndex = (int)archiveIndex;
-        t.archivePathHash = ComputePathHash(archivePath);
-    }
-
     // Detect format for Lane Selection
     // Fast Lane: JPEG (Optimized) + RAW/HEIC/PSD (Embedded Preview) + WebP (Scaled)
     const std::wstring_view e = QuickView::ExtensionOf(path);

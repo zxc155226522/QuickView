@@ -17,17 +17,9 @@ void FileNavigator::Initialize(const std::wstring& currentPath, HWND hwnd) {
     if (hwnd) m_hwnd = hwnd;
 
     namespace fs = std::filesystem;
-    
-    std::wstring archivePart;
-    size_t vfsIndex = (size_t)-1;
-    bool isVfsInput = ParseVirtualPath(currentPath, archivePart, vfsIndex);
-    
-    fs::path p = isVfsInput ? fs::path(archivePart) : fs::path(currentPath);
-    if (!fs::exists(p)) return;
 
-    // VFS State Teardown
-    m_archive.reset();
-    m_archivePath.clear();
+    fs::path p = fs::path(currentPath);
+    if (!fs::exists(p)) return;
 
     m_files.clear();
     m_currentIndex = -1;
@@ -59,67 +51,30 @@ void FileNavigator::Initialize(const std::wstring& currentPath, HWND hwnd) {
 
     m_sizes.clear();
 
-    // VFS Support for Archives
+    // Archive containers are no longer supported: reject them up front so a
+    // directly-opened .zip/.rar leaves an empty playlist instead of trying to
+    // browse inside it.
     std::wstring pExt = p.extension().wstring();
     std::transform(pExt.begin(), pExt.end(), pExt.begin(), [](wchar_t c){ return std::towlower(c); });
+    if (!isDirectory && QuickView::IsArchiveExtension(pExt)) {
+        return;
+    }
 
-    if (QuickView::IsArchiveExtension(pExt)) {
-        // Load from Archive VFS
-        m_archivePath = p.wstring();
-        if (pExt == L".cbr" || pExt == L".rar") {
-            m_archive = std::make_unique<QuickView::RarArchive>(m_archivePath);
-        } else {
-            m_archive = std::make_unique<QuickView::ZipArchive>(m_archivePath);
-        }
+    for (const auto& entry : fs::directory_iterator(dir, ec)) {
+        if (entry.is_regular_file(ec)) {
+            std::wstring ext = entry.path().extension().wstring();
+            std::transform(ext.begin(), ext.end(), ext.begin(), [](wchar_t c){ return std::towlower(c); });
 
-        if (m_archive && m_archive->IsValid()) {
-            size_t numEntries = m_archive->GetEntryCount();
-            for (size_t i = 0; i < numEntries; ++i) {
-                const QuickView::ArchiveEntry& entry = m_archive->GetEntry(i);
-                // Zero-allocation extension check using string_view
-                std::string_view nameView = m_archive->GetEntryNameView(i);
-                
-                size_t lastDot = nameView.find_last_of('.');
-                if (lastDot != std::string_view::npos) {
-                    std::string_view extUtf8 = nameView.substr(lastDot);
-                    
-                    // Fast ASCII to wide lower-case conversion for extension
-                    std::wstring ext;
-                    ext.reserve(extUtf8.length());
-                    for (char c : extUtf8) {
-                        ext.push_back(std::towlower((wchar_t)(uint8_t)c));
-                    }
+            // Skip archive container files from the flat folder slideshow playlist
+            bool isArchiveExt = QuickView::IsArchiveExtension(ext);
+            if (isArchiveExt) continue;
 
-                    for (const auto& supp : QuickView::SUPPORTED_EXTENSIONS) {
-                        if (ext == supp) {
-                            // Full conversion only for supported image types
-                            std::wstring name = m_archive->GetEntryName(i);
-                            std::wstring virtualPath = m_archivePath + L"|" + std::to_wstring(i) + L"|" + name;
-                            m_files.push_back(virtualPath);
-                            m_sizes.push_back(entry.uncompSize);
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-    } else {
-        for (const auto& entry : fs::directory_iterator(dir, ec)) {
-            if (entry.is_regular_file(ec)) {
-                std::wstring ext = entry.path().extension().wstring();
-                std::transform(ext.begin(), ext.end(), ext.begin(), [](wchar_t c){ return std::towlower(c); });
-
-                // Skip archive container files from the flat folder slideshow playlist
-                bool isArchiveExt = QuickView::IsArchiveExtension(ext);
-                if (isArchiveExt) continue;
-
-                for (const auto& supp : QuickView::SUPPORTED_EXTENSIONS) {
-                    if (ext == supp) {
-                        m_files.push_back(entry.path().wstring());
-                        // Cache file size for Scout Lane decision
-                        m_sizes.push_back(entry.file_size(ec));
-                        break;
-                    }
+            for (const auto& supp : QuickView::SUPPORTED_EXTENSIONS) {
+                if (ext == supp) {
+                    m_files.push_back(entry.path().wstring());
+                    // Cache file size for Scout Lane decision
+                    m_sizes.push_back(entry.file_size(ec));
+                    break;
                 }
             }
         }
@@ -134,19 +89,13 @@ void FileNavigator::Initialize(const std::wstring& currentPath, HWND hwnd) {
         e.p = m_files[i];
         e.s = m_sizes[i];
         std::error_code ec2;
-        
-        // For virtual paths, use the archive file's timestamp
-        if (IsVirtualPath(e.p)) {
-            e.m = fs2::last_write_time(p, ec2);
-        } else {
-            e.m = fs2::last_write_time(e.p, ec2);
-        }
+        e.m = fs2::last_write_time(e.p, ec2);
 
         e.t = fs2::path(e.p).extension().wstring();
         std::transform(e.t.begin(), e.t.end(), e.t.begin(), [](wchar_t c){ return std::towlower(c); });
 
         // Only parse EXIF date if specifically requested and it's a real file
-        if (g_runtime.SortOrder == 3 && !IsVirtualPath(e.p)) {
+        if (g_runtime.SortOrder == 3) {
              FILE *fp = nullptr;
              _wfopen_s(&fp, e.p.c_str(), L"rb");
              if (fp) {
@@ -168,17 +117,12 @@ void FileNavigator::Initialize(const std::wstring& currentPath, HWND hwnd) {
     int sortOrder = g_runtime.SortOrder;
     bool sortDesc = g_runtime.SortDescending;
 
-    if (m_archive && m_archive->IsValid() && g_config.SortArchivesByNameAscending) {
-        sortOrder = 1;      // Force sort by Name
-        sortDesc = false;   // Force Ascending
-    }
-
     SortEntries(entries, sortOrder, sortDesc, dir.wstring());
 
     // [RAW+JPEG Pairing] Fold same-name RAW + rendered pairs (real folders
     // only; archives are never paired)
     m_pairedRaws.clear();
-    if (g_config.PairRawJpeg && !m_archive) {
+    if (g_config.PairRawJpeg) {
         std::unordered_set<ImageID> skip;
         {
             std::lock_guard<std::mutex> lock(m_verifyMutex);
@@ -205,41 +149,34 @@ void FileNavigator::Initialize(const std::wstring& currentPath, HWND hwnd) {
 
     // Find current index
     if (!isDirectory) {
-        std::wstring currentFull = isVfsInput ? currentPath : p.wstring();
+        std::wstring currentFull = p.wstring();
 
-        // Fix initial page load for Archive VFS
-        if (m_archive && m_archive->IsValid() && !isVfsInput && currentFull == m_archivePath) {
-            if (!m_files.empty()) {
-                m_currentIndex = 0; // Default to first page in archive
+        for (size_t i = 0; i < m_files.size(); ++i) {
+            if (m_files[i] == currentFull) {
+                m_currentIndex = (int)i;
+                break;
             }
-        } else {
-            for (size_t i = 0; i < m_files.size(); ++i) {
-                if (m_files[i] == currentFull) {
-                    m_currentIndex = (int)i;
-                    break;
-                }
-            }
+        }
 
-            // [RAW+JPEG Pairing] The opened file may be a RAW folded behind
-            // its rendered sibling -- land on the pair instead.
-            if (m_currentIndex < 0 && !m_pairedRaws.empty()) {
-                for (const auto& [renderedId, raw] : m_pairedRaws) {
-                    if (raw.path == currentFull) {
-                        for (size_t i = 0; i < m_ids.size(); ++i) {
-                            if (m_ids[i] == renderedId) {
-                                m_currentIndex = (int)i;
-                                break;
-                            }
+        // [RAW+JPEG Pairing] The opened file may be a RAW folded behind
+        // its rendered sibling -- land on the pair instead.
+        if (m_currentIndex < 0 && !m_pairedRaws.empty()) {
+            for (const auto& [renderedId, raw] : m_pairedRaws) {
+                if (raw.path == currentFull) {
+                    for (size_t i = 0; i < m_ids.size(); ++i) {
+                        if (m_ids[i] == renderedId) {
+                            m_currentIndex = (int)i;
+                            break;
                         }
-                        break;
                     }
+                    break;
                 }
             }
         }
     }
 
-    // [Directory Watcher] Start monitoring for non-VFS real directories
-    if (!m_archive && m_hwnd) {
+    // [Directory Watcher] Start monitoring for real directories
+    if (m_hwnd) {
         std::wstring watchDir = dir.wstring();
         if (!watchDir.empty()) {
             StartDirectoryWatcher(watchDir);
@@ -260,36 +197,28 @@ std::wstring FileNavigator::Next(bool /*unused*/) {
         if (m_currentIndex >= (int)m_files.size() - 1) {
             shouldTraverse = true;
         } else {
-            // Case 2: The next sibling in the parent directory is a container (folder/archive)
-            std::wstring currentFile = m_files[m_currentIndex];
-            std::wstring physicalCurrent = std::wstring(GetPhysicalHostPath(currentFile));
-            
-            namespace fs = std::filesystem;
-            fs::path currentPath(physicalCurrent);
-            fs::path parentDir = currentPath.parent_path();
-            
-            std::vector<std::wstring> siblings = GetSortedSiblings(parentDir);
-            
-            auto it = std::find(siblings.begin(), siblings.end(), physicalCurrent);
-            int idx = (it == siblings.end()) ? -1 : (int)std::distance(siblings.begin(), it);
-            
-            if (idx != -1 && idx < (int)siblings.size() - 1) {
-                std::wstring nextSibling = siblings[idx + 1];
-                bool isContainer = false;
-                if (fs::is_directory(nextSibling)) {
-                    isContainer = true;
-                } else {
-                    std::wstring nextExt = fs::path(nextSibling).extension().wstring();
-                    std::transform(nextExt.begin(), nextExt.end(), nextExt.begin(), [](wchar_t c){ return std::towlower(c); });
-                    if (nextExt == L".cbz" || nextExt == L".zip" || nextExt == L".cbr" || nextExt == L".rar") {
-                        isContainer = true;
-                    }
-                }
-                
-                if (isContainer) {
-                    shouldTraverse = true;
-                }
+        // Case 2: The next sibling in the parent directory is a container (folder)
+        if (m_currentIndex >= 0 && m_currentIndex < (int)m_files.size()) {
+        std::wstring currentFile = m_files[m_currentIndex];
+
+        namespace fs = std::filesystem;
+        fs::path currentPath(currentFile);
+        fs::path parentDir = currentPath.parent_path();
+
+        std::vector<std::wstring> siblings = GetSortedSiblings(parentDir);
+
+        auto it = std::find(siblings.begin(), siblings.end(), currentFile);
+        int idx = (it == siblings.end()) ? -1 : (int)std::distance(siblings.begin(), it);
+
+        if (idx != -1 && idx < (int)siblings.size() - 1) {
+            std::wstring nextSibling = siblings[idx + 1];
+            bool isContainer = fs::is_directory(nextSibling);
+
+            if (isContainer) {
+                shouldTraverse = true;
             }
+        }
+        }
         }
         
         if (shouldTraverse) {
@@ -327,36 +256,28 @@ std::wstring FileNavigator::Previous(bool /*unused*/) {
         if (m_currentIndex <= 0) {
             shouldTraverse = true;
         } else {
-            // Case 2: The previous sibling in the parent directory is a container (folder/archive)
-            std::wstring currentFile = m_files[m_currentIndex];
-            std::wstring physicalCurrent = std::wstring(GetPhysicalHostPath(currentFile));
-            
-            namespace fs = std::filesystem;
-            fs::path currentPath(physicalCurrent);
-            fs::path parentDir = currentPath.parent_path();
-            
-            std::vector<std::wstring> siblings = GetSortedSiblings(parentDir);
-            
-            auto it = std::find(siblings.begin(), siblings.end(), physicalCurrent);
-            int idx = (it == siblings.end()) ? -1 : (int)std::distance(siblings.begin(), it);
-            
-            if (idx > 0) {
-                std::wstring prevSibling = siblings[idx - 1];
-                bool isContainer = false;
-                if (fs::is_directory(prevSibling)) {
-                    isContainer = true;
-                } else {
-                    std::wstring prevExt = fs::path(prevSibling).extension().wstring();
-                    std::transform(prevExt.begin(), prevExt.end(), prevExt.begin(), [](wchar_t c){ return std::towlower(c); });
-                    if (prevExt == L".cbz" || prevExt == L".zip" || prevExt == L".cbr" || prevExt == L".rar") {
-                        isContainer = true;
-                    }
-                }
-                
-                if (isContainer) {
-                    shouldTraverse = true;
-                }
+        // Case 2: The previous sibling in the parent directory is a container (folder)
+        if (m_currentIndex >= 0 && m_currentIndex < (int)m_files.size()) {
+        std::wstring currentFile = m_files[m_currentIndex];
+
+        namespace fs = std::filesystem;
+        fs::path currentPath(currentFile);
+        fs::path parentDir = currentPath.parent_path();
+
+        std::vector<std::wstring> siblings = GetSortedSiblings(parentDir);
+
+        auto it = std::find(siblings.begin(), siblings.end(), currentFile);
+        int idx = (it == siblings.end()) ? -1 : (int)std::distance(siblings.begin(), it);
+
+        if (idx > 0) {
+            std::wstring prevSibling = siblings[idx - 1];
+            bool isContainer = fs::is_directory(prevSibling);
+
+            if (isContainer) {
+                shouldTraverse = true;
             }
+        }
+        }
         }
         
         if (shouldTraverse) {
@@ -437,12 +358,6 @@ const std::wstring& FileNavigator::GetFile(int index) const {
 }
 
 std::wstring FileNavigator::GetResolvedPath(const std::wstring& requestedPath) const {
-    if (m_archive && m_archive->IsValid() && requestedPath == m_archivePath) {
-        if (!m_files.empty() && m_currentIndex >= 0 && m_currentIndex < (int)m_files.size()) {
-            return m_files[m_currentIndex];
-        }
-    }
-
     // [RAW+JPEG Pairing] A RAW folded behind its rendered sibling resolves to
     // that sibling: with pairing enabled the pair is one logical photo and the
     // rendered file is its visible face, regardless of which file was opened.
@@ -461,40 +376,9 @@ std::wstring FileNavigator::GetResolvedPath(const std::wstring& requestedPath) c
 }
 
 int FileNavigator::FindIndex(const std::wstring& path) const {
-    // Handle virtual path matching where we might be passed just the archive path from OS
-    if (m_archive && m_archive->IsValid()) {
-        if (path == m_archivePath) {
-            return 0; // Return first entry if they try to open the archive itself
-        }
-    }
-
     auto it = std::find(m_files.begin(), m_files.end(), path);
     if (it != m_files.end()) return (int)std::distance(m_files.begin(), it);
     return -1;
-}
-
-bool FileNavigator::ParseVirtualPath(const std::wstring& path, std::wstring& outArchivePath, size_t& outIndex) {
-    size_t firstPipe = path.find(L"|");
-    if (firstPipe == std::wstring::npos) return false;
-
-    size_t secondPipe = path.find(L"|", firstPipe + 1);
-    if (secondPipe == std::wstring::npos) return false;
-
-    outArchivePath = path.substr(0, firstPipe);
-    size_t index = 0;
-    size_t len = secondPipe - firstPipe - 1;
-    if (len == 0) return false;
-    
-    for (size_t i = firstPipe + 1; i < secondPipe; ++i) {
-        wchar_t c = path[i];
-        if (c >= L'0' && c <= L'9') {
-            index = index * 10 + (c - L'0');
-        } else {
-            return false; // Invalid character
-        }
-    }
-    outIndex = index;
-    return true;
 }
 
 void FileNavigator::ApplyPendingScanResult() {
@@ -934,14 +818,6 @@ void FileNavigator::SortEntries(std::vector<SortEntry>& entries, int sortOrder, 
     });
 }
 
-std::wstring_view FileNavigator::GetPhysicalHostPath(std::wstring_view vfsPath) {
-    auto pos = vfsPath.find(L'|');
-    if (pos != std::wstring_view::npos) {
-        return vfsPath.substr(0, pos);
-    }
-    return vfsPath;
-}
-
 __declspec(noinline) std::vector<std::wstring> FileNavigator::GetSortedSiblings(const std::filesystem::path& parentDir) {
     std::vector<std::wstring> siblings;
     std::error_code ec;
@@ -952,11 +828,6 @@ __declspec(noinline) std::vector<std::wstring> FileNavigator::GetSortedSiblings(
         } else if (entry.is_regular_file(ec)) {
             std::wstring ext = entry.path().extension().wstring();
             std::transform(ext.begin(), ext.end(), ext.begin(), [](wchar_t c){ return std::towlower(c); });
-            bool isArchive = QuickView::IsArchiveExtension(ext);
-            if (isArchive) {
-                siblings.push_back(entry.path().wstring());
-                continue;
-            }
             for (const auto& supp : QuickView::SUPPORTED_EXTENSIONS) {
                 if (ext == supp) {
                     siblings.push_back(entry.path().wstring());
@@ -976,9 +847,8 @@ std::wstring FileNavigator::FindAdjacentFolderImage(bool next) {
 
     namespace fs = std::filesystem;
     std::wstring currentFile = m_files[m_currentIndex];
-    std::wstring currentPhysical = std::wstring(GetPhysicalHostPath(currentFile));
 
-    fs::path currentPath(currentPhysical);
+    fs::path currentPath(currentFile);
     fs::path parentDir = currentPath.parent_path();
     if (parentDir.empty() || parentDir == currentPath) return L"";
 
@@ -1005,16 +875,8 @@ std::wstring FileNavigator::FindAdjacentFolderImage(bool next) {
     int startIdx = nextIdx;
     while (true) {
         std::wstring sib = siblings[nextIdx];
-        bool isContainer = false;
-        if (fs::is_directory(sib)) {
-            isContainer = true;
-        } else {
-            std::wstring sibExt = fs::path(sib).extension().wstring();
-            std::transform(sibExt.begin(), sibExt.end(), sibExt.begin(), [](wchar_t c){ return std::towlower(c); });
-            if (QuickView::IsArchiveExtension(sibExt)) {
-                isContainer = true;
-            }
-        }
+        // Only folders are containers now — archives are no longer supported
+        bool isContainer = fs::is_directory(sib);
 
         if (isContainer) {
             FileNavigator tempNav;
