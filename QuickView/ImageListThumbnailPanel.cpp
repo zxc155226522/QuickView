@@ -38,6 +38,7 @@ void ImageListThumbnailPanel::ShowImageThumbnails(FileNavigator* nav, int curren
         return;
     }
 
+    bool wasVisible = m_visible && m_isImageMode;
     m_visible = true;
     m_isImageMode = true;
     m_navigator = nav;
@@ -53,7 +54,6 @@ void ImageListThumbnailPanel::ShowImageThumbnails(FileNavigator* nav, int curren
         m_imagePaths[i] = nav->GetFile((int)i);
     }
 
-    bool wasVisible = m_visible && m_isImageMode;
     // Clear cache
     for (auto& pair : m_imageThumbCache) { if (pair.second) pair.second->Release(); }
     m_imageThumbCache.clear();
@@ -69,8 +69,10 @@ void ImageListThumbnailPanel::ShowImageThumbnails(FileNavigator* nav, int curren
         m_targetScrollY = 0.0f;
         m_scrollX = 0.0f;
         m_targetScrollX = 0.0f;
-        ScrollToCurrentPage(true);
     }
+    // Always re-center on the newly opened file, even if the panel was already
+    // visible (opening another image in the same/another folder).
+    ScrollToCurrentPage(true);
 }
 
 void ImageListThumbnailPanel::OnDocumentClosed() {
@@ -127,18 +129,21 @@ ComPtr<ID2D1Bitmap> ImageListThumbnailPanel::GetItemBitmap(uint32_t index) {
 
 std::wstring ImageListThumbnailPanel::GetItemLabel(uint32_t index) const {
     if (index < m_imagePaths.size()) {
-        // Extract filename from path
+        // Extract filename from path; the label format trims with an ellipsis
+        // when it is too wide, so return the full name here
         const std::wstring& path = m_imagePaths[index];
         size_t slashPos = path.find_last_of(L"\\/");
         if (slashPos != std::wstring::npos && slashPos + 1 < path.size()) {
-            std::wstring fname = path.substr(slashPos + 1);
-            // Truncate if too long
-            if (fname.size() > 20) {
-                fname = fname.substr(0, 17) + L"...";
-            }
-            return fname;
+            return path.substr(slashPos + 1);
         }
         return path;
+    }
+    return L"";
+}
+
+std::wstring ImageListThumbnailPanel::GetItemFullPath(uint32_t index) const {
+    if (index < m_imagePaths.size()) {
+        return m_imagePaths[index];
     }
     return L"";
 }
@@ -229,12 +234,12 @@ void ImageListThumbnailPanel::DrawItems(ID2D1RenderTarget* pRT) {
             pRT->DrawRoundedRectangle(borderRect, m_brushBorder.Get(), 2.0f * g_uiScale);
         }
 
-        // File name label
-        if (m_textFormatPage && m_brushText) {
+        // File name label (single line, ellipsis when too long)
+        if (m_textFormatLabel && m_brushText) {
             std::wstring label = GetItemLabel(pageIndex);
             D2D1_RECT_F labelRect = D2D1::RectF(itemRect.left, thumbRect.bottom + 2.0f * g_uiScale,
                                                  itemRect.right, itemRect.bottom);
-            pRT->DrawText(label.c_str(), static_cast<UINT32>(label.size()), m_textFormatPage.Get(),
+            pRT->DrawText(label.c_str(), static_cast<UINT32>(label.size()), m_textFormatLabel.Get(),
                          labelRect, m_brushText.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
     }

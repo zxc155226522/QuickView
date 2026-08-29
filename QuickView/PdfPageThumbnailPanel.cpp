@@ -66,6 +66,7 @@ void PdfPageThumbnailPanel::SetCurrentPage(uint32_t page) {
     if (page >= m_totalPages) return;
     if (m_currentPage != page) {
         m_currentPage = page;
+        ScrollToCurrentPage(false); // keep the selected page centered
     }
 }
 
@@ -90,6 +91,10 @@ std::wstring PdfPageThumbnailPanel::GetItemLabel(uint32_t index) const {
     wchar_t label[32];
     swprintf_s(label, L"第 %u 页", index + 1);
     return label;
+}
+
+std::wstring PdfPageThumbnailPanel::GetItemFullPath([[maybe_unused]] uint32_t index) const {
+    return m_currentPath;
 }
 
 void PdfPageThumbnailPanel::OnDeviceResourcesCreated() {
@@ -189,12 +194,12 @@ void PdfPageThumbnailPanel::DrawItems(ID2D1RenderTarget* pRT) {
             pRT->DrawRoundedRectangle(borderRect, m_brushBorder.Get(), 2.0f * g_uiScale);
         }
 
-        // Page label
-        if (m_textFormatPage && m_brushText) {
+        // Page label (single line, ellipsis when too long)
+        if (m_textFormatLabel && m_brushText) {
             std::wstring label = GetItemLabel(pageIndex);
             D2D1_RECT_F labelRect = D2D1::RectF(itemRect.left, thumbRect.bottom + 2.0f * g_uiScale,
                                                  itemRect.right, itemRect.bottom);
-            pRT->DrawText(label.c_str(), static_cast<UINT32>(label.size()), m_textFormatPage.Get(),
+            pRT->DrawText(label.c_str(), static_cast<UINT32>(label.size()), m_textFormatLabel.Get(),
                          labelRect, m_brushText.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
     }

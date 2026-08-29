@@ -93,6 +93,8 @@ const wchar_t *Context_ShowInExplorer = nullptr;
 const wchar_t *Context_OpenFolder = nullptr;
 const wchar_t *Context_CopyImage = nullptr;
 const wchar_t *Context_CopyPath = nullptr;
+const wchar_t *Context_ThumbCopyFile = nullptr;
+const wchar_t *Context_ThumbCopyFileName = nullptr;
 const wchar_t *Context_Print = nullptr;
 const wchar_t *Context_RotateCW = nullptr;
 const wchar_t *Context_RotateCCW = nullptr;
@@ -652,6 +654,8 @@ struct LanguageTable {
     const wchar_t *Context_OpenFolder;
     const wchar_t *Context_CopyImage;
     const wchar_t *Context_CopyPath;
+    const wchar_t *Context_ThumbCopyFile;
+    const wchar_t *Context_ThumbCopyFileName;
     const wchar_t *Context_Print;
     const wchar_t *Context_RotateCW;
     const wchar_t *Context_RotateCCW;
@@ -1209,6 +1213,8 @@ static const LanguageTable Table_EN = {
     L"Open Folder", // Context_OpenFolder
     L"Copy Image\tCtrl+C", // Context_CopyImage
     L"Copy Path\tCtrl+Alt+C", // Context_CopyPath
+    L"Copy File", // Context_ThumbCopyFile
+    L"Copy File Name", // Context_ThumbCopyFileName
     L"Print\tCtrl+P", // Context_Print
     L"Rotate 90\x00B0 CW\tR", // Context_RotateCW
     L"Rotate 90\x00B0 CCW\tShift+R", // Context_RotateCCW
@@ -1766,6 +1772,8 @@ static const LanguageTable Table_CN = {
     L"打开文件夹", // Context_OpenFolder
     L"复制图像\tCtrl+C", // Context_CopyImage
     L"复制路径\tCtrl+Alt+C", // Context_CopyPath
+    L"复制文件", // Context_ThumbCopyFile
+    L"复制文件名", // Context_ThumbCopyFileName
     L"打印\tCtrl+P", // Context_Print
     L"顺时针旋转 90\x00B0\tR", // Context_RotateCW
     L"逆时针旋转 90\x00B0\tShift+R", // Context_RotateCCW
@@ -2323,6 +2331,8 @@ static const LanguageTable Table_TW = {
     L"開啟資料夾", // Context_OpenFolder
     L"複製圖像\tCtrl+C", // Context_CopyImage
     L"複製路徑\tCtrl+Alt+C", // Context_CopyPath
+    L"複製檔案", // Context_ThumbCopyFile
+    L"複製檔案名稱", // Context_ThumbCopyFileName
     L"列印\tCtrl+P", // Context_Print
     L"順時針旋轉 90\x00B0\tR", // Context_RotateCW
     L"逆時針旋轉 90\x00B0\tShift+R", // Context_RotateCCW
@@ -2880,6 +2890,8 @@ static const LanguageTable Table_JA = {
     L"フォルダーを開く", // Context_OpenFolder
     L"画像をコピー\tCtrl+C", // Context_CopyImage
     L"パスをコピー\tCtrl+Alt+C", // Context_CopyPath
+    L"ファイルをコピー", // Context_ThumbCopyFile
+    L"ファイル名をコピー", // Context_ThumbCopyFileName
     L"印刷\tCtrl+P", // Context_Print
     L"右に90\x00B0回転\tR", // Context_RotateCW
     L"左に90\x00B0回転\tShift+R", // Context_RotateCCW
@@ -3437,6 +3449,8 @@ static const LanguageTable Table_RU = {
     L"Открыть папку", // Context_OpenFolder
     L"Скопировать изображение\tCtrl+C", // Context_CopyImage
     L"Скопировать путь\tCtrl+Alt+C", // Context_CopyPath
+    L"Копировать файл", // Context_ThumbCopyFile
+    L"Копировать имя файла", // Context_ThumbCopyFileName
     L"Печать\tCtrl+P", // Context_Print
     L"Повернуть на 90\x00B0 вправо\tR", // Context_RotateCW
     L"Повернуть на 90\x00B0 влево\tShift+R", // Context_RotateCCW
@@ -3994,6 +4008,8 @@ static const LanguageTable Table_DE = {
     L"Ordner öffnen", // Context_OpenFolder
     L"Bild kopieren\tStrg+C", // Context_CopyImage
     L"Pfad kopieren\tStrg+Alt+C", // Context_CopyPath
+    L"Datei kopieren", // Context_ThumbCopyFile
+    L"Dateiname kopieren", // Context_ThumbCopyFileName
     L"Drucken\tStrg+P", // Context_Print
     L"90\x00B0 im Uhrzeigersinn\tR", // Context_RotateCW
     L"90\x00B0 gegen Uhrzeigersinn\tShift+R", // Context_RotateCCW
@@ -4551,6 +4567,8 @@ static const LanguageTable Table_ES = {
     L"Abrir carpeta", // Context_OpenFolder
     L"Copiar imagen\tCtrl+C", // Context_CopyImage
     L"Copiar ruta\tCtrl+Alt+C", // Context_CopyPath
+    L"Copiar archivo", // Context_ThumbCopyFile
+    L"Copiar nombre de archivo", // Context_ThumbCopyFileName
     L"Imprimir\tCtrl+P", // Context_Print
     L"Girar 90\x00B0 horario\tR", // Context_RotateCW
     L"Girar 90\x00B0 antihorario\tShift+R", // Context_RotateCCW
@@ -5108,6 +5126,8 @@ static const LanguageTable Table_FR = {
     L"Open Folder", // Context_OpenFolder
     L"Copy Image\tCtrl+C", // Context_CopyImage
     L"Copy Path\tCtrl+Alt+C", // Context_CopyPath
+    L"Copier le fichier", // Context_ThumbCopyFile
+    L"Copier le nom du fichier", // Context_ThumbCopyFileName
     L"Print\tCtrl+P", // Context_Print
     L"Rotate 90\x00B0 CW\tR", // Context_RotateCW
     L"Rotate 90\x00B0 CCW\tShift+R", // Context_RotateCCW
@@ -5665,6 +5685,8 @@ void Apply(const LanguageTable& t) {
   Context_OpenFolder = t.Context_OpenFolder;
   Context_CopyImage = t.Context_CopyImage;
   Context_CopyPath = t.Context_CopyPath;
+  Context_ThumbCopyFile = t.Context_ThumbCopyFile;
+  Context_ThumbCopyFileName = t.Context_ThumbCopyFileName;
   Context_Print = t.Context_Print;
   Context_RotateCW = t.Context_RotateCW;
   Context_RotateCCW = t.Context_RotateCCW;

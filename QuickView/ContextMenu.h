@@ -98,6 +98,12 @@ enum ContextMenuCommand : UINT {
     IDM_IMG_THUMB_BOTTOM,
     IDM_IMG_THUMB_OFF,
 
+    // [Thumbnail Panel Item] Right-click menu on a thumbnail item
+    IDM_THUMB_LOCATE,
+    IDM_THUMB_COPY_FILE,
+    IDM_THUMB_COPY_PATH,
+    IDM_THUMB_COPY_NAME,
+
     // [CMS] Color Space Options
     IDM_CMS_UNMANAGED,
     IDM_CMS_AUTO,
@@ -127,3 +133,8 @@ enum ContextMenuCommand : UINT {
 void ShowContextMenu(HWND hwnd, POINT pt, bool hasImage, bool isWindowLocked, bool showInfoPanel, bool infoPanelExpanded, bool alwaysOnTop, bool renderRaw, bool isRawFile, bool isFullscreen, bool isCrossMonitor, bool isCompareMode, bool isPixelArtMode, int cmsMode, bool enableSoftProofing, const std::wstring& softProofProfilePath);
 
 void ShowGalleryContextMenu(HWND hwnd, POINT pt);
+
+// Path of the thumbnail item the context menu was opened for (set before
+// ShowThumbContextMenu, consumed by the IDM_THUMB_* WM_COMMAND handlers).
+extern std::wstring g_thumbMenuPath;
+void ShowThumbContextMenu(HWND hwnd, POINT pt);

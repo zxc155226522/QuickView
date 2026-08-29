@@ -67,6 +67,8 @@ namespace AppStrings {
     extern const wchar_t* Context_OpenFolder;
     extern const wchar_t* Context_CopyImage;
     extern const wchar_t* Context_CopyPath;
+    extern const wchar_t* Context_ThumbCopyFile;
+    extern const wchar_t* Context_ThumbCopyFileName;
     extern const wchar_t* Context_Print;
     extern const wchar_t* Context_RotateCW;
     extern const wchar_t* Context_RotateCCW;

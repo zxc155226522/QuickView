@@ -223,3 +223,19 @@ void ShowGalleryContextMenu(HWND hwnd, POINT pt) {
 
     GeekContextMenu::ShowMenu(hwnd, pt.x, pt.y, {}, std::move(items));
 }
+
+// ============================================================
+// Thumbnail Panel Item Context Menu (locate / copy file / path / name)
+// ============================================================
+std::wstring g_thumbMenuPath;
+
+void ShowThumbContextMenu(HWND hwnd, POINT pt) {
+    std::vector<MI> items;
+    items.push_back(MI::Normal(IDM_THUMB_LOCATE, AppStrings::Context_ShowInExplorer, GeekIcons::Explorer));
+    items.push_back(MI::Sep());
+    items.push_back(MI::Normal(IDM_THUMB_COPY_FILE, AppStrings::Context_ThumbCopyFile, GeekIcons::Copy));
+    items.push_back(MI::Normal(IDM_THUMB_COPY_PATH, AppStrings::Context_CopyPath, GeekIcons::Link));
+    items.push_back(MI::Normal(IDM_THUMB_COPY_NAME, AppStrings::Context_ThumbCopyFileName, nullptr));
+
+    GeekContextMenu::ShowMenu(hwnd, pt.x, pt.y, {}, std::move(items));
+}

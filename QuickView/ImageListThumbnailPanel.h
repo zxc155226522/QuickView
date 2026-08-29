@@ -41,6 +41,10 @@ public:
     void ProcessAsyncResults(ID2D1RenderTarget* pRT);
     void ProcessAsyncResults(); // Uses m_currentRT from base class
 
+    // [ThumbnailPanelBase] Full path of the item's file (context menu / tooltip) —
+    // kept public so the main window can resolve the right-click target file
+    std::wstring GetItemFullPath(uint32_t index) const override;
+
 protected:
     // ThumbnailPanelBase interface
     void OnUpdateThumbnailRequests() override;

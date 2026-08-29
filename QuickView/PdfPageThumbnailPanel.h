@@ -27,6 +27,10 @@ public:
     // Lifecycle
     void InitializeEx(HWND hwnd, QuickView::DocumentRenderController* controller);
 
+    // [ThumbnailPanelBase] Full path of the item's file (context menu / tooltip) —
+    // kept public so the main window can resolve the right-click target file
+    std::wstring GetItemFullPath(uint32_t index) const override;
+
     // Document lifecycle
     void OnDocumentOpened(const std::wstring& path, uint32_t totalPages);
     void OnDocumentClosed();

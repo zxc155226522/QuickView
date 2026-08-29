@@ -123,6 +123,7 @@ void ThumbnailPanelBase::UpdateLayout(const D2D1_RECT_F& clientRect) {
         m_maxScrollX = std::max(0.0f, contentWidth - m_panelWidth + kItemPadding * 2.0f);
         if (m_scrollX > m_maxScrollX) m_scrollX = m_maxScrollX;
         if (m_targetScrollX > m_maxScrollX) m_targetScrollX = m_maxScrollX;
+        if (m_pendingCenter) ScrollToCurrentPage(true);
         OnLayoutChanged();
         return;
     }
@@ -147,6 +148,7 @@ void ThumbnailPanelBase::UpdateLayout(const D2D1_RECT_F& clientRect) {
 
     if (m_scrollY > m_maxScrollY) m_scrollY = m_maxScrollY;
     if (m_targetScrollY > m_maxScrollY) m_targetScrollY = m_maxScrollY;
+    if (m_pendingCenter) ScrollToCurrentPage(true);
 
     OnLayoutChanged();
 }
@@ -205,24 +207,39 @@ D2D1_RECT_F ThumbnailPanelBase::FitRectInside(const D2D1_RECT_F& box, float w, f
 
 void ThumbnailPanelBase::ScrollToCurrentPage(bool instant) {
     uint32_t itemCount = GetItemCount();
-    if (itemCount == 0 || m_panelHeight <= 0.0f) return;
+    if (itemCount == 0) return;
 
     if (m_panelSide == 3) {
+        if (m_panelWidth <= 0.0f || m_panelHeight <= 0.0f) {
+            m_pendingCenter = true; // Not laid out yet — retry after the next UpdateLayout
+            return;
+        }
         const float itemWidth = BottomItemStride();
-        const float currentPageX = static_cast<float>(m_currentPage) * itemWidth;
+        // Compute the scroll limit from the live item count/geometry —
+        // m_maxScrollX may be stale when this runs before UpdateLayout.
+        const float maxScrollX =
+            std::max(0.0f, static_cast<float>(itemCount) * itemWidth - m_panelWidth + kItemPadding * 2.0f);
         // Center the selected thumbnail in the strip
-        m_targetScrollX = currentPageX + itemWidth * 0.5f - m_panelWidth * 0.5f;
-        m_targetScrollX = std::max(0.0f, std::min(m_targetScrollX, m_maxScrollX));
+        m_targetScrollX = static_cast<float>(m_currentPage) * itemWidth + itemWidth * 0.5f - m_panelWidth * 0.5f;
+        m_targetScrollX = std::max(0.0f, std::min(m_targetScrollX, maxScrollX));
         if (instant) m_scrollX = m_targetScrollX;
+        m_pendingCenter = false;
         return;
     }
 
+    if (m_panelHeight <= 0.0f) {
+        m_pendingCenter = true; // Not laid out yet — retry after the next UpdateLayout
+        return;
+    }
     const float itemHeight = kThumbnailTargetHeight * g_uiScale + kPageLabelHeight * g_uiScale + kItemSpacing;
+    const float maxScrollY =
+        std::max(0.0f, static_cast<float>(itemCount) * itemHeight - m_panelHeight + kItemPadding * 2.0f);
     const float currentPageY = static_cast<float>(m_currentPage) * itemHeight;
     // Center the selected thumbnail in the panel
     m_targetScrollY = currentPageY + itemHeight * 0.5f - m_panelHeight * 0.5f;
-    m_targetScrollY = std::max(0.0f, std::min(m_targetScrollY, m_maxScrollY));
+    m_targetScrollY = std::max(0.0f, std::min(m_targetScrollY, maxScrollY));
     if (instant) m_scrollY = m_targetScrollY;
+    m_pendingCenter = false;
 }
 
 // ============================================================================
@@ -245,6 +262,13 @@ void ThumbnailPanelBase::CreateDeviceResources(ID2D1RenderTarget* pRT) {
     pRT->CreateSolidColorBrush(accent, &m_brushBorder);
     pRT->CreateSolidColorBrush(pal.resizeHandle, &m_brushResizeHandle);
     pRT->CreateSolidColorBrush(pal.titleBg, &m_brushTitleBg);
+    // Tooltip: near-opaque backdrop so text stays readable over any content
+    const bool tipLight = IsLightThemeActive();
+    const D2D1_COLOR_F tipBg = tipLight
+        ? D2D1::ColorF(0.98f, 0.98f, 0.99f, 0.97f)
+        : D2D1::ColorF(0.12f, 0.12f, 0.14f, 0.97f);
+    pRT->CreateSolidColorBrush(tipBg, &m_brushTipBg);
+    pRT->CreateSolidColorBrush(D2D1::ColorF(pal.text.r, pal.text.g, pal.text.b, 0.55f), &m_brushTipDim);
 
     if (!m_dwriteFactory) {
         DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
@@ -266,6 +290,33 @@ void ThumbnailPanelBase::CreateDeviceResources(ID2D1RenderTarget* pRT) {
             m_textFormatTitle->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
             m_textFormatTitle->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
         }
+        // NULL trimming sign = default ellipsis glyph at the cut point
+        const DWRITE_TRIMMING trimming = { DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0 };
+        // Item label: single line only — long names get an ellipsis, never wrap
+        m_dwriteFactory->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
+                                          DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+                                          11.0f * g_uiScale, L"en-US", &m_textFormatLabel);
+        if (m_textFormatLabel) {
+            m_textFormatLabel->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+            m_textFormatLabel->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+            m_textFormatLabel->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+            m_textFormatLabel->SetTrimming(&trimming, nullptr);
+        }
+        // Tooltip fonts (left aligned): name in bold, path in smaller dim text
+        m_dwriteFactory->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD,
+                                          DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+                                          11.0f * g_uiScale, L"en-US", &m_textFormatTipName);
+        m_dwriteFactory->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
+                                          DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+                                          10.0f * g_uiScale, L"en-US", &m_textFormatTipPath);
+        if (m_textFormatTipName) {
+            m_textFormatTipName->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+            m_textFormatTipName->SetTrimming(&trimming, nullptr);
+        }
+        if (m_textFormatTipPath) {
+            m_textFormatTipPath->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+            m_textFormatTipPath->SetTrimming(&trimming, nullptr);
+        }
     }
     OnDeviceResourcesCreated();
 }
@@ -280,8 +331,13 @@ void ThumbnailPanelBase::DiscardDeviceResources() {
     m_brushBorder.Reset();
     m_brushResizeHandle.Reset();
     m_brushTitleBg.Reset();
+    m_brushTipBg.Reset();
+    m_brushTipDim.Reset();
     m_textFormatPage.Reset();
     m_textFormatTitle.Reset();
+    m_textFormatLabel.Reset();
+    m_textFormatTipName.Reset();
+    m_textFormatTipPath.Reset();
     m_dwriteFactory.Reset();
     OnDeviceResourcesDiscarded();
 }
@@ -390,6 +446,9 @@ void ThumbnailPanelBase::Render(ID2D1RenderTarget* pRT) {
     pRT->PushAxisAlignedClip(m_panelRect, D2D1_ANTIALIAS_MODE_ALIASED);
     DrawItems(pRT);
     pRT->PopAxisAlignedClip();
+
+    // Hover tooltip floats above everything inside the panel
+    DrawTooltip(pRT);
 }
 
 // ============================================================================
@@ -430,13 +489,90 @@ bool ThumbnailPanelBase::OnMouseMove(float x, float y) {
     }
 
     if (newHover != m_hoverIndex || m_resizeHover != wasResizeHover) {
+        if (newHover != m_hoverIndex) {
+            HideTooltip();
+            if (newHover >= 0 && m_hwnd) {
+                SetTimer(m_hwnd, (UINT_PTR)this, 500, nullptr); // tooltip delay
+            }
+        }
         m_hoverIndex = newHover;
         return true;
     }
     return false;
 }
 
-int ThumbnailPanelBase::OnLButtonDown(float x, float y) {
+// --- Hover tooltip ----------------------------------------------------------
+
+bool ThumbnailPanelBase::OnTooltipTimer(WPARAM wParam) {
+    if (wParam != (WPARAM)(UINT_PTR)this) return false;
+    if (m_hwnd) KillTimer(m_hwnd, (UINT_PTR)this);
+    if (m_visible && m_hoverIndex >= 0 && (int)GetItemCount() > m_hoverIndex) {
+        m_tooltipVisible = true;
+        return true;
+    }
+    return false;
+}
+
+void ThumbnailPanelBase::HideTooltip() {
+    m_tooltipVisible = false;
+    if (m_hwnd) KillTimer(m_hwnd, (UINT_PTR)this);
+}
+
+void ThumbnailPanelBase::DrawTooltip(ID2D1RenderTarget* pRT) {
+    if (!m_tooltipVisible || m_hoverIndex < 0) return;
+    if (!m_brushTipBg || !m_brushBorder || !m_textFormatTipName || !m_textFormatTipPath) return;
+
+    const std::wstring name = GetItemLabel((uint32_t)m_hoverIndex);
+    std::wstring path = GetItemFullPath((uint32_t)m_hoverIndex);
+    if (name.empty() && path.empty()) return;
+    if (path == name) path.clear(); // nothing new to show under the name
+
+    // Measure both lines for a snug tooltip box
+    const float padX = 8.0f * g_uiScale, padY = 5.0f * g_uiScale;
+    const float lineGap = 2.0f * g_uiScale;
+    const float maxW = 340.0f * g_uiScale;
+    auto measure = [&](IDWriteTextFormat* fmt, const std::wstring& s) -> float {
+        if (!fmt || s.empty()) return 0.0f;
+        ComPtr<IDWriteTextLayout> layout;
+        if (FAILED(m_dwriteFactory->CreateTextLayout(s.c_str(), (UINT32)s.size(), fmt,
+                                                     maxW, 100.0f * g_uiScale, &layout))) return 0.0f;
+        DWRITE_TEXT_METRICS m = {};
+        layout->GetMetrics(&m);
+        return m.widthIncludingTrailingWhitespace;
+    };
+    float nameW = measure(m_textFormatTipName.Get(), name);
+    float pathW = measure(m_textFormatTipPath.Get(), path);
+    float boxW = std::max(nameW, pathW) + padX * 2.0f;
+    float boxH = padY * 2.0f + (nameW > 0.0f ? 16.0f * g_uiScale : 0.0f) +
+                 (pathW > 0.0f ? 14.0f * g_uiScale + (nameW > 0.0f ? lineGap : 0.0f) : 0.0f);
+
+    // Anchor under the hovered item, centered, clamped to the render target
+    const D2D1_SIZE_F rtSize = pRT->GetSize();
+    const D2D1_RECT_F itemRect = GetItemRect((uint32_t)m_hoverIndex);
+    float x = (itemRect.left + itemRect.right) * 0.5f - boxW * 0.5f;
+    float y = itemRect.bottom + 4.0f * g_uiScale;
+    x = std::max(2.0f, std::min(x, rtSize.width - boxW - 2.0f));
+    if (y + boxH > rtSize.height - 2.0f) y = itemRect.top - boxH - 4.0f * g_uiScale; // flip above
+    y = std::max(2.0f, y);
+
+    D2D1_ROUNDED_RECT tipRect = D2D1::RoundedRect(D2D1::RectF(x, y, x + boxW, y + boxH),
+                                                  4.0f * g_uiScale, 4.0f * g_uiScale);
+    pRT->FillRoundedRectangle(tipRect, m_brushTipBg.Get());
+    pRT->DrawRoundedRectangle(tipRect, m_brushBorder.Get(), 1.0f);
+
+    float ty = y + padY;
+    if (nameW > 0.0f && m_brushText) {
+        D2D1_RECT_F r = D2D1::RectF(x + padX, ty, x + padX + nameW + 2.0f, ty + 16.0f * g_uiScale);
+        pRT->DrawText(name.c_str(), (UINT32)name.size(), m_textFormatTipName.Get(), r, m_brushText.Get());
+        ty += 16.0f * g_uiScale + lineGap;
+    }
+    if (pathW > 0.0f && !path.empty()) {
+        D2D1_RECT_F r = D2D1::RectF(x + padX, ty, x + padX + pathW + 2.0f, ty + 14.0f * g_uiScale);
+        pRT->DrawText(path.c_str(), (UINT32)path.size(), m_textFormatTipPath.Get(), r, m_brushTipDim.Get());
+    }
+}
+
+int ThumbnailPanelBase::HitTestItem(float x, float y) const {
     if (!m_visible) return -1;
 
     if (x < m_panelRect.left || x > m_panelRect.right ||
@@ -451,7 +587,7 @@ int ThumbnailPanelBase::OnLButtonDown(float x, float y) {
         const int pageIndex = static_cast<int>(localX / itemWidth);
         uint32_t itemCount = GetItemCount();
         if (pageIndex >= 0 && pageIndex < static_cast<int>(itemCount)) {
-            return OnItemClick(pageIndex);
+            return pageIndex;
         }
         return -1;
     }
@@ -464,6 +600,16 @@ int ThumbnailPanelBase::OnLButtonDown(float x, float y) {
     const int pageIndex = static_cast<int>(localY / itemHeight);
     uint32_t itemCount = GetItemCount();
     if (pageIndex >= 0 && pageIndex < static_cast<int>(itemCount)) {
+        return pageIndex;
+    }
+    return -1;
+}
+
+int ThumbnailPanelBase::OnLButtonDown(float x, float y) {
+    if (!m_visible) return -1;
+    HideTooltip();
+    const int pageIndex = HitTestItem(x, y);
+    if (pageIndex >= 0) {
         return OnItemClick(pageIndex);
     }
     return -1;
@@ -471,6 +617,7 @@ int ThumbnailPanelBase::OnLButtonDown(float x, float y) {
 
 bool ThumbnailPanelBase::OnMouseWheel(int delta) {
     if (!m_visible) return false;
+    HideTooltip();
 
     if (m_panelSide == 3) {
         if (m_maxScrollX <= 0.0f) return false;

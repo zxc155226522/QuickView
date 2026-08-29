@@ -7538,6 +7538,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
     }
 
     case WM_TIMER: {
+        // [Thumbnail Panels] Hover tooltip delay (timer id = panel instance pointer)
+        if (g_pdfThumbPanel.OnTooltipTimer(wParam) || g_imageThumbPanel.OnTooltipTimer(wParam)) {
+            RequestRepaint(PaintLayer::Static);
+            return 0;
+        }
         if (wParam == IDT_SLIDESHOW) {
             if (g_slideshowState.IsActive && g_slideshowState.IsPlaying) {
                 if (CheckUnsavedChanges(hwnd)) {
@@ -8947,6 +8952,9 @@ RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);  // OSD and Border ind
         g_gallery.SetMouseInGallery(false);
         g_gallery.SetHoveringHotspot(false);
         g_gallery.OnMouseMove(-9999, -9999);
+
+        g_pdfThumbPanel.HideTooltip();
+        g_imageThumbPanel.HideTooltip();
 
         isTracking = false;
         RequestRepaint(PaintLayer::Static); 
@@ -10988,6 +10996,26 @@ RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);
             }
         }
 
+        // [Thumbnail Panels] Item context menu: locate file / copy file / path / name
+        if (g_imageThumbPanel.IsVisible() || g_pdfThumbPanel.IsVisible()) {
+            int thumbIdx = g_imageThumbPanel.IsVisible()
+                ? g_imageThumbPanel.HitTestItem((float)ptClient.x, (float)ptClient.y) : -1;
+            if (thumbIdx >= 0) {
+                g_thumbMenuPath = g_imageThumbPanel.GetItemFullPath((uint32_t)thumbIdx);
+            } else if (g_pdfThumbPanel.IsVisible()) {
+                thumbIdx = g_pdfThumbPanel.HitTestItem((float)ptClient.x, (float)ptClient.y);
+                if (thumbIdx >= 0) {
+                    g_thumbMenuPath = g_pdfThumbPanel.GetItemFullPath((uint32_t)thumbIdx);
+                }
+            }
+            if (thumbIdx >= 0 && !g_thumbMenuPath.empty()) {
+                g_pdfThumbPanel.HideTooltip();
+                g_imageThumbPanel.HideTooltip();
+                ShowThumbContextMenu(hwnd, pt);
+                return 0;
+            }
+        }
+
         if (IsCompareModeActive()) {
             AppContext::GetInstance().Compare.contextPane = AppContext::GetInstance().CompareCtrl->HitTest(hwnd, ptClient);
             AppContext::GetInstance().Compare.activePane = AppContext::GetInstance().Compare.contextPane;
@@ -11271,6 +11299,70 @@ const std::wstring& contextPath = contextLeft ? GetPaneContext(PaneSlot::Left).p
             if (!contextPath.empty()) {
                 std::wstring cmd = L"/select,\"" + contextPath + L"\"";
                 ShellExecuteW(nullptr, nullptr, L"explorer.exe", cmd.c_str(), nullptr, SW_SHOWNORMAL);
+            }
+            break;
+        }
+        case IDM_THUMB_LOCATE: {
+            // Reveal the thumbnail item's file in Explorer
+            if (!g_thumbMenuPath.empty()) {
+                std::wstring cmd = L"/select,\"" + g_thumbMenuPath + L"\"";
+                ShellExecuteW(nullptr, nullptr, L"explorer.exe", cmd.c_str(), nullptr, SW_SHOWNORMAL);
+            }
+            break;
+        }
+        case IDM_THUMB_COPY_FILE: {
+            // Copy the file itself (paste into Explorer or other apps)
+            if (!g_thumbMenuPath.empty() && OpenClipboard(hwnd)) {
+                EmptyClipboard();
+                size_t pathLen = (g_thumbMenuPath.length() + 1) * sizeof(wchar_t);
+                size_t totalSize = sizeof(DROPFILES) + pathLen + sizeof(wchar_t);
+                HGLOBAL hDrop = GlobalAlloc(GHND, totalSize);
+                if (hDrop) {
+                    DROPFILES* df = (DROPFILES*)GlobalLock(hDrop);
+                    df->pFiles = sizeof(DROPFILES);
+                    df->fWide = TRUE;
+                    memcpy((char*)df + sizeof(DROPFILES), g_thumbMenuPath.c_str(), pathLen);
+                    GlobalUnlock(hDrop);
+                    SetClipboardData(CF_HDROP, hDrop);
+                }
+                CloseClipboard();
+                g_osd.Show(hwnd, AppStrings::OSD_Copied, false);
+                RequestRepaint(PaintLayer::Dynamic);
+            }
+            break;
+        }
+        case IDM_THUMB_COPY_PATH: {
+            if (!g_thumbMenuPath.empty() && OpenClipboard(hwnd)) {
+                EmptyClipboard();
+                size_t len = (g_thumbMenuPath.length() + 1) * sizeof(wchar_t);
+                HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, len);
+                if (hMem) {
+                    memcpy(GlobalLock(hMem), g_thumbMenuPath.c_str(), len);
+                    GlobalUnlock(hMem);
+                    SetClipboardData(CF_UNICODETEXT, hMem);
+                }
+                CloseClipboard();
+                g_osd.Show(hwnd, AppStrings::OSD_FilePathCopied, false);
+                RequestRepaint(PaintLayer::Dynamic);
+            }
+            break;
+        }
+        case IDM_THUMB_COPY_NAME: {
+            size_t slashPos = g_thumbMenuPath.find_last_of(L"\\/");
+            std::wstring name = (slashPos != std::wstring::npos)
+                ? g_thumbMenuPath.substr(slashPos + 1) : g_thumbMenuPath;
+            if (!name.empty() && OpenClipboard(hwnd)) {
+                EmptyClipboard();
+                size_t len = (name.length() + 1) * sizeof(wchar_t);
+                HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, len);
+                if (hMem) {
+                    memcpy(GlobalLock(hMem), name.c_str(), len);
+                    GlobalUnlock(hMem);
+                    SetClipboardData(CF_UNICODETEXT, hMem);
+                }
+                CloseClipboard();
+                g_osd.Show(hwnd, AppStrings::OSD_Copied, false);
+                RequestRepaint(PaintLayer::Dynamic);
             }
             break;
         }

@@ -76,6 +76,17 @@ public:
     bool OnMouseMove(float x, float y);
     int OnLButtonDown(float x, float y);
     bool OnMouseWheel(int delta);
+    // Returns the item index under the point, or -1 (no title-bar / resize handling)
+    int HitTestItem(float x, float y) const;
+
+    // --- Hover tooltip (file name + path) ---
+    // WM_TIMER dispatch: returns true when this panel's tooltip timer fired and
+    // the tooltip just became visible (caller should repaint).
+    bool OnTooltipTimer(WPARAM wParam);
+    void HideTooltip();
+
+    // Full path of the item's backing file (tooltip + context menu); empty = no tooltip
+    virtual std::wstring GetItemFullPath([[maybe_unused]] uint32_t index) const { return L""; }
 
     // --- Resize ---
     bool IsResizeHit(float x, float y) const;
@@ -132,6 +143,7 @@ protected:
     D2D1_RECT_F GetThumbnailRect(const D2D1_RECT_F& itemRect) const;   // square cell
     static D2D1_RECT_F FitRectInside(const D2D1_RECT_F& box, float w, float h); // contain-fit, no distortion
     void ScrollToCurrentPage(bool instant = false);
+    void DrawTooltip(ID2D1RenderTarget* pRT);
 
     // Bottom-mode adaptive sizing: thumbnails shrink automatically as the bar
     // is dragged shorter. Stride = thumb width (4:3) + spacing.
@@ -147,8 +159,14 @@ protected:
     ComPtr<ID2D1SolidColorBrush> m_brushBorder;
     ComPtr<ID2D1SolidColorBrush> m_brushResizeHandle;
     ComPtr<ID2D1SolidColorBrush> m_brushTitleBg;
+    ComPtr<ID2D1SolidColorBrush> m_brushTipBg;   // Near-opaque tooltip backdrop
+    ComPtr<ID2D1SolidColorBrush> m_brushTipDim;  // Tooltip secondary (path) text
     ComPtr<IDWriteTextFormat> m_textFormatPage;
     ComPtr<IDWriteTextFormat> m_textFormatTitle;
+    // Single-line label: no wrap + ellipsis trimming — long names clip instead of wrapping
+    ComPtr<IDWriteTextFormat> m_textFormatLabel;
+    ComPtr<IDWriteTextFormat> m_textFormatTipName;
+    ComPtr<IDWriteTextFormat> m_textFormatTipPath;
     ComPtr<IDWriteFactory> m_dwriteFactory;
 
     HWND m_hwnd = nullptr;
@@ -183,6 +201,13 @@ protected:
 
     // Hover state
     int m_hoverIndex = -1;
+
+    // Hover tooltip state (shown after a short delay via WM_TIMER)
+    bool m_tooltipVisible = false;
+
+    // Center-on-current was requested while the panel had no layout yet;
+    // UpdateLayout retries it once real geometry is available.
+    bool m_pendingCenter = false;
 
     bool m_needsRepaint = false;
 };
