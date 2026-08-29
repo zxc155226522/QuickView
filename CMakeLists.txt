@@ -89,6 +89,7 @@ set(QUICKVIEW_SOURCES
     QuickView/ThumbnailManager.cpp
     QuickView/Toolbar.cpp
     QuickView/SettingsOverlay.cpp
+    QuickView/UserChoiceHash.cpp
     QuickView/ColorPickerPopup.cpp
     QuickView/HelpOverlay.cpp
     QuickView/UpdateManager.cpp

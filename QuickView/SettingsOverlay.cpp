@@ -26,6 +26,7 @@
 #include "GeekIconRenderer.h"
 #include "ThumbnailExts.h"  // 缩略图扩展名单一真相源（与 DLL 共享）
 #include "FileTypeNames.h"  // 每扩展名的资源管理器类型名（按类型分组的区分依据）
+#include "UserChoiceHash.h" // UserChoice 合法哈希写入（默认应用强制接管）
 
 // Windows headers
 #pragma comment(lib, "version.lib")
@@ -381,6 +382,83 @@ static bool SetQuickViewAsDefaultForExt(const wchar_t* ext) {
     return ok;
 }
 
+// 把每扩展名的 UserChoice 归位到 QuickView.<ext>。返回是否改动过注册表。
+// UserChoice 带 Windows 哈希保护（手写 ProgId 无有效 Hash 会被忽略），故分两类：
+//   * 旧版遗留：UserChoice 指向通用 ProgID（QuickView.Image/QuickView.Vector），
+//     类型列显示 "QuickView Image Viewer" 等通用名导致分组混淆 → 迁移；
+//   * 强制接管：UserChoice 属于其他应用（照片/WPS/Edge/浏览器等）且该格式在
+//     用户「打开关联」勾选范围内 → 接管（用户勾选即表达"QuickView 作为默认"）。
+// 手段：先试官方 API SetAppAsDefault（在其可用的系统上最干净）；实测部分
+// Win10 19045 上一律 E_FAIL，此时本地计算合法 UserChoice 哈希直接写入——这是
+// 防不住「照片」AppX / Edge 回收的唯一手段（回收只覆盖缺失/无效的 UserChoice，
+// 不动有效值）；实在失败才删除 UserChoice 走 .ext 默认回退。
+// 仅当 .ext 默认值已指向本扩展名 ProgID 时才动手，保证接管后双击仍由 QuickView
+// 打开、类型名显示为每格式名称。纯 HKCU 注册表操作，不依赖系统 API。
+// 「照片」AppX 在后台运行时会重新抢占 jpg/png 的 UserChoice（实测），因此此
+// 函数在每次启动空闲时都会调用一遍（自愈），而不是只在注册变化时执行。
+void SettingsOverlay::ReassertDefaultTakeover() {
+    if (g_config.PortableMode) return;
+    std::vector<std::wstring> selectedExts;
+    if (!g_config.FileAssocExts.empty()) {
+        selectedExts = QuickView::SplitAndTrimCSV(g_config.FileAssocExts);
+    } else {
+        for (const auto& ext : QuickView::SUPPORTED_EXTENSIONS) selectedExts.emplace_back(ext);
+    }
+
+    bool changed = false;
+    for (std::wstring_view sExt : QuickView::SUPPORTED_EXTENSIONS) {
+        std::wstring extStr(sExt);
+        std::wstring wantProgId = L"QuickView" + extStr;
+        std::wstring ucKey = L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\" +
+                             extStr + L"\\UserChoice";
+
+        wchar_t val[MAX_PATH] = {};
+        {
+            HKEY hUC;
+            if (RegOpenKeyExW(HKEY_CURRENT_USER, ucKey.c_str(), 0, KEY_READ, &hUC) != ERROR_SUCCESS) continue;
+            DWORD len = sizeof(val), type = 0;
+            if (RegQueryValueExW(hUC, L"ProgId", NULL, &type, (LPBYTE)val, &len) != ERROR_SUCCESS || type != REG_SZ)
+                val[0] = L'\0';
+            RegCloseKey(hUC);
+        }
+        if (val[0] == L'\0' || QuickView::ExtEqualsIgnoreCase(val, wantProgId)) continue;
+
+        bool isLegacyQuickView = (wcscmp(val, L"QuickView.Image") == 0) ||
+                                 (wcscmp(val, L"QuickView.Vector") == 0);
+        bool inSelected = g_config.FileAssocExts.empty();
+        if (!inSelected) {
+            for (const auto& s : selectedExts)
+                if (QuickView::ExtEqualsIgnoreCase(s, extStr)) { inSelected = true; break; }
+        }
+        if (!isLegacyQuickView && !inSelected) continue; // 未勾选的格式不抢其他应用的默认
+
+        // 只有当 .ext 默认值已指向本扩展名的 ProgID 时才动手——保证接管后
+        // 双击行为与类型名正确，回退路线也仍由 QuickView 接管。
+        std::wstring extDef;
+        {
+            HKEY hExt;
+            std::wstring extKeyPath = L"Software\\Classes\\" + extStr;
+            if (RegOpenKeyExW(HKEY_CURRENT_USER, extKeyPath.c_str(), 0, KEY_READ, &hExt) == ERROR_SUCCESS) {
+                wchar_t defVal[MAX_PATH] = {};
+                DWORD defLen = sizeof(defVal), defType = 0;
+                if (RegQueryValueExW(hExt, NULL, NULL, &defType, (LPBYTE)defVal, &defLen) == ERROR_SUCCESS && defType == REG_SZ)
+                    extDef = defVal;
+                RegCloseKey(hExt);
+            }
+        }
+        if (!QuickView::ExtEqualsIgnoreCase(extDef, wantProgId)) continue;
+
+        // 接管优先级：官方 API（其可用系统上最干净）→ 本地计算合法 UserChoice
+        // 哈希直接写入 → 实在失败才删除 UserChoice 走 .ext 默认回退。
+        if (!SetQuickViewAsDefaultForExt(extStr.c_str()) &&
+            !QuickView::ForceUserChoiceAssociation(extStr, wantProgId)) {
+            RegDeleteTreeW(HKEY_CURRENT_USER, ucKey.c_str());
+        }
+        changed = true;
+    }
+    if (changed) SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, NULL, NULL);
+}
+
 bool SettingsOverlay::RegisterAssociations() {
     wchar_t exePath[MAX_PATH];
     GetModuleFileNameW(nullptr, exePath, MAX_PATH);
@@ -530,63 +608,9 @@ bool SettingsOverlay::RegisterAssociations() {
         }
     }
 
-    // 8c. [默认应用接管/迁移] 把每扩展名的 UserChoice 归位到 QuickView.<ext>。
-    // UserChoice 带 Windows 哈希保护（手写 ProgId 无有效 Hash 会被忽略），故分两类：
-    //   * 旧版遗留：UserChoice 指向通用 ProgID（QuickView.Image/QuickView.Vector），
-    //     类型列显示 "QuickView Image Viewer" 等通用名导致分组混淆 → 迁移；
-    //   * 强制接管：UserChoice 属于其他应用（照片/WPS/Edge/浏览器等）且该格式在
-    //     用户「打开关联」勾选范围内 → 接管（用户勾选即表达"QuickView 作为默认"）。
-    // 手段：先试官方 API SetAppAsDefault（在其可用的系统上写合法哈希，设置界面
-    // 显示一致）；实测部分 Win10 19045 上一律 E_FAIL，此时清除 UserChoice——Shell
-    // 回退到 .ext 默认值。仅当 .ext 默认值已指向本扩展名 ProgID 时才动手，保证
-    // 接管后双击仍由 QuickView 打开、类型名显示为每格式名称。纯 HKCU 注册表操作，
-    // 不依赖系统 API，任何电脑行为一致。
-    for (std::wstring_view sExt : QuickView::SUPPORTED_EXTENSIONS) {
-        std::wstring extStr(sExt);
-        std::wstring wantProgId = L"QuickView" + extStr;
-        std::wstring ucKey = L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\" +
-                             extStr + L"\\UserChoice";
-
-        wchar_t val[MAX_PATH] = {};
-        {
-            HKEY hUC;
-            if (RegOpenKeyExW(HKEY_CURRENT_USER, ucKey.c_str(), 0, KEY_READ, &hUC) != ERROR_SUCCESS) continue;
-            DWORD len = sizeof(val), type = 0;
-            if (RegQueryValueExW(hUC, L"ProgId", NULL, &type, (LPBYTE)val, &len) != ERROR_SUCCESS || type != REG_SZ)
-                val[0] = L'\0';
-            RegCloseKey(hUC);
-        }
-        if (val[0] == L'\0' || QuickView::ExtEqualsIgnoreCase(val, wantProgId)) continue;
-
-        bool isLegacyQuickView = (wcscmp(val, L"QuickView.Image") == 0) ||
-                                 (wcscmp(val, L"QuickView.Vector") == 0);
-        bool inSelected = g_config.FileAssocExts.empty();
-        if (!inSelected) {
-            for (const auto& s : selectedExts)
-                if (QuickView::ExtEqualsIgnoreCase(s, extStr)) { inSelected = true; break; }
-        }
-        if (!isLegacyQuickView && !inSelected) continue; // 未勾选的格式不抢其他应用的默认
-
-        // 只有当 .ext 默认值已指向本扩展名的 ProgID 时才清除 UserChoice——
-        // 保证删除后 Shell 回退到的接管者仍是 QuickView，打开行为不变。
-        std::wstring extDef;
-        {
-            HKEY hExt;
-            std::wstring extKeyPath = L"Software\\Classes\\" + extStr;
-            if (RegOpenKeyExW(HKEY_CURRENT_USER, extKeyPath.c_str(), 0, KEY_READ, &hExt) == ERROR_SUCCESS) {
-                wchar_t defVal[MAX_PATH] = {};
-                DWORD defLen = sizeof(defVal), defType = 0;
-                if (RegQueryValueExW(hExt, NULL, NULL, &defType, (LPBYTE)defVal, &defLen) == ERROR_SUCCESS && defType == REG_SZ)
-                    extDef = defVal;
-                RegCloseKey(hExt);
-            }
-        }
-        if (!QuickView::ExtEqualsIgnoreCase(extDef, wantProgId)) continue;
-
-        if (!SetQuickViewAsDefaultForExt(extStr.c_str())) {
-            RegDeleteTreeW(HKEY_CURRENT_USER, ucKey.c_str());
-        }
-    }
+    // 8c. [默认应用接管/迁移] 见 ReassertDefaultTakeover()（同一逻辑也在每次
+    // 启动空闲时执行，用于从「照片」AppX 等手里抢回被回收的关联）。
+    ReassertDefaultTakeover();
 
     // [Fix] Register Thumbnail Provider COM DLL for ALL image formats QuickView
     // renders. The DLL is a thin shim that delegates rendering to

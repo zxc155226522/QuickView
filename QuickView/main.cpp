@@ -7594,6 +7594,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
                     g_config.LastRegisteredVersion = currentVer;
                     g_config.LastRegisteredPath = currentPath;
                     SaveConfig();
+                    // [UserChoice 自愈] 「照片」AppX 等会在后台运行时重新抢占
+                    // jpg/png 的 UserChoice（实测）。每次启动空闲时把勾选格式的
+                    // 默认应用抢回来，QuickView 常用即常保。
+                    SettingsOverlay::ReassertDefaultTakeover();
                 }
             }
             return 0;

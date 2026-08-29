@@ -142,8 +142,9 @@ public:
     bool IsUpdateToastVisible() const { return m_showUpdateToast; } 
 
     static bool RegisterAssociations();
-    static void UnregisterAssociations(); 
+    static void UnregisterAssociations();
     static bool IsRegistrationNeeded();
+    static void ReassertDefaultTakeover(); // 每次启动空闲时把被抢的 UserChoice 抢回来
     static std::wstring GetAppVersion();
 
     bool IsCapturingHotkey() const { return m_capturingHotkey; }
