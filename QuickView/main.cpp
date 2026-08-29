@@ -14118,7 +14118,12 @@ FireAndForget UpdateCompareLeftHistogramAsync(HWND hwnd, std::wstring path) {
 
 FireAndForget LoadImageAsync(HWND hwnd, std::wstring path, bool showOSD, QuickView::BrowseDirection dir) {
     if (path.empty()) co_return;
-    
+
+    // [关联自愈] 用户正在看这张图 → 顺手把该格式的默认应用抢回来
+    // （「照片」AppX / Edge 在后台运行时会重新抢占 UserChoice；此调用是一次
+    // 注册表读，命中才写，零开销路径占绝大多数）。
+    SettingsOverlay::ReassertTakeoverForExt(QuickView::ExtensionOf(path));
+
     // Switch to UI thread if needed (though usually called from UI)
     // auto scheduler = co_await winrt::apartment_context(); // [Fix] winrt namespace not found, assume UI thread
 

@@ -382,8 +382,9 @@ static bool SetQuickViewAsDefaultForExt(const wchar_t* ext) {
     return ok;
 }
 
-// 把每扩展名的 UserChoice 归位到 QuickView.<ext>。返回是否改动过注册表。
-// UserChoice 带 Windows 哈希保护（手写 ProgId 无有效 Hash 会被忽略），故分两类：
+// ============================================================================
+// [默认应用接管/迁移] 把 UserChoice 归位到 QuickView.<ext>。
+// UserChoice 带 Windows 哈希保护（手写 ProgId 无有效 Hash 会被忽略），接管范围：
 //   * 旧版遗留：UserChoice 指向通用 ProgID（QuickView.Image/QuickView.Vector），
 //     类型列显示 "QuickView Image Viewer" 等通用名导致分组混淆 → 迁移；
 //   * 强制接管：UserChoice 属于其他应用（照片/WPS/Edge/浏览器等）且该格式在
@@ -394,69 +395,87 @@ static bool SetQuickViewAsDefaultForExt(const wchar_t* ext) {
 // 不动有效值）；实在失败才删除 UserChoice 走 .ext 默认回退。
 // 仅当 .ext 默认值已指向本扩展名 ProgID 时才动手，保证接管后双击仍由 QuickView
 // 打开、类型名显示为每格式名称。纯 HKCU 注册表操作，不依赖系统 API。
-// 「照片」AppX 在后台运行时会重新抢占 jpg/png 的 UserChoice（实测），因此此
-// 函数在每次启动空闲时都会调用一遍（自愈），而不是只在注册变化时执行。
+// 执行时机（自愈）：「照片」AppX / Edge 在后台运行时会重新抢占 jpg/png/pdf 的
+// UserChoice（实测），故除注册流程外，每次启动空闲与每次看图时都会调用。
+// ============================================================================
+// 单扩展名接管实现。返回是否改动过注册表（供 SHChangeNotify 汇总）。
+static bool ReassertTakeoverForExtImpl(const std::wstring& extStr,
+                                       const std::vector<std::wstring>& selectedExts,
+                                       bool allSelected) {
+    std::wstring wantProgId = L"QuickView" + extStr;
+    std::wstring ucKey = L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\" +
+                         extStr + L"\\UserChoice";
+
+    wchar_t val[MAX_PATH] = {};
+    {
+        HKEY hUC;
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, ucKey.c_str(), 0, KEY_READ, &hUC) != ERROR_SUCCESS) return false;
+        DWORD len = sizeof(val), type = 0;
+        if (RegQueryValueExW(hUC, L"ProgId", NULL, &type, (LPBYTE)val, &len) != ERROR_SUCCESS || type != REG_SZ)
+            val[0] = L'\0';
+        RegCloseKey(hUC);
+    }
+    if (val[0] == L'\0' || QuickView::ExtEqualsIgnoreCase(val, wantProgId)) return false;
+
+    bool isLegacyQuickView = (wcscmp(val, L"QuickView.Image") == 0) ||
+                             (wcscmp(val, L"QuickView.Vector") == 0);
+    bool inSelected = allSelected;
+    if (!inSelected) {
+        for (const auto& s : selectedExts)
+            if (QuickView::ExtEqualsIgnoreCase(s, extStr)) { inSelected = true; break; }
+    }
+    if (!isLegacyQuickView && !inSelected) return false; // 未勾选的格式不抢其他应用的默认
+
+    // 只有当 .ext 默认值已指向本扩展名的 ProgID 时才动手——保证接管后
+    // 双击行为与类型名正确，回退路线也仍由 QuickView 接管。
+    std::wstring extDef;
+    {
+        HKEY hExt;
+        std::wstring extKeyPath = L"Software\\Classes\\" + extStr;
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, extKeyPath.c_str(), 0, KEY_READ, &hExt) == ERROR_SUCCESS) {
+            wchar_t defVal[MAX_PATH] = {};
+            DWORD defLen = sizeof(defVal), defType = 0;
+            if (RegQueryValueExW(hExt, NULL, NULL, &defType, (LPBYTE)defVal, &defLen) == ERROR_SUCCESS && defType == REG_SZ)
+                extDef = defVal;
+            RegCloseKey(hExt);
+        }
+    }
+    if (!QuickView::ExtEqualsIgnoreCase(extDef, wantProgId)) return false;
+
+    // 接管优先级：官方 API（其可用系统上最干净）→ 本地计算合法 UserChoice
+    // 哈希直接写入 → 实在失败才删除 UserChoice 走 .ext 默认回退。
+    if (!SetQuickViewAsDefaultForExt(extStr.c_str()) &&
+        !QuickView::ForceUserChoiceAssociation(extStr, wantProgId)) {
+        RegDeleteTreeW(HKEY_CURRENT_USER, ucKey.c_str());
+    }
+    return true;
+}
+
 void SettingsOverlay::ReassertDefaultTakeover() {
     if (g_config.PortableMode) return;
     std::vector<std::wstring> selectedExts;
-    if (!g_config.FileAssocExts.empty()) {
-        selectedExts = QuickView::SplitAndTrimCSV(g_config.FileAssocExts);
-    } else {
-        for (const auto& ext : QuickView::SUPPORTED_EXTENSIONS) selectedExts.emplace_back(ext);
-    }
+    bool allSelected = g_config.FileAssocExts.empty();
+    if (!allSelected) selectedExts = QuickView::SplitAndTrimCSV(g_config.FileAssocExts);
 
     bool changed = false;
-    for (std::wstring_view sExt : QuickView::SUPPORTED_EXTENSIONS) {
-        std::wstring extStr(sExt);
-        std::wstring wantProgId = L"QuickView" + extStr;
-        std::wstring ucKey = L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\" +
-                             extStr + L"\\UserChoice";
-
-        wchar_t val[MAX_PATH] = {};
-        {
-            HKEY hUC;
-            if (RegOpenKeyExW(HKEY_CURRENT_USER, ucKey.c_str(), 0, KEY_READ, &hUC) != ERROR_SUCCESS) continue;
-            DWORD len = sizeof(val), type = 0;
-            if (RegQueryValueExW(hUC, L"ProgId", NULL, &type, (LPBYTE)val, &len) != ERROR_SUCCESS || type != REG_SZ)
-                val[0] = L'\0';
-            RegCloseKey(hUC);
-        }
-        if (val[0] == L'\0' || QuickView::ExtEqualsIgnoreCase(val, wantProgId)) continue;
-
-        bool isLegacyQuickView = (wcscmp(val, L"QuickView.Image") == 0) ||
-                                 (wcscmp(val, L"QuickView.Vector") == 0);
-        bool inSelected = g_config.FileAssocExts.empty();
-        if (!inSelected) {
-            for (const auto& s : selectedExts)
-                if (QuickView::ExtEqualsIgnoreCase(s, extStr)) { inSelected = true; break; }
-        }
-        if (!isLegacyQuickView && !inSelected) continue; // 未勾选的格式不抢其他应用的默认
-
-        // 只有当 .ext 默认值已指向本扩展名的 ProgID 时才动手——保证接管后
-        // 双击行为与类型名正确，回退路线也仍由 QuickView 接管。
-        std::wstring extDef;
-        {
-            HKEY hExt;
-            std::wstring extKeyPath = L"Software\\Classes\\" + extStr;
-            if (RegOpenKeyExW(HKEY_CURRENT_USER, extKeyPath.c_str(), 0, KEY_READ, &hExt) == ERROR_SUCCESS) {
-                wchar_t defVal[MAX_PATH] = {};
-                DWORD defLen = sizeof(defVal), defType = 0;
-                if (RegQueryValueExW(hExt, NULL, NULL, &defType, (LPBYTE)defVal, &defLen) == ERROR_SUCCESS && defType == REG_SZ)
-                    extDef = defVal;
-                RegCloseKey(hExt);
-            }
-        }
-        if (!QuickView::ExtEqualsIgnoreCase(extDef, wantProgId)) continue;
-
-        // 接管优先级：官方 API（其可用系统上最干净）→ 本地计算合法 UserChoice
-        // 哈希直接写入 → 实在失败才删除 UserChoice 走 .ext 默认回退。
-        if (!SetQuickViewAsDefaultForExt(extStr.c_str()) &&
-            !QuickView::ForceUserChoiceAssociation(extStr, wantProgId)) {
-            RegDeleteTreeW(HKEY_CURRENT_USER, ucKey.c_str());
-        }
-        changed = true;
-    }
+    for (std::wstring_view sExt : QuickView::SUPPORTED_EXTENSIONS)
+        changed |= ReassertTakeoverForExtImpl(std::wstring(sExt), selectedExts, allSelected);
     if (changed) SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, NULL, NULL);
+}
+
+// 看图时自愈：正在查看某格式时把该格式的默认应用抢回来（一次注册表读，命中才写）。
+void SettingsOverlay::ReassertTakeoverForExt(std::wstring_view ext) {
+    if (g_config.PortableMode) return;
+    bool supported = false;
+    for (std::wstring_view s : QuickView::SUPPORTED_EXTENSIONS)
+        if (QuickView::ExtEqualsIgnoreCase(ext, s)) { supported = true; break; }
+    if (!supported) return;
+
+    bool allSelected = g_config.FileAssocExts.empty();
+    std::vector<std::wstring> selectedExts;
+    if (!allSelected) selectedExts = QuickView::SplitAndTrimCSV(g_config.FileAssocExts);
+    if (ReassertTakeoverForExtImpl(std::wstring(ext), selectedExts, allSelected))
+        SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, NULL, NULL);
 }
 
 bool SettingsOverlay::RegisterAssociations() {

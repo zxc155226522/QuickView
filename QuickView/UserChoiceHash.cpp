@@ -218,12 +218,11 @@ std::string Base64_8Bytes(const uint8_t in[8]) {
 
 bool ForceUserChoiceAssociation(const std::wstring& ext, const std::wstring& progId) {
     std::wstring sid, experience, hexTime;
-    if (!GetUserSidLower(sid)) return false;
+    if (!GetUserSidLower(sid)) { return false; }
     if (!GetUserExperienceString(experience)) {
-        // 当前已知的兜底字符串（系统版本更新后以上方现场提取为准）
         experience = L"User Choice set via Windows User Experience {D18B6DD5-6124-4341-9318-804003BAFA0B}";
     }
-    if (!GetHexDateTime(hexTime)) return false;
+    if (!GetHexDateTime(hexTime)) { return false; }
 
     // baseInfo = ext + sid + progId + time + experience，整体转小写（与系统算法一致）
     std::wstring baseInfo = ToLower(ext + sid + progId + hexTime + experience);
@@ -238,10 +237,10 @@ bool ForceUserChoiceAssociation(const std::wstring& ext, const std::wstring& pro
     bytes.push_back(0x00);
 
     uint8_t md5[16] = {};
-    if (!ComputeMd5(bytes, md5)) return false;
+    if (!ComputeMd5(bytes, md5)) { return false; }
 
     uint8_t hashBase[8] = {};
-    if (!MixHash(bytes, md5, hashBase)) return false;
+    if (!MixHash(bytes, md5, hashBase)) { return false; }
     const std::string hash = Base64_8Bytes(hashBase);
 
     // ---- 写注册表：删除旧键 → 重建（键时间戳与哈希时间须同一分钟）→ Hash/ProgId ----
@@ -251,8 +250,7 @@ bool ForceUserChoiceAssociation(const std::wstring& ext, const std::wstring& pro
 
     HKEY hKey = nullptr;
     if (RegCreateKeyExW(HKEY_CURRENT_USER, ucKey.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr) !=
-        ERROR_SUCCESS)
-        return false;
+        ERROR_SUCCESS) { return false; }
     RegSetValueExW(hKey, L"Hash", 0, REG_SZ, (const BYTE*)hash.c_str(), (DWORD)(hash.size() + 1) * sizeof(char));
     RegSetValueExW(hKey, L"ProgId", 0, REG_SZ, (const BYTE*)progId.c_str(), (DWORD)(progId.size() + 1) * sizeof(wchar_t));
     RegCloseKey(hKey);

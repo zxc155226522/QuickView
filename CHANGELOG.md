@@ -9,6 +9,7 @@
   - 接管优先级:SetAppAsDefault API(可用的系统上) → 本地哈希写入 → 删除 UserChoice 回退。
   - 实测效果:系统接受写入的哈希,双击 jpg/pdf 直接打开 QuickView;**「照片」AppX 与 Edge 在后台运行时会重新抢占 jpg/png/pdf 的 UserChoice**(删除法无效,有效哈希也会被覆盖)。
 - **启动自愈**:`ReassertDefaultTakeover()` 在每次启动空闲时执行(不再只在版本变化时),把勾选格式的 UserChoice 从抢占者手里抢回来——QuickView 常用即常保。仅改动时才广播 SHCNE_ASSOCCHANGED,避免无谓的图标刷新风暴。
+- **看图自愈**:`ReassertTakeoverForExt()` 挂在 LoadImageAsync(所有打开/翻页的必经点),正在查看某格式时轻量自检(一次注册表读,命中才写)并抢回该格式关联——「照片」AppX/Edge 的后台抢占在下次看图时即被纠正。
 - 结果:无论生效 ProgID 是 QuickView 还是系统应用,资源管理器类型列/按类型分组均显示每格式名称("JPG 文件"/"PDF 文件"),不再出现 "QuickView Image Viewer" 通用名。
 
 ## [6.30.3] - 默认应用注册表级强制接管

@@ -145,6 +145,7 @@ public:
     static void UnregisterAssociations();
     static bool IsRegistrationNeeded();
     static void ReassertDefaultTakeover(); // 每次启动空闲时把被抢的 UserChoice 抢回来
+    static void ReassertTakeoverForExt(std::wstring_view ext); // 看图时自愈（单格式，轻量）
     static std::wstring GetAppVersion();
 
     bool IsCapturingHotkey() const { return m_capturingHotkey; }
