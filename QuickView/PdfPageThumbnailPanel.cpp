@@ -135,7 +135,7 @@ void PdfPageThumbnailPanel::DrawItems(ID2D1RenderTarget* pRT) {
     }
 
     const float itemHeight = kThumbnailTargetHeight * g_uiScale + kPageLabelHeight * g_uiScale + kItemSpacing;
-    const float itemWidthBottom = kBottomItemWidth * g_uiScale + kItemSpacing;
+    const float itemWidthBottom = BottomItemStride();
     const int startPage = m_panelSide == 3
         ? std::max(0, static_cast<int>(m_scrollX / itemWidthBottom) - 1)
         : std::max(0, static_cast<int>(m_scrollY / itemHeight) - 1);
@@ -171,7 +171,10 @@ void PdfPageThumbnailPanel::DrawItems(ID2D1RenderTarget* pRT) {
         }
 
         if (pBitmap) {
-            pRT->DrawBitmap(pBitmap, thumbRect, 1.0f,
+            // Letterbox inside the square cell — aspect preserved, no distortion
+            const D2D1_SIZE_F bs = pBitmap->GetSize();
+            const D2D1_RECT_F drawRect = FitRectInside(thumbRect, bs.width, bs.height);
+            pRT->DrawBitmap(pBitmap, drawRect, 1.0f,
                            D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
         } else {
             if (m_brushThumbnailBg) {
@@ -208,7 +211,7 @@ void PdfPageThumbnailPanel::OnUpdateThumbnailRequests() {
 
     if (m_panelSide == 3) {
         // Bottom Mode: Horizontal visible range
-        const float itemWidth = kBottomItemWidth * g_uiScale + kItemSpacing;
+        const float itemWidth = BottomItemStride();
         const int visibleStart = static_cast<int>(std::max(0.0f, m_scrollX / itemWidth)) - 2;
         const int visibleEnd = static_cast<int>((m_scrollX + m_panelWidth) / itemWidth) + 3;
 

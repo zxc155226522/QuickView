@@ -22,12 +22,24 @@
 
 namespace QuickView {
 
+// [Thread Safety] PDFium API 不是线程安全的，但本项目有多个并发调用方：
+//   - ImageLoader 解码线程（打开 PDF 文件时渲染第 0 页，可多线程并行）
+//   - DocumentRenderController 工作线程（主页面渲染 + 缩略图渲染）
+// 并发调用会导致堆损坏 (0xc0000374) 或 FAIL-FAST (0xc0000409) 闪退。
+// 因此所有 FPDF_* 调用都通过这把全局引擎锁串行化。
+static std::recursive_mutex& PdfiumEngineMutex() noexcept {
+    // recursive: Open() 内部会再调用 Close()
+    static std::recursive_mutex m;
+    return m;
+}
+
 // ============================================================================
 // 全局库初始化（引用计数）
 // ============================================================================
 int PdfiumDocument::s_refCount = 0;
 
 void PdfiumDocument::EnsureLibraryInit() noexcept {
+    std::lock_guard engineLock(PdfiumEngineMutex());
     static std::mutex s_libMutex;
     std::lock_guard lock(s_libMutex);
     if (s_refCount == 0) {
@@ -45,6 +57,7 @@ PdfiumDocument::PdfiumDocument() noexcept {
 }
 
 PdfiumDocument::~PdfiumDocument() {
+    std::lock_guard engineLock(PdfiumEngineMutex());
     Close();
     // 减少引用计数，最后一个使用者关闭库
     static std::mutex s_libMutex;
@@ -62,6 +75,7 @@ PdfiumDocument::~PdfiumDocument() {
 // ============================================================================
 HRESULT PdfiumDocument::Open(const std::wstring& path,
                               std::wstring& errorMessage) noexcept {
+    std::lock_guard engineLock(PdfiumEngineMutex());
     Close();
     if (path.empty()) return E_INVALIDARG;
 
@@ -118,6 +132,7 @@ HRESULT PdfiumDocument::Open(const std::wstring& path,
 // Close
 // ============================================================================
 void PdfiumDocument::Close() noexcept {
+    std::lock_guard engineLock(PdfiumEngineMutex());
     if (m_document) {
         FPDF_CloseDocument(m_document);
         m_document = nullptr;
@@ -135,6 +150,7 @@ HRESULT PdfiumDocument::RenderPage(uint32_t pageIndex,
                                     int viewportHeight,
                                     float zoom,
                                     DocumentRenderResult& result) noexcept {
+    std::lock_guard engineLock(PdfiumEngineMutex());
     result = {};
     result.path = m_path;
     result.pageIndex = pageIndex;

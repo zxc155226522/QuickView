@@ -59,6 +59,7 @@ protected:
     std::wstring GetItemLabel(uint32_t index) const override;
     const wchar_t* GetPanelTitle() const override { return L"页面"; }
     D2D1::ColorF GetAccentColor() const override { return D2D1::ColorF(0.23f, 0.51f, 0.96f); } // Blue
+    float GetCellAspect() const override { return 1.0f / 1.4142f; } // A4 portrait (default)
 
 private:
     struct ThumbnailSlot {

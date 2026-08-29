@@ -1,9 +1,62 @@
 #include "pch.h"
 #include "ThumbnailPanelBase.h"
 #include "AppContext.h"
+#include "Toolbar.h"
+#include "PdfPageThumbnailPanel.h"
+#include "ImageListThumbnailPanel.h"
 
 extern float g_uiScale;
 extern AppConfig g_config;
+extern bool IsLightThemeActive();
+extern PdfPageThumbnailPanel g_pdfThumbPanel;
+extern ImageListThumbnailPanel g_imageThumbPanel;
+
+namespace {
+// [Theme] Panels follow the app theme automatically: dark/light mode, the
+// user's custom accent color and the global panel opacity — instead of the
+// old hardcoded dark palette that clashed with light themes.
+struct ThemePalette {
+    D2D1_COLOR_F bg;
+    D2D1_COLOR_F titleBg;
+    D2D1_COLOR_F thumbBg;
+    D2D1_COLOR_F text;
+    D2D1_COLOR_F hover;
+    D2D1_COLOR_F resizeHandle;
+};
+
+ThemePalette ResolveThemePalette() {
+    ThemePalette p;
+    const bool isLight = IsLightThemeActive();
+    const float panelAlpha = (std::clamp)(g_config.GlassPanelsOpacity / 100.0f, 0.30f, 1.0f);
+    if (isLight) {
+        p.bg        = D2D1::ColorF(0.95f, 0.95f, 0.97f, panelAlpha);
+        p.titleBg   = D2D1::ColorF(0.90f, 0.91f, 0.94f, panelAlpha);
+        p.thumbBg   = D2D1::ColorF(0.85f, 0.85f, 0.88f, 1.0f);
+        p.text      = D2D1::ColorF(0.12f, 0.12f, 0.15f, 0.95f);
+        p.hover     = D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.06f);
+        p.resizeHandle = D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.25f);
+    } else {
+        p.bg        = D2D1::ColorF(0.08f, 0.08f, 0.10f, panelAlpha);
+        p.titleBg   = D2D1::ColorF(0.04f, 0.04f, 0.06f, panelAlpha);
+        p.thumbBg   = D2D1::ColorF(0.18f, 0.18f, 0.20f, 1.0f);
+        p.text      = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.88f);
+        p.hover     = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.08f);
+        p.resizeHandle = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.30f);
+    }
+    return p;
+}
+
+// Accent follows the user's theme accent color; falls back to the panel's own
+// color (blue=PDF / green=images) only if the config stores zeros.
+D2D1_COLOR_F ResolveAccentColor(D2D1::ColorF fallback) {
+    if (g_config.ThemeCustomAccentR <= 0.0f && g_config.ThemeCustomAccentG <= 0.0f &&
+        g_config.ThemeCustomAccentB <= 0.0f) {
+        return fallback;
+    }
+    return D2D1::ColorF(g_config.ThemeCustomAccentR, g_config.ThemeCustomAccentG,
+                        g_config.ThemeCustomAccentB, 1.0f);
+}
+} // namespace
 
 // ============================================================================
 // Lifecycle
@@ -17,6 +70,17 @@ void ThumbnailPanelBase::Initialize(HWND hwnd) {
 // Layout
 // ============================================================================
 
+float ThumbnailPanelBase::BottomThumbHeight() const {
+    // Adaptive: thumbnails shrink automatically as the bottom bar is dragged shorter
+    const float availH = m_panelHeight - kItemPadding * 2.0f - kPageLabelHeight * g_uiScale;
+    return std::max(12.0f * g_uiScale, std::min(availH, kThumbnailTargetHeight * g_uiScale));
+}
+
+float ThumbnailPanelBase::BottomItemStride() const {
+    // Stride follows the cell aspect (square for images, A4 portrait for PDF pages)
+    return BottomThumbHeight() * GetCellAspect() + kItemSpacing;
+}
+
 void ThumbnailPanelBase::UpdateLayout(const D2D1_RECT_F& clientRect) {
     if (m_panelWidth <= 0.0f) {
         m_panelWidth = kDefaultPanelWidth * g_uiScale;
@@ -25,20 +89,35 @@ void ThumbnailPanelBase::UpdateLayout(const D2D1_RECT_F& clientRect) {
     m_panelHeightUser = std::clamp(m_panelHeightUser, kMinPanelHeightBottom, kMaxPanelHeightBottom);
 
     const float titleBarH = g_isFullScreen ? 0.0f : 36.0f * g_uiScale;
-    const float toolbarH  = g_isFullScreen ? 0.0f : 36.0f * g_uiScale;
+    // [PDF] Reserve the same strip the toolbar reports so the page-turn bar
+    // below the preview never overlaps a bottom-docked thumbnail panel.
+    const float toolbarH  = g_isFullScreen ? 0.0f : g_toolbar.GetReservedHeight();
     const float clientH = clientRect.bottom - clientRect.top;
 
     if (m_panelSide == 3) {
-        // Bottom Mode: Full width, height = user setting, positioned above toolbar
-        const float clientW = clientRect.right - clientRect.left;
-        m_panelRect.left = clientRect.left;
-        m_panelRect.right = clientRect.right;
+        // Bottom Mode: height = user setting, positioned above toolbar.
+        // [Same container] The strip is inset by visible side panels so all
+        // panels share one grid with the image — nothing overlaps.
+        float stripLeft = clientRect.left;
+        float stripRight = clientRect.right;
+        auto insetFor = [&](const ThumbnailPanelBase* other) {
+            if (!other || other == this || !other->IsVisible()) return;
+            const int oside = other->GetPanelSide();
+            if (oside == 1) stripLeft = (std::max)(stripLeft, clientRect.left + other->GetWidth());
+            else if (oside == 0) stripRight = (std::min)(stripRight, clientRect.right - other->GetWidth());
+        };
+        insetFor(&g_pdfThumbPanel);
+        insetFor(&g_imageThumbPanel);
+        if (stripRight - stripLeft < 40.0f) { stripLeft = clientRect.left; stripRight = clientRect.right; }
+
+        m_panelRect.left = stripLeft;
+        m_panelRect.right = stripRight;
         m_panelRect.top = clientH - toolbarH - m_panelHeightUser;
         m_panelRect.bottom = clientH - toolbarH;
-        m_panelWidth = clientW;
+        m_panelWidth = m_panelRect.right - m_panelRect.left;
         m_panelHeight = m_panelRect.bottom - m_panelRect.top;
 
-        const float itemWidth = kBottomItemWidth * g_uiScale + kItemSpacing;
+        const float itemWidth = BottomItemStride();
         uint32_t itemCount = GetItemCount();
         const float contentWidth = static_cast<float>(itemCount) * itemWidth;
         m_maxScrollX = std::max(0.0f, contentWidth - m_panelWidth + kItemPadding * 2.0f);
@@ -74,11 +153,11 @@ void ThumbnailPanelBase::UpdateLayout(const D2D1_RECT_F& clientRect) {
 
 D2D1_RECT_F ThumbnailPanelBase::GetItemRect(uint32_t pageIndex) const {
     if (m_panelSide == 3) {
-        // Bottom Mode: Horizontal layout
-        const float itemWidth = kBottomItemWidth * g_uiScale + kItemSpacing;
+        // Bottom Mode: Horizontal layout, no title bar
+        const float itemWidth = BottomItemStride();
         const float x = m_panelRect.left + kItemPadding + static_cast<float>(pageIndex) * itemWidth - m_scrollX;
-        const float y = m_panelRect.top + kItemPadding + kTitleBarHeight * g_uiScale;
-        const float h = m_panelHeight - kItemPadding * 2.0f - kTitleBarHeight * g_uiScale;
+        const float y = m_panelRect.top + kItemPadding;
+        const float h = m_panelHeight - kItemPadding * 2.0f;
         return D2D1::RectF(x, y, x + itemWidth, y + h);
     }
     const float itemHeight = kThumbnailTargetHeight * g_uiScale + kPageLabelHeight * g_uiScale + kItemSpacing;
@@ -90,20 +169,38 @@ D2D1_RECT_F ThumbnailPanelBase::GetItemRect(uint32_t pageIndex) const {
 }
 
 D2D1_RECT_F ThumbnailPanelBase::GetThumbnailRect(const D2D1_RECT_F& itemRect) const {
+    // Cell with the panel's aspect (square for images, A4 portrait for PDF pages);
+    // the bitmap itself is letterboxed inside without distortion.
+    const float aspect = GetCellAspect(); // width / height
     if (m_panelSide == 3) {
         const float availW = itemRect.right - itemRect.left - kItemSpacing;
         const float availH = itemRect.bottom - itemRect.top - kPageLabelHeight * g_uiScale;
-        const float thumbH = std::min(availH, kThumbnailTargetHeight * g_uiScale);
-        const float thumbW = std::min(thumbH / 1.4f, availW);
-        const float cx = (itemRect.left + itemRect.right) * 0.5f;
-        const float cy = itemRect.top + (availH - thumbH) * 0.5f;
-        return D2D1::RectF(cx - thumbW * 0.5f, cy, cx + thumbW * 0.5f, cy + thumbH);
+        float h = std::min(availH, kThumbnailTargetHeight * g_uiScale);
+        float w = h * aspect;
+        if (w > availW) { w = availW; h = w / aspect; }
+        const float cx = itemRect.left + availW * 0.5f;
+        const float cy = itemRect.top + availH * 0.5f;
+        return D2D1::RectF(cx - w * 0.5f, cy - h * 0.5f, cx + w * 0.5f, cy + h * 0.5f);
     }
-    const float thumbH = kThumbnailTargetHeight * g_uiScale;
-    const float thumbW = std::min(thumbH / 1.4f, itemRect.right - itemRect.left);
+    const float availW = itemRect.right - itemRect.left;
+    float h = kThumbnailTargetHeight * g_uiScale;
+    float w = h * aspect;
+    if (w > availW) { w = availW; h = w / aspect; }
     const float cx = (itemRect.left + itemRect.right) * 0.5f;
-    return D2D1::RectF(cx - thumbW * 0.5f, itemRect.top,
-                        cx + thumbW * 0.5f, itemRect.top + thumbH);
+    return D2D1::RectF(cx - w * 0.5f, itemRect.top, cx + w * 0.5f, itemRect.top + h);
+}
+
+D2D1_RECT_F ThumbnailPanelBase::FitRectInside(const D2D1_RECT_F& box, float w, float h) {
+    // Contain-fit: scale the bitmap to fit inside the box, centered, aspect preserved
+    if (w <= 0.0f || h <= 0.0f) return box;
+    const float boxW = box.right - box.left;
+    const float boxH = box.bottom - box.top;
+    const float scale = std::min(boxW / w, boxH / h);
+    const float dw = w * scale;
+    const float dh = h * scale;
+    const float cx = (box.left + box.right) * 0.5f;
+    const float cy = (box.top + box.bottom) * 0.5f;
+    return D2D1::RectF(cx - dw * 0.5f, cy - dh * 0.5f, cx + dw * 0.5f, cy + dh * 0.5f);
 }
 
 void ThumbnailPanelBase::ScrollToCurrentPage(bool instant) {
@@ -111,14 +208,10 @@ void ThumbnailPanelBase::ScrollToCurrentPage(bool instant) {
     if (itemCount == 0 || m_panelHeight <= 0.0f) return;
 
     if (m_panelSide == 3) {
-        const float itemWidth = kBottomItemWidth * g_uiScale + kItemSpacing;
+        const float itemWidth = BottomItemStride();
         const float currentPageX = static_cast<float>(m_currentPage) * itemWidth;
-        const float pageRight = currentPageX + itemWidth;
-        if (currentPageX < m_scrollX) {
-            m_targetScrollX = currentPageX;
-        } else if (pageRight > m_scrollX + m_panelWidth - kItemPadding * 2.0f) {
-            m_targetScrollX = pageRight - m_panelWidth + kItemPadding * 2.0f;
-        }
+        // Center the selected thumbnail in the strip
+        m_targetScrollX = currentPageX + itemWidth * 0.5f - m_panelWidth * 0.5f;
         m_targetScrollX = std::max(0.0f, std::min(m_targetScrollX, m_maxScrollX));
         if (instant) m_scrollX = m_targetScrollX;
         return;
@@ -126,18 +219,10 @@ void ThumbnailPanelBase::ScrollToCurrentPage(bool instant) {
 
     const float itemHeight = kThumbnailTargetHeight * g_uiScale + kPageLabelHeight * g_uiScale + kItemSpacing;
     const float currentPageY = static_cast<float>(m_currentPage) * itemHeight;
-    const float pageBottom = currentPageY + itemHeight;
-
-    if (currentPageY < m_scrollY) {
-        m_targetScrollY = currentPageY;
-    } else if (pageBottom > m_scrollY + m_panelHeight - kItemPadding * 2.0f) {
-        m_targetScrollY = pageBottom - m_panelHeight + kItemPadding * 2.0f;
-    }
-
+    // Center the selected thumbnail in the panel
+    m_targetScrollY = currentPageY + itemHeight * 0.5f - m_panelHeight * 0.5f;
     m_targetScrollY = std::max(0.0f, std::min(m_targetScrollY, m_maxScrollY));
-    if (instant) {
-        m_scrollY = m_targetScrollY;
-    }
+    if (instant) m_scrollY = m_targetScrollY;
 }
 
 // ============================================================================
@@ -149,14 +234,17 @@ void ThumbnailPanelBase::CreateDeviceResources(ID2D1RenderTarget* pRT) {
     if (!pRT) return;
 
     m_currentRT = pRT;
-    pRT->CreateSolidColorBrush(D2D1::ColorF(0.12f, 0.12f, 0.12f), &m_brushBg);
-    pRT->CreateSolidColorBrush(D2D1::ColorF(0.23f, 0.51f, 0.96f, 0.35f), &m_brushSelection);
-    pRT->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.08f), &m_brushHover);
-    pRT->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.85f), &m_brushText);
-    pRT->CreateSolidColorBrush(D2D1::ColorF(0.2f, 0.2f, 0.2f), &m_brushThumbnailBg);
-    pRT->CreateSolidColorBrush(GetAccentColor(), &m_brushBorder);
-    pRT->CreateSolidColorBrush(D2D1::ColorF(0.4f, 0.6f, 1.0f, 0.6f), &m_brushResizeHandle);
-    pRT->CreateSolidColorBrush(D2D1::ColorF(0.08f, 0.08f, 0.08f), &m_brushTitleBg);
+    const ThemePalette pal = ResolveThemePalette();
+    const D2D1_COLOR_F accent = ResolveAccentColor(GetAccentColor());
+    m_brushesThemeLight = IsLightThemeActive();
+    pRT->CreateSolidColorBrush(pal.bg, &m_brushBg);
+    pRT->CreateSolidColorBrush(D2D1::ColorF(accent.r, accent.g, accent.b, 0.35f), &m_brushSelection);
+    pRT->CreateSolidColorBrush(pal.hover, &m_brushHover);
+    pRT->CreateSolidColorBrush(pal.text, &m_brushText);
+    pRT->CreateSolidColorBrush(pal.thumbBg, &m_brushThumbnailBg);
+    pRT->CreateSolidColorBrush(accent, &m_brushBorder);
+    pRT->CreateSolidColorBrush(pal.resizeHandle, &m_brushResizeHandle);
+    pRT->CreateSolidColorBrush(pal.titleBg, &m_brushTitleBg);
 
     if (!m_dwriteFactory) {
         DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
@@ -212,6 +300,8 @@ void ThumbnailPanelBase::Render(ID2D1RenderTarget* pRT) {
             OnDeviceResourcesDiscarded();
         }
         CreateDeviceResources(pRT);
+    } else if (m_brushesThemeLight != IsLightThemeActive()) {
+        CreateDeviceResources(pRT); // Theme flipped — rebuild palette
     }
 
     // Smooth scroll animation
@@ -234,8 +324,8 @@ void ThumbnailPanelBase::Render(ID2D1RenderTarget* pRT) {
         pRT->FillRectangle(m_panelRect, m_brushBg.Get());
     }
 
-    // Title bar
-    if (m_brushTitleBg && m_textFormatTitle && m_brushText) {
+    // Title bar (side panels only — bottom strip has no title)
+    if (m_panelSide != 3 && m_brushTitleBg && m_textFormatTitle && m_brushText) {
         float titleH = kTitleBarHeight * g_uiScale;
         D2D1_RECT_F titleRect;
         if (m_panelSide == 3) {
@@ -316,10 +406,9 @@ bool ThumbnailPanelBase::OnMouseMove(float x, float y) {
     if (x >= m_panelRect.left && x <= m_panelRect.right &&
         y >= m_panelRect.top && y <= m_panelRect.bottom) {
         if (m_panelSide == 3) {
-            const float itemWidth = kBottomItemWidth * g_uiScale + kItemSpacing;
-            const float titleH = kTitleBarHeight * g_uiScale;
+            const float itemWidth = BottomItemStride();
             const float localX = x - m_panelRect.left - kItemPadding + m_scrollX;
-            if (localX >= 0.0f && y >= m_panelRect.top + kItemPadding + titleH) {
+            if (localX >= 0.0f && y >= m_panelRect.top + kItemPadding) {
                 newHover = static_cast<int>(localX / itemWidth);
                 uint32_t itemCount = GetItemCount();
                 if (newHover < 0 || newHover >= static_cast<int>(itemCount)) {
@@ -356,10 +445,9 @@ int ThumbnailPanelBase::OnLButtonDown(float x, float y) {
     }
 
     if (m_panelSide == 3) {
-        const float itemWidth = kBottomItemWidth * g_uiScale + kItemSpacing;
-        const float titleH = kTitleBarHeight * g_uiScale;
+        const float itemWidth = BottomItemStride();
         const float localX = x - m_panelRect.left - kItemPadding + m_scrollX;
-        if (localX < 0.0f || y < m_panelRect.top + kItemPadding + titleH) return -1;
+        if (localX < 0.0f || y < m_panelRect.top + kItemPadding) return -1;
         const int pageIndex = static_cast<int>(localX / itemWidth);
         uint32_t itemCount = GetItemCount();
         if (pageIndex >= 0 && pageIndex < static_cast<int>(itemCount)) {

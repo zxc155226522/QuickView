@@ -30,10 +30,17 @@ Toolbar::Toolbar() {
 
       {ToolbarButtonID::RawToggle, Icons::Raw, {}, false, false},
       {ToolbarButtonID::GamutWarning, Icons::Warning, {}, false, false},
-      // [Thumbnail Panel] Sidebar toggle buttons — split into two independent panels
-      {ToolbarButtonID::ThumbnailPanelToggle, Icons::SidebarRight, {}, true, false},
+      // [Thumbnail Panel] Sidebar toggles — image strip is fixed to the bottom
+      // (plain show/hide), PDF panel keeps its position menu
       {ToolbarButtonID::PdfThumbPanelToggle, Icons::Layout, {}, true, false},
       {ToolbarButtonID::ImageThumbPanelToggle, Icons::Image, {}, true, false},
+
+      // [PDF] Dedicated page-turn group — visible only for paged documents,
+      // independent from the Prev/Next file-navigation buttons
+      {ToolbarButtonID::PdfPageFirst, Icons::SkipBack, {}, true, false},
+      {ToolbarButtonID::PdfPagePrev, Icons::ChevronLeft, {}, true, false},
+      {ToolbarButtonID::PdfPageNext, Icons::Chevron, {}, true, false},
+      {ToolbarButtonID::PdfPageLast, Icons::SkipFwd, {}, true, false},
 
       // Animation mode buttons (hidden in normal mode)
       {ToolbarButtonID::AnimPrevFrame, Icons::SkipBack, {}, true, false},
@@ -49,7 +56,14 @@ Toolbar::Toolbar() {
 Toolbar::~Toolbar() {}
 
 float Toolbar::GetReservedHeight() const {
-  return 36.0f * m_uiScale; // Same as title bar height
+  float reserved = 36.0f * m_uiScale; // Same as title bar height
+  // [PDF] Reserve the page-turn bar strip below the preview (4px gap + bar)
+  if (IsPdfPageBarVisible()) {
+    const float buttonSize = BUTTON_SIZE * m_uiScale;
+    const float padY = PADDING_Y * m_uiScale;
+    reserved += (4.0f * m_uiScale) + (buttonSize + padY * 2);
+  }
+  return reserved;
 }
 
 void Toolbar::SetUIScale(float scale) {
@@ -153,6 +167,12 @@ void Toolbar::UpdateLayout(float winW, float winH) {
       return m_showPageIndicator; // Visible whenever indicator is shown (PDF or image mode)
     }
     return false;
+  };
+
+  // [PDF] Dedicated page-turn group: only visible for paged documents
+  auto isPdfPageNavButton = [](ToolbarButtonID id) {
+    return id == ToolbarButtonID::PdfPageFirst || id == ToolbarButtonID::PdfPagePrev ||
+           id == ToolbarButtonID::PdfPageNext || id == ToolbarButtonID::PdfPageLast;
   };
 
 
@@ -284,6 +304,7 @@ void Toolbar::UpdateLayout(float winW, float winH) {
 
     // [PDF] Page nav buttons: only visible when page indicator is shown
     if (isPageNavButton(btn.id)) return m_showPageIndicator;
+    if (isPdfPageNavButton(btn.id)) return m_showPageIndicator && !m_isImageMode;
 
     if (isCompareButton(btn.id) || isAnimButton(btn.id))
       return false;
@@ -297,12 +318,14 @@ void Toolbar::UpdateLayout(float winW, float winH) {
   };
 
   // Helper: calculate total toolbar width for the current visible button set
+  // [PDF] The page-turn group lives in its own bar below the preview, so it is
+  // excluded from the docked toolbar width entirely.
   auto calcTotalWidth = [&]() -> float {
     int count = 0;
     bool hasZoom = false;
     bool hasSpeed = (m_animMode || m_slideshowMode);
     for (const auto &btn : m_buttons) {
-      if (isVisibleButton(btn)) count++;
+      if (isVisibleButton(btn) && !isPdfPageNavButton(btn.id)) count++;
       if (m_compareMode && (btn.id == ToolbarButtonID::CompareZoomIn || btn.id == ToolbarButtonID::CompareZoomOut)) {
         if (isVisibleButton(btn)) hasZoom = true;
       }
@@ -321,8 +344,9 @@ void Toolbar::UpdateLayout(float winW, float winH) {
     if (hasPageLast) {
       w += (GROUP_GAP - GAP) * m_uiScale; // Replace one GAP with GROUP_GAP
     }
-    // [PDF] Page indicator width — inline between Prev and Next (part of the flow)
-    if (m_showPageIndicator) {
+    // [PDF] Page indicator width — inline between Prev and Next (part of the flow).
+    // In paged-doc mode the indicator moved into the floating page-turn bar.
+    if (m_showPageIndicator && !IsPdfPageBarVisible()) {
       w += 80.0f * m_uiScale; // page indicator pill width (reduced from 100)
     }
     if (m_compareMode && hasZoom) {
@@ -391,7 +415,11 @@ void Toolbar::UpdateLayout(float winW, float winH) {
     return id == ToolbarButtonID::PageFirst ||
            id == ToolbarButtonID::Prev ||
            id == ToolbarButtonID::Next ||
-           id == ToolbarButtonID::PageLast;
+           id == ToolbarButtonID::PageLast ||
+           id == ToolbarButtonID::PdfPageFirst ||
+           id == ToolbarButtonID::PdfPagePrev ||
+           id == ToolbarButtonID::PdfPageNext ||
+           id == ToolbarButtonID::PdfPageLast;
   };
 
   // Layout Buttons
@@ -427,9 +455,13 @@ void Toolbar::UpdateLayout(float winW, float winH) {
     // All non-pagenav buttons go to the right side (since PageFirst is first in m_buttons array)
 
     // Calculate widths
-    // Center group: PageFirst + Prev + indicator + Next + PageLast
-    // Use indicatorGap (tighter) between Prev/Next and indicator, standard gap elsewhere
-    const float centerW = buttonSize * 4 + indicatorW + gap * 2 + indicatorGap * 2;
+    // Center group is always the file-nav group: PageFirst + Prev + [indicator] + Next + PageLast.
+    // In paged-doc (PDF) mode the indicator moves into the floating page-turn bar,
+    // so the toolbar center holds only the four file-nav buttons.
+    const bool pdfMode = IsPdfPageBarVisible();
+    const float centerW = pdfMode
+        ? buttonSize * 4 + gap * 3
+        : buttonSize * 4 + indicatorW + gap * 2 + indicatorGap * 2;
     const float centerX = winW * 0.5f;
     float centerStartX = centerX - centerW * 0.5f;
     float rightStartX = centerStartX + centerW + gap;
@@ -458,16 +490,23 @@ void Toolbar::UpdateLayout(float winW, float winH) {
         continue;
       }
 
+      // [PDF] Page-turn buttons are placed in the floating bar further below
+      if (isPdfPageNavButton(btn.id)) {
+        btn.rect = D2D1::RectF(0, 0, 0, 0);
+        continue;
+      }
+
       if (isPageNavGroup(btn.id)) {
         // Place in center group
         btn.rect = D2D1::RectF(ccx, cy, ccx + buttonSize, cy + buttonSize);
-        // Use tighter gap between Prev->indicator and indicator->Next
+        // Use tighter gap between nav buttons and page indicator
         bool beforeIndicator = (btn.id == ToolbarButtonID::Prev);
         bool afterIndicator = (btn.id == ToolbarButtonID::Next);
         float navGap = (beforeIndicator || afterIndicator) ? indicatorGap : gap;
         ccx += buttonSize + navGap;
-        // Insert page indicator after Prev
-        if (btn.id == ToolbarButtonID::Prev) {
+        // Insert page indicator after Prev (image mode only; in paged-doc mode
+        // the indicator lives in the floating page-turn bar below the preview)
+        if (btn.id == ToolbarButtonID::Prev && !pdfMode) {
           const float indicatorY = cy + (buttonSize - indicatorH) * 0.5f;
           m_pageIndicatorRect = D2D1::RectF(ccx, indicatorY, ccx + indicatorW, indicatorY + indicatorH);
           ccx += indicatorW + indicatorGap; // indicator width + tight gap before Next
@@ -546,6 +585,42 @@ void Toolbar::UpdateLayout(float winW, float winH) {
     m_pageIndicatorRect = D2D1::RectF(0, 0, 0, 0);
   }
 
+  // [PDF] Floating page-turn bar — sits directly BELOW the document preview,
+  // in the strip reserved by GetReservedHeight() just above the docked toolbar.
+  // Layout: [首页][上一页] [页码] [下一页][末页]
+  if (IsPdfPageBarVisible() && !m_windowTooNarrow) {
+    const float indicatorW = 80.0f * m_uiScale;
+    const float indicatorH = buttonSize * 0.82f;
+    const float indicatorGap = 1.0f * m_uiScale;
+    const float barPadX = 8.0f * m_uiScale;
+    const float barGapAboveToolbar = 4.0f * m_uiScale;
+    const float barW = barPadX * 2 + buttonSize * 4 + indicatorW + gap * 2 + indicatorGap * 2;
+    const float barH = buttonSize + padY * 2;
+    float barX = (winW - barW) * 0.5f;
+    float barY = m_bgRect.rect.top - barGapAboveToolbar - barH;
+    if (barY < 0.0f) barY = 0.0f;
+    m_pdfPageBarRect = D2D1::RoundedRect(
+        D2D1::RectF(barX, barY, barX + barW, barY + barH), barH * 0.5f, barH * 0.5f);
+
+    float bx = barX + barPadX;
+    const float by = barY + padY;
+    for (auto &btn : m_buttons) {
+      if (!isPdfPageNavButton(btn.id)) continue;
+      btn.rect = D2D1::RectF(bx, by, bx + buttonSize, by + buttonSize);
+      const bool beforeIndicator = (btn.id == ToolbarButtonID::PdfPagePrev);
+      const bool afterIndicator = (btn.id == ToolbarButtonID::PdfPageNext);
+      const float navGap = (beforeIndicator || afterIndicator) ? indicatorGap : gap;
+      bx += buttonSize + navGap;
+      if (beforeIndicator) {
+        const float indicatorY = by + (buttonSize - indicatorH) * 0.5f;
+        m_pageIndicatorRect = D2D1::RectF(bx, indicatorY, bx + indicatorW, indicatorY + indicatorH);
+        bx += indicatorW + indicatorGap;
+      }
+    }
+  } else {
+    m_pdfPageBarRect = D2D1::RoundedRect(D2D1::RectF(0, 0, 0, 0), 0.0f, 0.0f);
+  }
+
   // [Swatch] Position swatches within the toolbar capsule (right-aligned)
   if (showSwatches) {
     float sx = m_bgRect.rect.right - padX - (9.0f * swatchDiameter + 8.0f * swatchGap);
@@ -558,8 +633,8 @@ void Toolbar::UpdateLayout(float winW, float winH) {
     for (int i = 0; i < 9; ++i) m_swatchRects[i] = D2D1::RectF(0, 0, 0, 0);
   }
 
-  // [PDF] Page indicator position is set during button layout loop
-  // (three-segment layout places it between Prev and Next at window center)
+  // [PDF] Page indicator / page-turn bar position is set during layout
+  // (bar places it between PdfPagePrev and PdfPageNext below the preview)
 }
 
 const wchar_t *GetTooltipText(const ToolbarButton &btn) {
@@ -574,9 +649,17 @@ const wchar_t *GetTooltipText(const ToolbarButton &btn) {
   case ToolbarButtonID::Next:
     return AppStrings::Toolbar_Tooltip_Next;
   case ToolbarButtonID::PageFirst:
-    return g_toolbar.IsImageMode() ? L"首张" : L"首页";
+    return L"首张";
   case ToolbarButtonID::PageLast:
-    return g_toolbar.IsImageMode() ? L"末张" : L"尾页";
+    return L"末张";
+  case ToolbarButtonID::PdfPageFirst:
+    return L"首页";
+  case ToolbarButtonID::PdfPagePrev:
+    return L"上一页";
+  case ToolbarButtonID::PdfPageNext:
+    return L"下一页";
+  case ToolbarButtonID::PdfPageLast:
+    return L"末页";
   case ToolbarButtonID::RotateL:
     return AppStrings::Toolbar_Tooltip_RotateL;
   case ToolbarButtonID::RotateR:
@@ -657,13 +740,7 @@ const wchar_t *GetTooltipText(const ToolbarButton &btn) {
       default: return L"页面缩略图";
     }
   case ToolbarButtonID::ImageThumbPanelToggle:
-    switch (g_toolbar.GetImageThumbPanelState()) {
-      case 0: return L"图片缩略图：右侧";
-      case 1: return L"图片缩略图：左侧";
-      case 3: return L"图片缩略图：底部";
-      case 2: return L"图片缩略图：已关闭";
-      default: return L"图片缩略图";
-    }
+    return (g_toolbar.GetImageThumbPanelState() == 2) ? L"显示缩略图栏" : L"隐藏缩略图栏";
   default:
     return nullptr;
   }
@@ -697,9 +774,15 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
   if (SUCCEEDED(pRT->CreateLayer(&layer))) {
     D2D1_LAYER_PARAMETERS params = D2D1::LayerParameters();
     params.contentBounds = m_bgRect.rect;
-    
+
     if (m_animMode) {
       params.contentBounds.top -= 10.0f * m_uiScale; // Extra room for progress bar
+    }
+    // [PDF] The floating page-turn bar floats above the toolbar — include it in the clip
+    if (m_pdfPageBarRect.rect.right > m_pdfPageBarRect.rect.left) {
+      params.contentBounds.top = (std::min)(params.contentBounds.top, m_pdfPageBarRect.rect.top);
+      params.contentBounds.left = (std::min)(params.contentBounds.left, m_pdfPageBarRect.rect.left);
+      params.contentBounds.right = (std::max)(params.contentBounds.right, m_pdfPageBarRect.rect.right);
     }
     params.opacity = m_opacity;
 
@@ -762,6 +845,23 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
                 D2D1::Point2F(0, lineY),
                 D2D1::Point2F(m_bgRect.rect.right, lineY),
                 lineBrush.Get(), 1.0f, nullptr);
+        }
+    }
+
+    // [PDF] Floating page-turn bar background — solid theme capsule matching
+    // the docked toolbar, with a soft border so it reads as its own control.
+    if (m_pdfPageBarRect.rect.right > m_pdfPageBarRect.rect.left) {
+        m_brushBg->SetColor(isLight ? D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f) : D2D1::ColorF(0.12f, 0.12f, 0.14f, 1.0f));
+        m_brushBg->SetOpacity(1.0f);
+        pRT->FillRoundedRectangle(m_pdfPageBarRect, m_brushBg.Get());
+
+        ComPtr<ID2D1SolidColorBrush> borderBrush;
+        D2D1_COLOR_F borderColor = isLight
+            ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.15f)
+            : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.15f);
+        pRT->CreateSolidColorBrush(borderColor, &borderBrush);
+        if (borderBrush) {
+            pRT->DrawRoundedRectangle(m_pdfPageBarRect, borderBrush.Get(), 1.0f * m_uiScale);
         }
     }
     
@@ -1454,6 +1554,9 @@ bool Toolbar::HitTest(float x, float y) {
 
   // 1. Standard background capsule
   if (x >= m_bgRect.rect.left && x <= m_bgRect.rect.right && y >= m_bgRect.rect.top && y <= m_bgRect.rect.bottom) return true;
+
+  // 1.5 [PDF] Floating page-turn bar (below the preview, above the toolbar)
+  if (IsPdfPageBarHit(x, y)) return true;
 
   // 2. Animation progress bar (this area is floating outside the capsule)
   if (m_animMode) {

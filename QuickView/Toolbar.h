@@ -50,7 +50,12 @@ enum class ToolbarButtonID {
     ThumbnailPanelToggle,
     // [Split Panels] Two independent thumbnail panel toggles
     PdfThumbPanelToggle,
-    ImageThumbPanelToggle
+    ImageThumbPanelToggle,
+    // [PDF] Dedicated page-turn group (independent from file/image navigation)
+    PdfPageFirst,
+    PdfPagePrev,
+    PdfPageNext,
+    PdfPageLast
 };
 
 struct ToolbarButton {
@@ -185,6 +190,18 @@ public:
     }
     D2D1_RECT_F GetPageIndicatorRect() const { return m_pageIndicatorRect; }
 
+    // [PDF] Floating page-turn bar below the preview (paged-doc mode only).
+    // The strip between preview bottom and toolbar top is reserved for it.
+    bool IsPdfPageBarVisible() const {
+        return m_showPageIndicator && !m_isImageMode &&
+               !m_compareMode && !m_animMode && !m_slideshowMode;
+    }
+    bool IsPdfPageBarHit(float x, float y) const {
+        return m_pdfPageBarRect.rect.right > m_pdfPageBarRect.rect.left &&
+               x >= m_pdfPageBarRect.rect.left && x <= m_pdfPageBarRect.rect.right &&
+               y >= m_pdfPageBarRect.rect.top && y <= m_pdfPageBarRect.rect.bottom;
+    }
+
     // [PDF] Inline page input
     bool IsPageInputActive() const { return m_pageInputActive; }
     void SetPageInputActive(bool active) {
@@ -234,6 +251,8 @@ private:
     float m_compareZoomStepPercent = 0.5f;
     
     D2D1_ROUNDED_RECT m_bgRect = {};
+    // [PDF] Floating page-turn bar capsule (below preview, above toolbar)
+    D2D1_ROUNDED_RECT m_pdfPageBarRect = {};
     std::vector<ToolbarButton> m_buttons;
     D2D1_RECT_F m_compareStepRect = {};
     D2D1_RECT_F m_compareStepUpRect = {};

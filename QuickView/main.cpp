@@ -435,6 +435,11 @@ static void UpdateThumbPanelResize(float x, float y, float windowWidth) {
 static void EndThumbPanelResize() {
     g_pdfThumbPanel.EndResize();
     g_imageThumbPanel.EndResize();
+    // [Split Panels] Write user size back to config so SaveConfig persists it
+    if (g_pdfThumbPanel.GetPanelSide() != 3) g_config.PdfThumbPanelWidth = g_pdfThumbPanel.GetWidth();
+    else g_config.PdfThumbPanelHeightBottom = g_pdfThumbPanel.GetBottomPanelHeight();
+    if (g_imageThumbPanel.GetPanelSide() != 3) g_config.ImageThumbPanelWidth = g_imageThumbPanel.GetWidth();
+    else g_config.ImageThumbPanelHeightBottom = g_imageThumbPanel.GetBottomPanelHeight();
 }
 
 // Helper: is any panel resizing?
@@ -446,6 +451,17 @@ static bool IsAnyThumbPanelResizing() {
 static void UpdateAllThumbPanelsLayout(const D2D1_RECT_F& fullRect) {
     if (g_pdfThumbPanel.IsVisible()) g_pdfThumbPanel.UpdateLayout(fullRect);
     if (g_imageThumbPanel.IsVisible()) g_imageThumbPanel.UpdateLayout(fullRect);
+}
+
+// Helper: re-sync thumbnail panel rects after the toolbar's reserved height
+// changed (the floating PDF page-turn bar strip appears/disappears without a
+// WM_SIZE). Without this a panel laid out before the bar appeared keeps its
+// old rect and covers (and steals clicks from) the page-turn bar.
+static void SyncThumbPanelsWithToolbar(HWND hwnd) {
+    if (!g_pdfThumbPanel.IsVisible() && !g_imageThumbPanel.IsVisible()) return;
+    RECT rcClient; GetClientRect(hwnd, &rcClient);
+    UpdateAllThumbPanelsLayout(D2D1::RectF(0.0f, 0.0f,
+        (float)(rcClient.right - rcClient.left), (float)(rcClient.bottom - rcClient.top)));
 }
 
 // Helper: OnMouseMove for both panels — returns true if any changed
@@ -4428,6 +4444,13 @@ void SaveConfig() {
     // [Thumbnail Panel] Persist side and width
     WriteConfigInt(L"View", L"ThumbnailPanelSide", g_config.ThumbnailPanelSide, iniPath.c_str());
     WriteConfigFloat(L"View", L"ThumbnailPanelWidth", g_config.ThumbnailPanelWidth, iniPath.c_str());
+    // [Split Panels] Persist both panels' side / width / bottom height
+    WriteConfigInt(L"View", L"PdfThumbPanelSide", g_config.PdfThumbPanelSide, iniPath.c_str());
+    WriteConfigFloat(L"View", L"PdfThumbPanelWidth", g_config.PdfThumbPanelWidth, iniPath.c_str());
+    WriteConfigFloat(L"View", L"PdfThumbPanelHeightBottom", g_config.PdfThumbPanelHeightBottom, iniPath.c_str());
+    WriteConfigInt(L"View", L"ImageThumbPanelSide", g_config.ImageThumbPanelSide, iniPath.c_str());
+    WriteConfigFloat(L"View", L"ImageThumbPanelWidth", g_config.ImageThumbPanelWidth, iniPath.c_str());
+    WriteConfigFloat(L"View", L"ImageThumbPanelHeightBottom", g_config.ImageThumbPanelHeightBottom, iniPath.c_str());
 
     WriteConfigInt(L"View", L"InfoPanelX", g_config.InfoPanelX, iniPath.c_str());
     WriteConfigInt(L"View", L"InfoPanelY", g_config.InfoPanelY, iniPath.c_str());
@@ -4762,6 +4785,24 @@ g_config.AlwaysOnTop = GetPrivateProfileIntW(L"View", L"AlwaysOnTop", 0, iniPath
     g_config.ThumbnailPanelWidth = (float)_wtof(bufTPW);
     if (g_config.ThumbnailPanelWidth < 100.0f) g_config.ThumbnailPanelWidth = 180.0f;
     if (g_config.ThumbnailPanelWidth > 400.0f) g_config.ThumbnailPanelWidth = 180.0f;
+
+    // [Split Panels] Load both panels' side / width / bottom height
+    g_config.PdfThumbPanelSide = GetPrivateProfileIntW(L"View", L"PdfThumbPanelSide", 1, iniPath.c_str());
+    if (g_config.PdfThumbPanelSide != 0 && g_config.PdfThumbPanelSide != 1)
+        g_config.PdfThumbPanelSide = 1; // Left/right only — clamped
+    wchar_t bufPdfTW[32], bufPdfTH[32];
+    GetPrivateProfileStringW(L"View", L"PdfThumbPanelWidth", L"140.0", bufPdfTW, 32, iniPath.c_str());
+    g_config.PdfThumbPanelWidth = (float)_wtof(bufPdfTW);
+    GetPrivateProfileStringW(L"View", L"PdfThumbPanelHeightBottom", L"100.0", bufPdfTH, 32, iniPath.c_str());
+    g_config.PdfThumbPanelHeightBottom = (float)_wtof(bufPdfTH);
+
+    g_config.ImageThumbPanelSide = GetPrivateProfileIntW(L"View", L"ImageThumbPanelSide", 3, iniPath.c_str());
+    if (g_config.ImageThumbPanelSide != 2) g_config.ImageThumbPanelSide = 3; // Fixed to bottom
+    wchar_t bufImgTW[32], bufImgTH[32];
+    GetPrivateProfileStringW(L"View", L"ImageThumbPanelWidth", L"140.0", bufImgTW, 32, iniPath.c_str());
+    g_config.ImageThumbPanelWidth = (float)_wtof(bufImgTW);
+    GetPrivateProfileStringW(L"View", L"ImageThumbPanelHeightBottom", L"100.0", bufImgTH, 32, iniPath.c_str());
+    g_config.ImageThumbPanelHeightBottom = (float)_wtof(bufImgTH);
 
     wchar_t bufInfoX[32], bufInfoY[32];
     GetPrivateProfileStringW(L"View", L"InfoPanelX", L"16.0", bufInfoX, 32, iniPath.c_str());
@@ -6801,6 +6842,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, [[maybe_unused]] LPWSTR lpCm
 // [Split Panels] Initialize both thumbnail panels
 g_pdfThumbPanel.InitializeEx(hwnd, g_docRenderCtrl.get());
 g_imageThumbPanel.InitializeEx(hwnd);
+g_pdfThumbPanel.SetUserSize(g_config.PdfThumbPanelWidth, g_config.PdfThumbPanelHeightBottom);
+g_imageThumbPanel.SetUserSize(g_config.ImageThumbPanelWidth, g_config.ImageThumbPanelHeightBottom);
 
 // [Thumbnail Panel] Sync toolbar button state with config
 g_toolbar.SetPdfThumbPanelState(g_config.PdfThumbPanelSide);
@@ -8447,15 +8490,25 @@ hoverEdge = (HitTestNavButtonInPane(pt, fullRect) != 0);
                       D2D1_RECT_F fullRect = D2D1::RectF(0.0f, 0.0f,
                           (float)(rc.right - rc.left), (float)(rc.bottom - rc.top));
                       UpdateAllThumbPanelsLayout(fullRect);
+                      // [Same container] Track the moving panel edge live: clip + pan follow
+                      SyncDCompState(hwnd, winW, winH, false);
                       RequestRepaint(PaintLayer::Static);
                   } else {
                       if (ThumbPanelOnMouseMove((float)pt.x, (float)pt.y)) {
                           RequestRepaint(PaintLayer::Static);
                       }
                   }
-                  // Update cursor for resize handle
-                  if (AnyThumbPanelResizeHit((float)pt.x, (float)pt.y) || IsAnyThumbPanelResizing()) {
-                      g_currentCursor = LoadCursor(nullptr, IDC_SIZEWE);
+                  // Update cursor for resize handle (bottom bar drags vertically,
+                  // side panels horizontally — must match the drag axis)
+                  if (IsAnyThumbPanelResizing()) {
+                      int side = g_pdfThumbPanel.IsResizing() ? g_pdfThumbPanel.GetPanelSide()
+                               : g_imageThumbPanel.GetPanelSide();
+                      g_currentCursor = LoadCursor(nullptr, side == 3 ? IDC_SIZENS : IDC_SIZEWE);
+                  } else if (AnyThumbPanelResizeHit((float)pt.x, (float)pt.y)) {
+                      int side = (g_pdfThumbPanel.IsVisible() && g_pdfThumbPanel.IsResizeHit((float)pt.x, (float)pt.y))
+                               ? g_pdfThumbPanel.GetPanelSide()
+                               : g_imageThumbPanel.GetPanelSide();
+                      g_currentCursor = LoadCursor(nullptr, side == 3 ? IDC_SIZENS : IDC_SIZEWE);
                   }
               }
 
@@ -9661,6 +9714,8 @@ POINT pt = { (short)LOWORD(lParam), (short)HIWORD(lParam) };
 // [Split Panels] End resize drag
 if (IsAnyThumbPanelResizing()) {
     EndThumbPanelResize();
+    // [Same container] Re-fit the image into the viewport resized by the panel
+    PerformZoomFit(hwnd, 1.0f, false);
     ReleaseCapture();
     return 0;
 }
@@ -9795,19 +9850,13 @@ if (GetTickCount() - g_lastOverlayCloseTime < 350) {
         if (g_toolbar.OnClick((float)pt.x, (float)pt.y, tbId)) {
             switch (tbId) {
                 case ToolbarButtonID::Prev:
-                    if (g_pagedDoc.active && g_pagedDoc.totalPages > 1) {
-                        HandlePdfPageStep(hwnd, false);
-                    } else if (CheckUnsavedChanges(hwnd)) Navigate(hwnd, -1);
+                    if (CheckUnsavedChanges(hwnd)) Navigate(hwnd, -1);
                     break;
                 case ToolbarButtonID::Next:
-                    if (g_pagedDoc.active && g_pagedDoc.totalPages > 1) {
-                        HandlePdfPageStep(hwnd, true);
-                    } else if (CheckUnsavedChanges(hwnd)) Navigate(hwnd, 1);
+                    if (CheckUnsavedChanges(hwnd)) Navigate(hwnd, 1);
                     break;
                 case ToolbarButtonID::PageFirst:
-                    if (g_pagedDoc.active && g_pagedDoc.totalPages > 1) {
-                        HandlePdfPageJump(hwnd, 0);
-                    } else if (g_toolbar.IsImageMode() && CheckUnsavedChanges(hwnd)) {
+                    if (CheckUnsavedChanges(hwnd)) {
                         auto& nav = GetPaneContext(PaneSlot::Primary).navigator;
                         std::wstring firstPath = nav.First();
                         if (!firstPath.empty()) {
@@ -9817,9 +9866,7 @@ if (GetTickCount() - g_lastOverlayCloseTime < 350) {
                     }
                     break;
                 case ToolbarButtonID::PageLast:
-                    if (g_pagedDoc.active && g_pagedDoc.totalPages > 1) {
-                        HandlePdfPageJump(hwnd, g_pagedDoc.totalPages - 1);
-                    } else if (g_toolbar.IsImageMode() && CheckUnsavedChanges(hwnd)) {
+                    if (CheckUnsavedChanges(hwnd)) {
                         auto& nav = GetPaneContext(PaneSlot::Primary).navigator;
                         std::wstring lastPath = nav.Last();
                         if (!lastPath.empty()) {
@@ -9827,6 +9874,19 @@ if (GetTickCount() - g_lastOverlayCloseTime < 350) {
                             LoadImageAsync(hwnd, lastPath.c_str(), true, QuickView::BrowseDirection::FORWARD);
                         }
                     }
+                    break;
+                // [PDF] Dedicated page-turn buttons — independent from file navigation
+                case ToolbarButtonID::PdfPagePrev:
+                    HandlePdfPageStep(hwnd, false);
+                    break;
+                case ToolbarButtonID::PdfPageNext:
+                    HandlePdfPageStep(hwnd, true);
+                    break;
+                case ToolbarButtonID::PdfPageFirst:
+                    HandlePdfPageJump(hwnd, 0);
+                    break;
+                case ToolbarButtonID::PdfPageLast:
+                    HandlePdfPageJump(hwnd, g_pagedDoc.totalPages - 1);
                     break;
                 case ToolbarButtonID::RotateL: PerformTransform(hwnd, TransformType::Rotate90CCW); break;
                 case ToolbarButtonID::RotateR: PerformTransform(hwnd, TransformType::Rotate90CW); break;
@@ -9872,20 +9932,48 @@ if (GetTickCount() - g_lastOverlayCloseTime < 350) {
                         ShowGallery(hwnd);
                     }
 break;
-case ToolbarButtonID::ThumbnailPanelToggle: {
-    // [Popup Menu] Show position selection menu instead of cycling
-    RECT btnRect = g_toolbar.GetThumbnailPanelToggleScreenRect();
+case ToolbarButtonID::ImageThumbPanelToggle: {
+    // Bottom strip is fixed — the button only toggles visibility (no position options)
+    bool show = (g_config.ImageThumbPanelSide == 2);
+    g_config.ImageThumbPanelSide = show ? 3 : 2;
+    g_toolbar.SetImageThumbPanelState(g_config.ImageThumbPanelSide);
+
+    RECT rcClient; GetClientRect(hwnd, &rcClient);
+    D2D1_RECT_F fullRect = D2D1::RectF(0.0f, 0.0f,
+        (float)(rcClient.right - rcClient.left),
+        (float)(rcClient.bottom - rcClient.top));
+
+    if (!show) {
+        g_imageThumbPanel.OnDocumentClosed();
+    } else {
+        g_imageThumbPanel.SetPanelSide(3);
+        if (!g_imagePath.empty()) {
+            auto& nav = GetPaneContext(PaneSlot::Primary).navigator;
+            if (nav.Count() > 1) {
+                g_imageThumbPanel.ShowImageThumbnails(&nav, nav.Index(), (uint32_t)nav.Count());
+            }
+        }
+        g_imageThumbPanel.UpdateLayout(fullRect);
+    }
+
+    g_toolbar.UpdateLayout((float)rcClient.right, (float)rcClient.bottom);
+    // [Same container] Image re-fits into the viewport changed by the panel
+    PerformZoomFit(hwnd, 1.0f, false);
+    SaveConfig();
+    RequestRepaint(PaintLayer::Static | PaintLayer::Dynamic);
+    InvalidateRect(hwnd, nullptr, FALSE); // Force Paint
+    break;
+}
+case ToolbarButtonID::PdfThumbPanelToggle: {
+    // [Popup Menu] PDF panel: left/right only (fixed to a sidebar)
+    RECT btnRect = g_toolbar.GetPdfThumbPanelToggleScreenRect();
     // Convert client to screen coordinates
     POINT ptTL = {btnRect.left, btnRect.bottom};
     ClientToScreen(hwnd, &ptTL);
-    // Build popup menu items using GeekMenuItem::Check for radio-like behavior
-    int curSide = g_toolbar.GetThumbnailPanelState();
+    int curSide = g_config.PdfThumbPanelSide;
     std::vector<QuickView::UI::Menu::GeekMenuItem> items = {
-        QuickView::UI::Menu::GeekMenuItem::Check(IDM_THUMB_PANEL_RIGHT,  L"右侧显示",  curSide == 0),
-        QuickView::UI::Menu::GeekMenuItem::Check(IDM_THUMB_PANEL_LEFT,   L"左侧显示",  curSide == 1),
-        QuickView::UI::Menu::GeekMenuItem::Check(IDM_THUMB_PANEL_BOTTOM, L"底部显示",  curSide == 3),
-        QuickView::UI::Menu::GeekMenuItem::Sep(),
-        QuickView::UI::Menu::GeekMenuItem::Check(IDM_THUMB_PANEL_OFF,    L"关闭面板",  curSide == 2),
+        QuickView::UI::Menu::GeekMenuItem::Check(IDM_PDF_THUMB_RIGHT,  L"右侧显示",  curSide == 0),
+        QuickView::UI::Menu::GeekMenuItem::Check(IDM_PDF_THUMB_LEFT,   L"左侧显示",  curSide == 1),
     };
     std::vector<QuickView::UI::Menu::ActionButton> emptyActions;
     QuickView::UI::Menu::GeekContextMenu::ShowMenu(hwnd, ptTL.x, ptTL.y, std::move(emptyActions), std::move(items));
@@ -10334,6 +10422,13 @@ RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);
             // Only intercept if cursor is within any panel area
             if (AnyThumbPanelHitTest((float)ptClient2.x, (float)ptClient2.y)) {
                 int delta = GET_WHEEL_DELTA_WPARAM(wParam);
+                // [PDF] Wheel over the PDF page panel turns pages instead of scrolling
+                if (g_pagedDoc.active && g_pagedDoc.totalPages > 1 &&
+                    g_pdfThumbPanel.IsVisible() &&
+                    g_pdfThumbPanel.HitTestPanel((float)ptClient2.x, (float)ptClient2.y)) {
+                    HandlePdfPageStep(hwnd, delta < 0); // wheel down = next page
+                    return 0;
+                }
                 if (ThumbPanelOnMouseWheel(delta)) {
                     RequestRepaint(PaintLayer::Static);
                     return 0;
@@ -11961,15 +12056,10 @@ const std::wstring& contextPath = contextLeft ? GetPaneContext(PaneSlot::Left).p
             break;
         }
 
-        // [PDF Panel] Position selection from popup menu
+        // [PDF Panel] Position selection from popup menu — left/right only
         case IDM_PDF_THUMB_RIGHT:
-        case IDM_PDF_THUMB_LEFT:
-        case IDM_PDF_THUMB_BOTTOM:
-        case IDM_PDF_THUMB_OFF: {
-            int newSide = 0;
-            if (cmdId == IDM_PDF_THUMB_LEFT) newSide = 1;
-            else if (cmdId == IDM_PDF_THUMB_OFF) newSide = 2;
-            else if (cmdId == IDM_PDF_THUMB_BOTTOM) newSide = 3;
+        case IDM_PDF_THUMB_LEFT: {
+            int newSide = (cmdId == IDM_PDF_THUMB_LEFT) ? 1 : 0;
 
             g_config.PdfThumbPanelSide = newSide;
             g_toolbar.SetPdfThumbPanelState(newSide);
@@ -11979,17 +12069,15 @@ const std::wstring& contextPath = contextLeft ? GetPaneContext(PaneSlot::Left).p
                 (float)(rcClient.right - rcClient.left),
                 (float)(rcClient.bottom - rcClient.top));
 
-            if (newSide == 2) {
-                g_pdfThumbPanel.OnDocumentClosed();
-            } else {
-                g_pdfThumbPanel.SetPanelSide(newSide);
-                if (g_pagedDoc.active && g_pagedDoc.totalPages > 1) {
-                    g_pdfThumbPanel.OnDocumentOpened(GetPaneContext(PaneSlot::Primary).path, g_pagedDoc.totalPages);
-                }
-                g_pdfThumbPanel.UpdateLayout(fullRect);
+            g_pdfThumbPanel.SetPanelSide(newSide);
+            if (g_pagedDoc.active && g_pagedDoc.totalPages > 1) {
+                g_pdfThumbPanel.OnDocumentOpened(GetPaneContext(PaneSlot::Primary).path, g_pagedDoc.totalPages);
             }
+            g_pdfThumbPanel.UpdateLayout(fullRect);
 
             g_toolbar.UpdateLayout((float)rcClient.right, (float)rcClient.bottom);
+            // [Same container] Image/page re-fits into the viewport changed by the panel
+            PerformZoomFit(hwnd, 1.0f, false);
             RequestRepaint(PaintLayer::Static | PaintLayer::Dynamic);
             InvalidateRect(hwnd, nullptr, FALSE);
             break;
@@ -12004,6 +12092,7 @@ const std::wstring& contextPath = contextLeft ? GetPaneContext(PaneSlot::Left).p
             if (cmdId == IDM_IMG_THUMB_LEFT) newSide = 1;
             else if (cmdId == IDM_IMG_THUMB_OFF) newSide = 2;
             else if (cmdId == IDM_IMG_THUMB_BOTTOM) newSide = 3;
+            if (newSide != 2) newSide = 3; // Bottom strip is fixed — position options removed
 
             g_config.ImageThumbPanelSide = newSide;
             g_toolbar.SetImageThumbPanelState(newSide);
@@ -12041,6 +12130,7 @@ const std::wstring& contextPath = contextLeft ? GetPaneContext(PaneSlot::Left).p
             if (cmdId == IDM_THUMB_PANEL_LEFT) newSide = 1;
             else if (cmdId == IDM_THUMB_PANEL_OFF) newSide = 2;
             else if (cmdId == IDM_THUMB_PANEL_BOTTOM) newSide = 3;
+            if (newSide != 2) newSide = 3; // Bottom strip is fixed — position options removed
 
             g_config.ImageThumbPanelSide = newSide;
             g_toolbar.SetImageThumbPanelState(newSide);
@@ -12867,6 +12957,8 @@ void ProcessEngineEvents(HWND hwnd) {
                         g_toolbar.SetPageIndicator(0, pages);
                         RECT rcPi; GetClientRect(hwnd, &rcPi);
                         g_toolbar.UpdateLayout((float)rcPi.right, (float)rcPi.bottom);
+                        // Page-turn bar strip just appeared — keep bottom panels off it
+                        SyncThumbPanelsWithToolbar(hwnd);
                         RequestRepaint(PaintLayer::Static);
 
                         // [PDF Sidebar] Initialize thumbnail panel
@@ -13672,6 +13764,8 @@ void StartNavigation(HWND hwnd, std::wstring path, [[maybe_unused]] bool showOSD
     }
     RECT rcClear; GetClientRect(hwnd, &rcClear);
     g_toolbar.UpdateLayout((float)rcClear.right, (float)rcClear.bottom);
+    // Page-turn bar strip disappeared (paged → image mode) — re-sync panels
+    SyncThumbPanelsWithToolbar(hwnd);
     RequestRepaint(PaintLayer::Static);
     if (g_docRenderCtrl) {
         g_docRenderCtrl->Cancel();
@@ -15065,6 +15159,8 @@ void HandlePdfPageResult(HWND hwnd) {
     g_toolbar.SetPageIndicator(result.pageIndex, g_pagedDoc.totalPages);
     RECT rcResult; GetClientRect(hwnd, &rcResult);
     g_toolbar.UpdateLayout((float)rcResult.right, (float)rcResult.bottom);
+    // Page-turn bar strip may have just appeared — keep bottom panels off it
+    SyncThumbPanelsWithToolbar(hwnd);
     RequestRepaint(PaintLayer::Static);
 
     // [PDF Panel] Update current page in thumbnail panel

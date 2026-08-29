@@ -101,6 +101,7 @@ void ImageListThumbnailPanel::SetCurrentImageIndex(int index) {
     if (m_currentImageIndex != index) {
         m_currentImageIndex = index;
         m_currentPage = (uint32_t)index;
+        ScrollToCurrentPage(false); // keep the selected thumbnail centered
     }
 }
 
@@ -144,7 +145,7 @@ std::wstring ImageListThumbnailPanel::GetItemLabel(uint32_t index) const {
 
 bool ImageListThumbnailPanel::OnIsLoading() const {
     if (m_panelSide == 3) {
-        const float itemWidth = kBottomItemWidth * g_uiScale + kItemSpacing;
+        const float itemWidth = BottomItemStride();
         const int visibleStart = std::max(0, static_cast<int>(m_scrollX / itemWidth)) - 2;
         const int visibleEnd = std::min(static_cast<int>(m_totalImages),
             static_cast<int>((m_scrollX + m_panelWidth) / itemWidth) + 3);
@@ -173,7 +174,7 @@ void ImageListThumbnailPanel::DrawItems(ID2D1RenderTarget* pRT) {
     if (itemCount == 0) return;
 
     const float itemHeight = kThumbnailTargetHeight * g_uiScale + kPageLabelHeight * g_uiScale + kItemSpacing;
-    const float itemWidthBottom = kBottomItemWidth * g_uiScale + kItemSpacing;
+    const float itemWidthBottom = BottomItemStride();
     const int startPage = m_panelSide == 3
         ? std::max(0, static_cast<int>(m_scrollX / itemWidthBottom) - 1)
         : std::max(0, static_cast<int>(m_scrollY / itemHeight) - 1);
@@ -210,7 +211,10 @@ void ImageListThumbnailPanel::DrawItems(ID2D1RenderTarget* pRT) {
         }
 
         if (pBitmap) {
-            pRT->DrawBitmap(pBitmap, thumbRect, 1.0f,
+            // Letterbox inside the square cell — aspect preserved, no distortion
+            const D2D1_SIZE_F bs = pBitmap->GetSize();
+            const D2D1_RECT_F drawRect = FitRectInside(thumbRect, bs.width, bs.height);
+            pRT->DrawBitmap(pBitmap, drawRect, 1.0f,
                            D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
         } else {
             if (m_brushThumbnailBg) {
@@ -245,7 +249,7 @@ void ImageListThumbnailPanel::OnUpdateThumbnailRequests() {
     if (!m_visible || m_totalImages == 0 || !m_navigator) return;
 
     if (m_panelSide == 3) {
-        const float itemWidth = kBottomItemWidth * g_uiScale + kItemSpacing;
+        const float itemWidth = BottomItemStride();
         const int visibleStart = std::max(0, static_cast<int>(m_scrollX / itemWidth)) - 2;
         const int visibleEnd = std::min(static_cast<int>(m_totalImages),
             static_cast<int>((m_scrollX + m_panelWidth) / itemWidth) + 3);

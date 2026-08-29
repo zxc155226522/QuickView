@@ -38,11 +38,22 @@ public:
 
     // --- Page tracking ---
     [[nodiscard]] uint32_t GetCurrentPage() const { return m_currentPage; }
-    void SetCurrentPage(uint32_t page) { m_currentPage = page; }
+    void SetCurrentPage(uint32_t page) {
+        if (page != m_currentPage) {
+            m_currentPage = page;
+            ScrollToCurrentPage(false); // keep the selected thumbnail centered
+        }
+    }
 
     // --- Panel side control (0=Right, 1=Left, 2=Off, 3=Bottom) ---
     void SetPanelSide(int side) { m_panelSide = side; }
     [[nodiscard]] int GetPanelSide() const { return m_panelSide; }
+
+    // --- User-persisted size (side width / bottom height, from config) ---
+    void SetUserSize(float width, float bottomHeight) {
+        if (width > 0.0f) m_panelWidth = width;
+        if (bottomHeight > 0.0f) m_panelHeightUser = bottomHeight;
+    }
 
     // --- Layout ---
     [[nodiscard]] float GetWidth() const { return m_panelWidth; }
@@ -98,15 +109,16 @@ protected:
     virtual std::wstring GetItemLabel(uint32_t index) const = 0;
     virtual const wchar_t* GetPanelTitle() const = 0;
     virtual D2D1::ColorF GetAccentColor() const = 0;  // Selection border color
+    // Thumbnail cell aspect ratio (width / height). 1.0 = square; PDF pages override to A4 portrait.
+    virtual float GetCellAspect() const { return 1.0f; }
 
     // Shared constants
     static constexpr float kDefaultPanelWidth = 180.0f;
     static constexpr float kMinPanelWidth = 20.0f;
     static constexpr float kMaxPanelWidth = 400.0f;
-    static constexpr float kDefaultPanelHeightBottom = 140.0f;
+    static constexpr float kDefaultPanelHeightBottom = 100.0f;
     static constexpr float kMinPanelHeightBottom = 40.0f;
     static constexpr float kMaxPanelHeightBottom = 400.0f;
-    static constexpr float kBottomItemWidth = 160.0f;
     static constexpr float kItemPadding = 8.0f;
     static constexpr float kItemSpacing = 6.0f;
     static constexpr float kPageLabelHeight = 16.0f;
@@ -117,8 +129,14 @@ protected:
 
     // Layout helpers
     D2D1_RECT_F GetItemRect(uint32_t pageIndex) const;
-    D2D1_RECT_F GetThumbnailRect(const D2D1_RECT_F& itemRect) const;
+    D2D1_RECT_F GetThumbnailRect(const D2D1_RECT_F& itemRect) const;   // square cell
+    static D2D1_RECT_F FitRectInside(const D2D1_RECT_F& box, float w, float h); // contain-fit, no distortion
     void ScrollToCurrentPage(bool instant = false);
+
+    // Bottom-mode adaptive sizing: thumbnails shrink automatically as the bar
+    // is dragged shorter. Stride = thumb width (4:3) + spacing.
+    float BottomThumbHeight() const;
+    float BottomItemStride() const;
 
     // D2D resources (shared)
     ComPtr<ID2D1SolidColorBrush> m_brushBg;
@@ -135,6 +153,7 @@ protected:
 
     HWND m_hwnd = nullptr;
     ID2D1RenderTarget* m_currentRT = nullptr;
+    bool m_brushesThemeLight = false; // Theme palette the current brushes were built for
 
     bool m_visible = false;
     float m_panelWidth = kDefaultPanelWidth;

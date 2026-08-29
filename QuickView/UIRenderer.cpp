@@ -847,7 +847,30 @@ void UIRenderer::RenderStaticLayer(ID2D1DeviceContext* dc, HWND hwnd) {
 
     // Compare Selected Pane Indicator
     DrawComparePaneIndicator(dc, hwnd);
-    
+
+    // [Split Panels] Render thumbnail panels on Static layer.
+    // Drawn BEFORE the toolbar so the floating PDF page-turn bar (which lives
+    // in the toolbar layer, just above it) is never covered by the panels —
+    // e.g. in fullscreen, where panels reserve no toolbar strip.
+    {
+        // [PDF] Re-sync panel rects when the toolbar's reserved height changed
+        // (page-turn bar appearing/disappearing without a WM_SIZE), otherwise a
+        // stale panel rect would sit on top of the page-turn bar strip.
+        const float reservedH = g_toolbar.GetReservedHeight();
+        if (reservedH != m_lastToolbarReservedH) {
+            m_lastToolbarReservedH = reservedH;
+            D2D1_RECT_F fullRect = D2D1::RectF(0.0f, 0.0f, (float)m_width, (float)m_height);
+            if (g_pdfThumbPanel.IsVisible()) g_pdfThumbPanel.UpdateLayout(fullRect);
+            if (g_imageThumbPanel.IsVisible()) g_imageThumbPanel.UpdateLayout(fullRect);
+        }
+    }
+    if (g_pdfThumbPanel.IsVisible()) {
+        g_pdfThumbPanel.Render(dc);
+    }
+    if (g_imageThumbPanel.IsVisible()) {
+        g_imageThumbPanel.Render(dc);
+    }
+
     // Toolbar (Hidden if full grid gallery, settings, or help is open; remains visible for filmstrip)
     if (g_toolbar.IsVisible() && !isAnyOverlayActive) {
         g_toolbar.SetGeekGlassData(m_bgCommandList.Get(), m_compEngine ? m_compEngine->GetScreenTransform() : D2D1::Matrix3x2F::Identity());
@@ -891,15 +914,7 @@ void UIRenderer::RenderStaticLayer(ID2D1DeviceContext* dc, HWND hwnd) {
         g_helpOverlay.Render(dc, (float)m_width, (float)m_height);
     }
     
-    // [Split Panels] Render thumbnail panels on Static layer (before title bar)
-    if (g_pdfThumbPanel.IsVisible()) {
-        g_pdfThumbPanel.Render(dc);
-    }
-    if (g_imageThumbPanel.IsVisible()) {
-        g_imageThumbPanel.Render(dc);
-    }
-
-    // [Topmost Guarantee] Custom title bar strictly drawn at the very end of Static Layer
+    // [Split Panels] rendered before the toolbar (see above); title bar stays topmost
     DrawTitleBar(dc, hwnd);
 }
 
@@ -6317,7 +6332,9 @@ void UIRenderer::DrawNavigator(ID2D1DeviceContext* dc) {
                 vpRect = D2D1::RectF(splitX, 0.0f, (float)m_width, (float)m_height);
             }
         } else {
-            vpRect = D2D1::RectF(0.0f, 0.0f, (float)m_width, (float)m_height);
+            // Same container as the image: navigator stays inside the image
+            // viewport (excludes thumbnail panels / toolbar), never over them
+            vpRect = ComputeImageViewportLayout((float)m_width, (float)m_height).Rect();
         }
         
         const float vpW = vpRect.right - vpRect.left;

@@ -388,4 +388,9 @@ private:
 
     ComPtr<ID2D1CommandList> m_bgCommandList;
     QuickView::UI::GeekGlass::GeekGlassEngine m_geekGlass;
+
+    // [PDF] Last toolbar reserved height seen by the static layer — used to
+    // re-sync thumbnail panel rects when the floating page-turn bar strip
+    // appears/disappears without a WM_SIZE.
+    float m_lastToolbarReservedH = -1.0f;
 };
