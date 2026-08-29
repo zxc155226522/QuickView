@@ -530,44 +530,61 @@ bool SettingsOverlay::RegisterAssociations() {
         }
     }
 
-    // 8c. [旧 ProgID 迁移] 旧版本把 UserChoice 指向通用 ProgID（QuickView.Image /
-    // QuickView.Vector）。UserChoice 优先于 .ext 默认值，这些关联在资源管理器的
-    // 「类型」列/按类型分组里仍显示通用名（"QuickView Image Viewer"），与其他格式
-    // 混淆。检测到这种旧指向时用官方 API 重写为每扩展名 ProgID（Capabilities 已
-    // 映射，写出的哈希合法）——打开行为不变，只是类型名恢复为每格式名称。
+    // 8c. [默认应用接管/迁移] 把每扩展名的 UserChoice 归位到 QuickView.<ext>。
+    // UserChoice 带 Windows 哈希保护（手写 ProgId 无有效 Hash 会被忽略），故分两类：
+    //   * 旧版遗留：UserChoice 指向通用 ProgID（QuickView.Image/QuickView.Vector），
+    //     类型列显示 "QuickView Image Viewer" 等通用名导致分组混淆 → 迁移；
+    //   * 强制接管：UserChoice 属于其他应用（照片/WPS/Edge/浏览器等）且该格式在
+    //     用户「打开关联」勾选范围内 → 接管（用户勾选即表达"QuickView 作为默认"）。
+    // 手段：先试官方 API SetAppAsDefault（在其可用的系统上写合法哈希，设置界面
+    // 显示一致）；实测部分 Win10 19045 上一律 E_FAIL，此时清除 UserChoice——Shell
+    // 回退到 .ext 默认值。仅当 .ext 默认值已指向本扩展名 ProgID 时才动手，保证
+    // 接管后双击仍由 QuickView 打开、类型名显示为每格式名称。纯 HKCU 注册表操作，
+    // 不依赖系统 API，任何电脑行为一致。
     for (std::wstring_view sExt : QuickView::SUPPORTED_EXTENSIONS) {
+        std::wstring extStr(sExt);
+        std::wstring wantProgId = L"QuickView" + extStr;
         std::wstring ucKey = L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\" +
-                             std::wstring(sExt) + L"\\UserChoice";
-        HKEY hUC;
-        if (RegOpenKeyExW(HKEY_CURRENT_USER, ucKey.c_str(), 0, KEY_READ, &hUC) != ERROR_SUCCESS) continue;
+                             extStr + L"\\UserChoice";
+
         wchar_t val[MAX_PATH] = {};
-        DWORD len = sizeof(val), type = 0;
-        bool stale = false;
-        if (RegQueryValueExW(hUC, L"ProgId", NULL, &type, (LPBYTE)val, &len) == ERROR_SUCCESS && type == REG_SZ) {
-            stale = (wcscmp(val, L"QuickView.Image") == 0) || (wcscmp(val, L"QuickView.Vector") == 0);
+        {
+            HKEY hUC;
+            if (RegOpenKeyExW(HKEY_CURRENT_USER, ucKey.c_str(), 0, KEY_READ, &hUC) != ERROR_SUCCESS) continue;
+            DWORD len = sizeof(val), type = 0;
+            if (RegQueryValueExW(hUC, L"ProgId", NULL, &type, (LPBYTE)val, &len) != ERROR_SUCCESS || type != REG_SZ)
+                val[0] = L'\0';
+            RegCloseKey(hUC);
         }
-        RegCloseKey(hUC);
-        if (stale) {
-            // 只有当 .ext 默认值已指向本扩展名的 ProgID 时才清理 UserChoice——
-            // 保证删除后 Shell 回退到的接管者仍是 QuickView，打开行为不变。
-            std::wstring extDef;
-            {
-                HKEY hExt;
-                std::wstring extKeyPath = L"Software\\Classes\\" + std::wstring(sExt);
-                if (RegOpenKeyExW(HKEY_CURRENT_USER, extKeyPath.c_str(), 0, KEY_READ, &hExt) == ERROR_SUCCESS) {
-                    wchar_t defVal[MAX_PATH] = {};
-                    DWORD defLen = sizeof(defVal), defType = 0;
-                    if (RegQueryValueExW(hExt, NULL, NULL, &defType, (LPBYTE)defVal, &defLen) == ERROR_SUCCESS && defType == REG_SZ)
-                        extDef = defVal;
-                    RegCloseKey(hExt);
-                }
+        if (val[0] == L'\0' || QuickView::ExtEqualsIgnoreCase(val, wantProgId)) continue;
+
+        bool isLegacyQuickView = (wcscmp(val, L"QuickView.Image") == 0) ||
+                                 (wcscmp(val, L"QuickView.Vector") == 0);
+        bool inSelected = g_config.FileAssocExts.empty();
+        if (!inSelected) {
+            for (const auto& s : selectedExts)
+                if (QuickView::ExtEqualsIgnoreCase(s, extStr)) { inSelected = true; break; }
+        }
+        if (!isLegacyQuickView && !inSelected) continue; // 未勾选的格式不抢其他应用的默认
+
+        // 只有当 .ext 默认值已指向本扩展名的 ProgID 时才清除 UserChoice——
+        // 保证删除后 Shell 回退到的接管者仍是 QuickView，打开行为不变。
+        std::wstring extDef;
+        {
+            HKEY hExt;
+            std::wstring extKeyPath = L"Software\\Classes\\" + extStr;
+            if (RegOpenKeyExW(HKEY_CURRENT_USER, extKeyPath.c_str(), 0, KEY_READ, &hExt) == ERROR_SUCCESS) {
+                wchar_t defVal[MAX_PATH] = {};
+                DWORD defLen = sizeof(defVal), defType = 0;
+                if (RegQueryValueExW(hExt, NULL, NULL, &defType, (LPBYTE)defVal, &defLen) == ERROR_SUCCESS && defType == REG_SZ)
+                    extDef = defVal;
+                RegCloseKey(hExt);
             }
-            std::wstring wantProgId = L"QuickView" + std::wstring(sExt);
-            if (QuickView::ExtEqualsIgnoreCase(extDef, wantProgId)) {
-                std::wstring ucDelete = L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\" +
-                                        std::wstring(sExt) + L"\\UserChoice";
-                RegDeleteTreeW(HKEY_CURRENT_USER, ucDelete.c_str());
-            }
+        }
+        if (!QuickView::ExtEqualsIgnoreCase(extDef, wantProgId)) continue;
+
+        if (!SetQuickViewAsDefaultForExt(extStr.c_str())) {
+            RegDeleteTreeW(HKEY_CURRENT_USER, ucKey.c_str());
         }
     }
 

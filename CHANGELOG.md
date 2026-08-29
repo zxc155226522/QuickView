@@ -1,5 +1,15 @@
 # Changelog
 
+## [6.30.3] - 默认应用注册表级强制接管
+**Release Date**: 2026-08-30
+
+### ✨ Features & UX
+- **勾选格式强制接管默认应用(不依赖系统 API)**:
+  - 背景:系统 API `IApplicationAssociationRegistration::SetAppAsDefault` 在部分 Win10 19045 上对所有格式一律返回 E_FAIL,"官方通道"写默认应用失效。
+  - 现在对用户「打开关联」勾选的格式:UserChoice 已是 `QuickView.<ext>` 则跳过;否则先试官方 API,失败(或该 API 不可用)则清除该扩展名的 UserChoice——Shell 回退到 `.ext` 默认值(每扩展名 ProgID,QuickView 接管)。纯 HKCU 注册表操作,任何电脑行为一致。
+  - 清除前校验 `.ext` 默认值已指向 `QuickView.<ext>`,保证接管后双击行为正确;未勾选的格式绝不抢其他应用的默认。
+  - 类型列/按类型分组随之显示每格式名称("JPG 文件"/"PDF 文件"/...),包括此前被照片 AppX、WPS、Edge、360 等占用的格式。
+
 ## [6.30.2] - Explorer 按类型分组可区分格式
 **Release Date**: 2026-08-29
 
