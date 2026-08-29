@@ -2,9 +2,10 @@
 // ============================================================================
 // FormatIcons.h — 每格式专属图标资源表（自动生成 by _gen_format_icons.py，勿手改）
 // ============================================================================
-// 每个受支持格式一枚专属文件图标（QuickView logo 底图 + 右下角类别色格式字母章），
-// 图像资源在 QuickView/icons/<ext>.ico，经 QuickView.rc #include "format_icons.rc"
-// 编入 exe（资源 ID 100 起）。关联 ProgID 的 DefaultIcon 以 ",-<ID>" 引用。
+// 每个受支持格式一枚专属文件图标：类别色圆形字母章（白字格式缩写，与缩略图右上角
+// 类型胶囊同一套类别色语义）。图像资源在 QuickView/icons/<ext>.ico，经
+// QuickView.rc #include "format_icons.rc" 编入 exe（资源 ID 100 起）。
+// 关联 ProgID 的 DefaultIcon 以 ",-<ID>" 引用。
 // 格式清单源自 SupportedExtensions.h 四个分段，与 SUPPORTED_EXTENSIONS 一一对应。
 #include "SupportedExtensions.h"
 
