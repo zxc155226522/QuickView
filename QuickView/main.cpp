@@ -7580,7 +7580,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
         if (wParam == TIMER_ID_REGISTRY_CHECK) {
             KillTimer(hwnd, TIMER_ID_REGISTRY_CHECK);
             g_pendingRegistryCheck = false;
-            
+
             if (!g_config.PortableMode) {
                 std::wstring currentVer = SettingsOverlay::GetAppVersion();
                 wchar_t exePath[MAX_PATH];

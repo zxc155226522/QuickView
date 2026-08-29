@@ -86,6 +86,10 @@ constexpr wchar_t ToLowerAscii(wchar_t c) {
     return (c >= L'A' && c <= L'Z') ? static_cast<wchar_t>(c + (L'a' - L'A')) : c;
 }
 
+constexpr wchar_t ToUpperAscii(wchar_t c) {
+    return (c >= L'a' && c <= L'z') ? static_cast<wchar_t>(c - (L'a' - L'A')) : c;
+}
+
 // Case-insensitive compare; both sides are expected to include the dot.
 constexpr bool ExtEqualsIgnoreCase(std::wstring_view a, std::wstring_view b) {
     if (a.size() != b.size()) return false;

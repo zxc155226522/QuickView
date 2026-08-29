@@ -1,5 +1,17 @@
 # Changelog
 
+## [6.30.2] - Explorer 按类型分组可区分格式
+**Release Date**: 2026-08-29
+
+### 🐛 Bug Fixes
+- **资源管理器「类型」列/按类型分组无法区分格式**:
+  - 根因:所有栅格格式共用 `QuickView.Image`、矢量/文档格式共用 `QuickView.Vector`,资源管理器「类型」列读取生效 ProgID 的 FriendlyTypeName,导致整文件夹的文件归组为 "QuickView Image Viewer"/"QuickView Vector Image"。
+  - 修复:为每个扩展名建立独立 ProgID(`QuickView.jpg`/`QuickView.png`/...),各自携带类型名("JPG 文件"/"PNG 文件"/...;同格式别名共用一名,分组时自然归到同一组),见新增 `QuickView/FileTypeNames.h` 对照表。
+  - `.ext` 默认值、Capabilities FileAssociations(进而 UserChoice/默认应用)全部改指每扩展名 ProgID;通用 `QuickView.Image`/`QuickView.Vector` ProgID 保留作为旧 UserChoice 哈希的兜底。
+  - 缩略图不受影响:provider 仍以 `.ext` 级 ShellEx(最高优先级)+ 各 ProgID 级 ShellEx 注册。
+  - `IsRegistrationNeeded()` 补充版本号比对:版本变化即触发重注册,避免新增注册表字段被 Golden Path 跳过。
+  - 旧 UserChoice 迁移:旧版本把部分格式的默认应用 UserChoice 指向通用 ProgID(如实测 `.pdf`/`.ai`/`.ico`),这些文件仍显示 "QuickView Image Viewer"/"QuickView Vector Image"。注册时检测到此类旧指向且 `.ext` 默认值已是每扩展名 ProgID 的,清除旧 UserChoice 让 Shell 回退到新 ProgID(打开行为不变,类型名恢复)。注:系统 API `SetAppAsDefault` 在部分 Windows 10 19045 上已返回 E_FAIL,故采用回退式迁移。
+
 ## [6.23.0] - CDR/CMX Vector Format Support (libcdr Integration)
 **Release Date**: 2026-08-02
 

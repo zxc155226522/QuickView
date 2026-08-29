@@ -25,6 +25,7 @@
 #include "GeekGlass.h"
 #include "GeekIconRenderer.h"
 #include "ThumbnailExts.h"  // 缩略图扩展名单一真相源（与 DLL 共享）
+#include "FileTypeNames.h"  // 每扩展名的资源管理器类型名（按类型分组的区分依据）
 
 // Windows headers
 #pragma comment(lib, "version.lib")
@@ -337,6 +338,23 @@ static LONG SafeRegSetString(HKEY hRoot, const wchar_t* subKey, const wchar_t* v
     return r;
 }
 
+// 为单个扩展名创建/更新独立 ProgID（QuickView.jpg / QuickView.cdr / ...）：
+// 打开命令 + 图标 + 每格式类型名（FriendlyTypeName）。资源管理器的「类型」列与
+// 「分组依据 → 类型」读取生效 ProgID 的 FriendlyTypeName —— 通用 ProgID
+// （QuickView.Image/Vector）只有两份名字，所有格式会归到同一组；每扩展名独立
+// ProgID 携带自己的类型名后才能区分（见 FileTypeNames.h）。缩略图 ShellEx 不在
+// 此处注册（见 RegisterAssociations 的 DLL 块）。
+static void RegisterPerExtProgId(const std::wstring& extStr, const std::wstring& cmd,
+                                 const std::wstring& exePathStr) {
+    std::wstring progId = L"QuickView" + extStr;   // e.g. QuickView.jpg
+    std::wstring base = L"Software\\Classes\\" + progId;
+    std::wstring typeName = QuickView::MakeFriendlyTypeName(extStr);
+    SafeRegSetString(HKEY_CURRENT_USER, (base + L"\\shell\\open\\command").c_str(), NULL, cmd);
+    SafeRegSetString(HKEY_CURRENT_USER, (base + L"\\DefaultIcon").c_str(), NULL, (exePathStr + L",0").c_str());
+    SafeRegSetString(HKEY_CURRENT_USER, base.c_str(), L"FriendlyTypeName", typeName);
+    SafeRegSetString(HKEY_CURRENT_USER, base.c_str(), NULL, typeName); // ProgID 描述 = 类型名
+}
+
 // Register file associations (silent, no MessageBox)
 // [Official Channel] Make QuickView the default app for one file extension via the
 // SAME system API that Windows Settings uses (IApplicationAssociationRegistration::
@@ -368,9 +386,10 @@ bool SettingsOverlay::RegisterAssociations() {
     GetModuleFileNameW(nullptr, exePath, MAX_PATH);
     std::wstring exePathStr = exePath;
 
-    // 矢量/文档格式：为「打开关联」映射专用 ProgID QuickView.Vector（见共享清单
-    // QuickView::kVectorExts）。缩略图覆盖与此无关——所有图像格式统一在 .ext 级
-    // 注册 handler（QuickView::kThumbnailExts），含 raster，以便角标稳定显示。
+    // 矢量/文档格式：为「打开关联」无条件映射每扩展名独立 ProgID QuickView.cdr /
+    // QuickView.svg / ...（见共享清单 QuickView::kVectorExts 与 FileTypeNames.h）。
+    // 缩略图覆盖与此无关——所有图像格式统一在 .ext 级注册 handler
+    // （QuickView::kThumbnailExts），含 raster，以便角标稳定显示。
 
     HKEY hKey;
 
@@ -403,10 +422,9 @@ bool SettingsOverlay::RegisterAssociations() {
     SafeRegSetString(HKEY_CURRENT_USER, L"Software\\Classes\\QuickView.Vector", L"FriendlyTypeName", L"QuickView Vector Image");
 
     // ========================================================================
-    // CRITICAL FIX (2026-08-10): Unconditionally register ALL vector/document
-    // extensions (.ext → QuickView.Vector), regardless of user's "open with"
-    // selection. The .ext → ProgID mapping is the ROOT of the Shell thumbnail
-    // resolution chain:
+    // Unconditionally register ALL vector/document extensions to their per-
+    // extension ProgID, regardless of user's "open with" selection. The
+    // .ext → ProgID mapping is the ROOT of the Shell thumbnail resolution chain:
     //   .svg → (empty) → Shell cannot find ProgID → IThumbnailProvider never
     //   called → no thumbnail in Explorer.
     //
@@ -415,21 +433,22 @@ bool SettingsOverlay::RegisterAssociations() {
     // - Double-click open: only for formats user actually selected
     // ========================================================================
     for (auto vExt : QuickView::kVectorExts) {
-        SafeRegSetString(HKEY_CURRENT_USER, (L"Software\\Classes\\" + std::wstring(vExt)).c_str(), NULL,
-                         L"QuickView.Vector");
+        std::wstring vExtStr(vExt);
+        RegisterPerExtProgId(vExtStr, cmd, exePathStr);
+        SafeRegSetString(HKEY_CURRENT_USER, (L"Software\\Classes\\" + vExtStr).c_str(), NULL,
+                         (L"QuickView" + vExtStr).c_str());
     }
 
-    // 4. For each USER-SELECTED extension: set up open command, OpenWithList,
-    // and override .ext default for raster formats (vector ones already set above).
-    // NOTE: For vector formats already pointing to QuickView.Vector, this re-writes
-    // the same value — harmless but keeps the single-loop logic simple.
+    // 4. For each USER-SELECTED extension: create the per-extension ProgID, set the
+    // .ext default to it (so Explorer's type column / group-by-type shows a
+    // per-format name instead of the generic "QuickView Image Viewer"), and add to
+    // OpenWithList — appears in "Open with" context menu. Vector formats were
+    // already mapped above; re-writing the same values here is harmless and keeps
+    // the single-loop logic simple.
     for (const auto& extStr : selectedExts) {
-        // Clean up old per-extension ProgID registrations from previous versions
-        std::wstring progId = L"QuickView" + extStr;
-        RegDeleteTreeW(HKEY_CURRENT_USER, (L"Software\\Classes\\" + progId).c_str());
-
         // Remove stale OpenWithProgids entries (from older registration scheme)
         HKEY hKey;
+        std::wstring progId = L"QuickView" + extStr;
         std::wstring owpPath = L"Software\\Classes\\" + extStr + L"\\OpenWithProgids";
         if (RegOpenKeyExW(HKEY_CURRENT_USER, owpPath.c_str(), 0, KEY_WRITE, &hKey) == ERROR_SUCCESS) {
             RegDeleteValueW(hKey, progId.c_str());
@@ -437,18 +456,10 @@ bool SettingsOverlay::RegisterAssociations() {
             RegCloseKey(hKey);
         }
 
-        // Set .ext default value. Vector/document formats already set to
-        // QuickView.Vector above; raster formats get QuickView.Image here.
-        bool isVectorThumb = false;
-        for (auto t : QuickView::kVectorExts)
-            if (QuickView::ExtEqualsIgnoreCase(extStr, t)) { isVectorThumb = true; break; }
-        // Only write raster formats (vector ones are unconditionally set above)
-        if (!isVectorThumb) {
-            SafeRegSetString(HKEY_CURRENT_USER, (L"Software\\Classes\\" + extStr).c_str(), NULL,
-                             L"QuickView.Image");
-        }
+        RegisterPerExtProgId(extStr, cmd, exePathStr);
+        SafeRegSetString(HKEY_CURRENT_USER, (L"Software\\Classes\\" + extStr).c_str(), NULL,
+                         progId.c_str());
 
-        // Also add to OpenWithList — appears in "Open with" context menu
         std::wstring owlPath = L"Software\\Classes\\" + extStr + L"\\OpenWithList";
         if (RegCreateKeyExW(HKEY_CURRENT_USER, owlPath.c_str(), 0, NULL, 0, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS) {
             RegSetValueExW(hKey, L"QuickView.exe", 0, REG_SZ, (const BYTE*)L"", sizeof(wchar_t));
@@ -484,17 +495,16 @@ bool SettingsOverlay::RegisterAssociations() {
     std::wstring capKey = L"Software\\QuickView\\Capabilities\\FileAssociations";
     if (RegCreateKeyExW(HKEY_CURRENT_USER, capKey.c_str(), 0, NULL, 0, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS) {
         for (const auto& extStr : selectedExts) {
-            // Map vector/document formats to QuickView.Vector (the ProgID that carries
-            // our thumbnail provider), raster formats to QuickView.Image. This is only
-            // used when the user (or SetAppAsDefault, step 8b) sets QuickView as the
-            // default app via Windows Settings — the ProgID chosen here becomes the
-            // UserChoice target and thus decides which ShellEx serves the thumbnail.
-            bool isVector = false;
-            for (auto t : QuickView::kVectorExts)
-                if (QuickView::ExtEqualsIgnoreCase(extStr, t)) { isVector = true; break; }
-            const wchar_t* pid = isVector ? L"QuickView.Vector" : L"QuickView.Image";
-            RegSetValueExW(hKey, extStr.c_str(), 0, REG_SZ, (const BYTE*)pid,
-                           (DWORD)(sizeof(wchar_t) * (wcslen(pid) + 1)));
+            // Map EVERY format to its per-extension ProgID (QuickView.jpg etc.).
+            // This is used when the user (or SetAppAsDefault, step 8b) sets
+            // QuickView as the default app via Windows Settings — the ProgID chosen
+            // here becomes the UserChoice target, and its FriendlyTypeName is what
+            // Explorer shows in the type column / group-by-type. The generic
+            // QuickView.Image/Vector ProgIDs stay registered above only as a
+            // defensive fallback for stale UserChoice hashes.
+            std::wstring pid = L"QuickView" + extStr;
+            RegSetValueExW(hKey, extStr.c_str(), 0, REG_SZ, (const BYTE*)pid.c_str(),
+                           (DWORD)(sizeof(wchar_t) * (pid.size() + 1)));
         }
         RegCloseKey(hKey);
     }
@@ -517,6 +527,47 @@ bool SettingsOverlay::RegisterAssociations() {
         }
         if (selected) {
             SetQuickViewAsDefaultForExt(std::wstring(vExt).c_str());
+        }
+    }
+
+    // 8c. [旧 ProgID 迁移] 旧版本把 UserChoice 指向通用 ProgID（QuickView.Image /
+    // QuickView.Vector）。UserChoice 优先于 .ext 默认值，这些关联在资源管理器的
+    // 「类型」列/按类型分组里仍显示通用名（"QuickView Image Viewer"），与其他格式
+    // 混淆。检测到这种旧指向时用官方 API 重写为每扩展名 ProgID（Capabilities 已
+    // 映射，写出的哈希合法）——打开行为不变，只是类型名恢复为每格式名称。
+    for (std::wstring_view sExt : QuickView::SUPPORTED_EXTENSIONS) {
+        std::wstring ucKey = L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\" +
+                             std::wstring(sExt) + L"\\UserChoice";
+        HKEY hUC;
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, ucKey.c_str(), 0, KEY_READ, &hUC) != ERROR_SUCCESS) continue;
+        wchar_t val[MAX_PATH] = {};
+        DWORD len = sizeof(val), type = 0;
+        bool stale = false;
+        if (RegQueryValueExW(hUC, L"ProgId", NULL, &type, (LPBYTE)val, &len) == ERROR_SUCCESS && type == REG_SZ) {
+            stale = (wcscmp(val, L"QuickView.Image") == 0) || (wcscmp(val, L"QuickView.Vector") == 0);
+        }
+        RegCloseKey(hUC);
+        if (stale) {
+            // 只有当 .ext 默认值已指向本扩展名的 ProgID 时才清理 UserChoice——
+            // 保证删除后 Shell 回退到的接管者仍是 QuickView，打开行为不变。
+            std::wstring extDef;
+            {
+                HKEY hExt;
+                std::wstring extKeyPath = L"Software\\Classes\\" + std::wstring(sExt);
+                if (RegOpenKeyExW(HKEY_CURRENT_USER, extKeyPath.c_str(), 0, KEY_READ, &hExt) == ERROR_SUCCESS) {
+                    wchar_t defVal[MAX_PATH] = {};
+                    DWORD defLen = sizeof(defVal), defType = 0;
+                    if (RegQueryValueExW(hExt, NULL, NULL, &defType, (LPBYTE)defVal, &defLen) == ERROR_SUCCESS && defType == REG_SZ)
+                        extDef = defVal;
+                    RegCloseKey(hExt);
+                }
+            }
+            std::wstring wantProgId = L"QuickView" + std::wstring(sExt);
+            if (QuickView::ExtEqualsIgnoreCase(extDef, wantProgId)) {
+                std::wstring ucDelete = L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\" +
+                                        std::wstring(sExt) + L"\\UserChoice";
+                RegDeleteTreeW(HKEY_CURRENT_USER, ucDelete.c_str());
+            }
         }
     }
 
@@ -550,6 +601,25 @@ bool SettingsOverlay::RegisterAssociations() {
             SafeRegSetString(HKEY_CURRENT_USER, shellexKeyVec.c_str(), NULL, clsid);
             std::wstring shellexKeyImg = L"Software\\Classes\\QuickView.Image\\ShellEx\\" + std::wstring(thumbnailIID);
             SafeRegSetString(HKEY_CURRENT_USER, shellexKeyImg.c_str(), NULL, clsid);
+
+            // Per-extension ProgIDs (QuickView.jpg / ...): UserChoice written via the
+            // Capabilities mapping (step 6 / step 8b) now targets these, so the
+            // provider must also be reachable through the ProgID chain for them.
+            for (auto tExt : QuickView::kThumbnailExts) {
+                std::wstring tExtStr(tExt);
+                bool isVector = false;
+                for (auto t : QuickView::kVectorExts)
+                    if (QuickView::ExtEqualsIgnoreCase(tExtStr, t)) { isVector = true; break; }
+                bool selected = g_config.FileAssocExts.empty();
+                if (!selected) {
+                    for (const auto& s : selectedExts)
+                        if (QuickView::ExtEqualsIgnoreCase(s, tExtStr)) { selected = true; break; }
+                }
+                if (!isVector && !selected) continue; // ProgID not created for this ext
+                std::wstring shellexKeyProgId = L"Software\\Classes\\QuickView" + tExtStr +
+                                                L"\\ShellEx\\" + std::wstring(thumbnailIID);
+                SafeRegSetString(HKEY_CURRENT_USER, shellexKeyProgId.c_str(), NULL, clsid);
+            }
 
             // [Fix] Extension-level ShellEx: highest-priority override.
             // Shell resolves the thumbnail handler at the .ext level BEFORE
@@ -668,9 +738,15 @@ bool SettingsOverlay::IsRegistrationNeeded() {
     // Check if SupportedTypes exists. If not, we need to register.
     HKEY hKeyTest;
     if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Classes\\Applications\\QuickView.exe\\SupportedTypes", 0, KEY_READ, &hKeyTest) != ERROR_SUCCESS) {
-        return true; 
+        return true;
     }
     RegCloseKey(hKeyTest);
+
+    // 版本不一致也必须重注册：新版本可能新增/修改注册表字段（如每扩展名
+    // ProgID 的类型名），仅凭路径与 SupportedTypes 存在无法感知这些变化。
+    if (SettingsOverlay::GetAppVersion() != g_config.LastRegisteredVersion) {
+        return true;
+    }
 
     return regPath.empty() || (_wcsicmp(regPath.c_str(), currentExe) != 0);
 }
