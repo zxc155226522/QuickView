@@ -5013,36 +5013,13 @@ g_config.AlwaysOnTop = GetPrivateProfileIntW(L"View", L"AlwaysOnTop", 0, iniPath
     g_config.LastRegisteredVersion = bufVer;
     g_config.LastRegisteredPath = bufPath;
 
-    // File association extensions (empty = all, for backward compat with older versions)
+    // File association extensions — 严格按用户勾选，空列表 = 一个都不关联。
+    // [不再自动补充] 旧版在空列表时自动填"全部默认格式"、并在每次加载时把缺失
+    // 的新格式塞回列表——用户取消勾选的格式会被自动关联回来，违背"未勾选不自动
+    // 关联"的原则，均已移除。新格式由用户在 设置 → 打开关联 中手动勾选。
     wchar_t bufAssocExts[2048];
     GetPrivateProfileStringW(L"Registry", L"FileAssocExts", L"", bufAssocExts, 2048, iniPath.c_str());
     g_config.FileAssocExts = bufAssocExts;
-    if (g_config.FileAssocExts.empty()) {
-        // Default: associate all formats EXCEPT .cdr/.cmx (user must opt-in).
-        g_config.FileAssocExts = QuickView::GetDefaultAssocExtensionsString();
-    } else {
-        // [Fix] Upgrade migration: auto-add newly supported extensions that are
-        // missing from the saved INI config, EXCEPT non-default formats (.cdr/.cmx)
-        // which the user must explicitly opt-in via Settings.
-        auto exts = QuickView::SplitAndTrimCSV(g_config.FileAssocExts);
-        bool changed = false;
-        for (const auto& supp : QuickView::SUPPORTED_EXTENSIONS) {
-            if (QuickView::IsNonDefaultAssocExtension(supp)) continue;
-            bool found = false;
-            for (const auto& e : exts) {
-                if (QuickView::ExtEqualsIgnoreCase(e, supp)) { found = true; break; }
-            }
-            if (!found) { exts.emplace_back(supp); changed = true; }
-        }
-        if (changed) {
-            std::wstring merged;
-            for (size_t i = 0; i < exts.size(); ++i) {
-                merged += exts[i];
-                if (i < exts.size() - 1) merged += L",";
-            }
-            g_config.FileAssocExts = merged;
-        }
-    }
 
     // Load Hotkeys
     for (size_t i = 1; i < static_cast<size_t>(HotkeyAction::Count); ++i) {

@@ -220,8 +220,9 @@ inline std::wstring GetAllExtensionsString() {
     return result;
 }
 
-// Extensions that are NOT associated by default (user must opt-in via Settings).
-// These are niche vector/document formats that most users don't want as default.
+// Extensions that historically were NOT auto-associated (cdr/cmx needed opt-in).
+// [语义变更] 现在没有任何格式会被自动关联：FileAssocExts 空列表 = 一个都不关联，
+// 关联完全由用户在 设置 → 打开关联 中勾选决定（未勾选不自动关联）。
 inline constexpr std::array<std::wstring_view, 2> NON_DEFAULT_ASSOC_EXTENSIONS = {
     L".cdr", L".cmx"
 };

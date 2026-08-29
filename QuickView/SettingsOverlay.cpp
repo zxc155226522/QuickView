@@ -453,13 +453,12 @@ static bool ReassertTakeoverForExtImpl(const std::wstring& extStr,
 
 void SettingsOverlay::ReassertDefaultTakeover() {
     if (g_config.PortableMode) return;
-    std::vector<std::wstring> selectedExts;
-    bool allSelected = g_config.FileAssocExts.empty();
-    if (!allSelected) selectedExts = QuickView::SplitAndTrimCSV(g_config.FileAssocExts);
+    // 空列表 = 用户未勾选任何格式 → 不做任何自动关联
+    std::vector<std::wstring> selectedExts = QuickView::SplitAndTrimCSV(g_config.FileAssocExts);
 
     bool changed = false;
     for (std::wstring_view sExt : QuickView::SUPPORTED_EXTENSIONS)
-        changed |= ReassertTakeoverForExtImpl(std::wstring(sExt), selectedExts, allSelected);
+        changed |= ReassertTakeoverForExtImpl(std::wstring(sExt), selectedExts, /*allSelected=*/false);
     if (changed) SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, NULL, NULL);
 }
 
@@ -471,10 +470,9 @@ void SettingsOverlay::ReassertTakeoverForExt(std::wstring_view ext) {
         if (QuickView::ExtEqualsIgnoreCase(ext, s)) { supported = true; break; }
     if (!supported) return;
 
-    bool allSelected = g_config.FileAssocExts.empty();
-    std::vector<std::wstring> selectedExts;
-    if (!allSelected) selectedExts = QuickView::SplitAndTrimCSV(g_config.FileAssocExts);
-    if (ReassertTakeoverForExtImpl(std::wstring(ext), selectedExts, allSelected))
+    // 空列表 = 用户未勾选任何格式 → 不做任何自动关联
+    std::vector<std::wstring> selectedExts = QuickView::SplitAndTrimCSV(g_config.FileAssocExts);
+    if (ReassertTakeoverForExtImpl(std::wstring(ext), selectedExts, /*allSelected=*/false))
         SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, NULL, NULL);
 }
 
@@ -483,23 +481,15 @@ bool SettingsOverlay::RegisterAssociations() {
     GetModuleFileNameW(nullptr, exePath, MAX_PATH);
     std::wstring exePathStr = exePath;
 
-    // 矢量/文档格式：为「打开关联」无条件映射每扩展名独立 ProgID QuickView.cdr /
+    // 矢量/文档格式：仅为「用户勾选」的格式映射每扩展名独立 ProgID QuickView.cdr /
     // QuickView.svg / ...（见共享清单 QuickView::kVectorExts 与 FileTypeNames.h）。
-    // 缩略图覆盖与此无关——所有图像格式统一在 .ext 级注册 handler
-    // （QuickView::kThumbnailExts），含 raster，以便角标稳定显示。
+    // 未勾选的格式绝不自动关联。缩略图覆盖与此无关——所有图像格式统一在 .ext 级
+    // 注册 handler（QuickView::kThumbnailExts），与打开关联解耦。
 
     HKEY hKey;
 
-    // Build the list of extensions to register from user selection.
-    // If FileAssocExts is empty, register all (backward compat).
-    std::vector<std::wstring> selectedExts;
-    if (!g_config.FileAssocExts.empty()) {
-        selectedExts = QuickView::SplitAndTrimCSV(g_config.FileAssocExts);
-    } else {
-        for (const auto& ext : QuickView::SUPPORTED_EXTENSIONS) {
-            selectedExts.emplace_back(ext);
-        }
-    }
+    // 严格按用户勾选注册；空列表 = 一个都不关联（未勾选不自动关联）。
+    std::vector<std::wstring> selectedExts = QuickView::SplitAndTrimCSV(g_config.FileAssocExts);
 
     // 1. Register ProgID command (for QuickView.Image only — used by Capabilities)
     std::wstring cmd = L"\"" + exePathStr + L"\" \"%1\"";
@@ -615,9 +605,9 @@ bool SettingsOverlay::RegisterAssociations() {
     // 8b. [Official Channel] Take over default-app for vector/document formats via the
     // system API (same path as Windows Settings). This writes a VALID UserChoice hash,
     // so WPS/Edge can no longer hijack .svg/.ai/.pdf etc. Respects the user's open-with
-    // selection: only formats they actually chose (or all when none selected).
+    // selection: only formats they actually chose (空列表 = 一个都不接管).
     for (auto vExt : QuickView::kVectorExts) {
-        bool selected = g_config.FileAssocExts.empty();
+        bool selected = false;
         if (!selected) {
             for (const auto& s : selectedExts)
                 if (QuickView::ExtEqualsIgnoreCase(s, vExt)) { selected = true; break; }
@@ -670,7 +660,7 @@ bool SettingsOverlay::RegisterAssociations() {
                 bool isVector = false;
                 for (auto t : QuickView::kVectorExts)
                     if (QuickView::ExtEqualsIgnoreCase(tExtStr, t)) { isVector = true; break; }
-                bool selected = g_config.FileAssocExts.empty();
+                bool selected = false;
                 if (!selected) {
                     for (const auto& s : selectedExts)
                         if (QuickView::ExtEqualsIgnoreCase(s, tExtStr)) { selected = true; break; }
