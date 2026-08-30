@@ -136,3 +136,7 @@ QuickView.Vector
 
 # resvg cargo 源码（可重新 clone，体积巨大）；预编译库在 third_party/resvg/lib（由 *.lib 规则忽略）
 third_party/resvg_src/
+
+# Crash dumps & session data (too large / local only)
+_dumps/
+.zcode/
