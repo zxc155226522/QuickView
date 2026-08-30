@@ -1,5 +1,13 @@
 # Changelog
 
+## [6.30.9] - 图标资源 ID 迁移至 200 起（规避 Explorer 图标缓存残留）
+**Release Date**: 2026-08-30
+
+### 🐛 Bug Fixes
+- **修复：部分文件右下角仍显示旧版"logo+字母章"图标**:
+  - 根因：6.30.6 旧图标被 Explorer 图标缓存（iconcache_*.db）留住——`iconcache_*.db` 即使杀掉 Explorer 也常被系统进程占用而无法删除；而图标注册位置（`DefaultIcon = "exe,-<ID>"`）在 6.30.6→6.30.8 间从未变化，缓存键不变导致 Explorer 永不重新提取。
+  - 修复：全部格式图标资源 ID 从 100–169 迁移到 200–269，注册表 DefaultIcon 随版本全量重注册刷新为 `",-2xx"`——缓存键改变，Explorer 强制重新提取新图标。此后任何旧版本升级到本版都会自动拿到正确的圆形字母章图标。
+
 ## [6.30.8] - 文件类型覆盖图标（IconHandler 动态字母章）
 **Release Date**: 2026-08-30
 
