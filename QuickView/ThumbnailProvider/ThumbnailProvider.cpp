@@ -567,6 +567,49 @@ namespace {
         return bmp;
     }
 
+    // 预渲染单枚右下角格式章：类别色圆形 + 细白描边 + 白字完整扩展名（放不下自动
+    // 缩字号）。与右上角类型胶囊同一套类别色/字形语义，每格式不同；白描边保证在
+    // 任意颜色的图片上都清晰可辨。
+    Gdiplus::Bitmap* CreateFormatChipBmp(const std::wstring& extUpper, float d) {
+        Gdiplus::Bitmap* bmp = new Gdiplus::Bitmap((INT)std::ceil(d), (INT)std::ceil(d), PixelFormat32bppARGB);
+        Gdiplus::Graphics g(bmp);
+        g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+        g.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
+        g.Clear(Gdiplus::Color(0, 0, 0, 0));
+
+        Gdiplus::Color base = BadgeColorForGdi(extUpper);
+        const float inset = d * 0.05f;          // 白描边外扩余量，避免圆贴边裁切
+        const float dia = d - inset * 2.0f;
+        Gdiplus::SolidBrush brushFill(Gdiplus::Color(246, base.GetR(), base.GetG(), base.GetB()));
+        Gdiplus::Pen penWhite(Gdiplus::Color(255, 255, 255, 255), d * 0.05f);
+        g.FillEllipse(&brushFill, inset, inset, dia, dia);
+        g.DrawEllipse(&penWhite, inset, inset, dia, dia);
+
+        Gdiplus::StringFormat sf;
+        sf.SetAlignment(Gdiplus::StringAlignmentCenter);
+        sf.SetLineAlignment(Gdiplus::StringAlignmentCenter);
+        Gdiplus::Bitmap dummy(1, 1, PixelFormat32bppARGB);
+        Gdiplus::Graphics gdummy(&dummy);
+        gdummy.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
+        float fontSize = dia * 0.52f;
+        Gdiplus::RectF layout(0, 0, 10000, 10000);
+        Gdiplus::RectF bound;
+        Gdiplus::Font* font = nullptr;
+        for (;;) {
+            delete font;
+            font = new Gdiplus::Font(L"Segoe UI", fontSize, Gdiplus::FontStyleBold);
+            gdummy.MeasureString(extUpper.c_str(), (INT)extUpper.length(), font, layout, &sf, &bound);
+            if (bound.Width <= dia * 0.80f && bound.Height <= dia * 0.58f) break;
+            fontSize *= 0.9f;
+            if (fontSize < d * 0.16f) break;
+        }
+        Gdiplus::SolidBrush brushText(Gdiplus::Color(255, 255, 255, 255));
+        g.DrawString(extUpper.c_str(), (INT)extUpper.length(), font,
+                     Gdiplus::RectF(inset, inset, dia, dia), &sf, &brushText);
+        delete font;
+        return bmp;
+    }
+
     // 创建 cx×cx 透明 DIB-section HBITMAP（top-down 32bpp ARGB，像素未清零）。
     HBITMAP CreateSquareDib(int cx) {
         BITMAPINFO bi = {};
@@ -583,7 +626,8 @@ namespace {
         return h;
     }
 
-    // 预渲染一枚方块画框：透明底 + 右上角完整圆形类型徽章。缓存复用。
+    // 预渲染一枚方块画框：透明底 + 右上角完整圆形类型徽章 + 右下角悬浮格式章。
+    // 缓存复用。
     Gdiplus::Bitmap* CreateSquareFrameBmp(const std::wstring& extUpper, int cx) {
         Gdiplus::Bitmap* frame = new Gdiplus::Bitmap(cx, cx, PixelFormat32bppARGB);
         Gdiplus::Graphics g(frame);
@@ -602,6 +646,18 @@ namespace {
             const float y = kPad;
             g.DrawImage(badge, x, y, d, d);
             delete badge;
+        }
+
+        // 右下角悬浮格式章（与右上角胶囊同款配色/字形，每格式不同）：占画布 24%、
+        // 距边 4%，细白描边保证任意图片上清晰；随缩略图一起生成，不受 Explorer
+        // 图标缓存污染。
+        const float kChip = (float)cx * 0.24f;
+        const float kChipPad = (float)cx * 0.04f;
+        Gdiplus::Bitmap* chip = CreateFormatChipBmp(extUpper, kChip);
+        if (chip) {
+            g.DrawImage(chip, (float)cx - kChip - kChipPad, (float)cx - kChip - kChipPad,
+                        kChip, kChip);
+            delete chip;
         }
         return frame;
     }
