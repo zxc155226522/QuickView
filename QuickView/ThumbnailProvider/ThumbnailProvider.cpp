@@ -591,9 +591,10 @@ namespace {
         g.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
         g.Clear(Gdiplus::Color(0, 0, 0, 0)); // 透明底
 
-        // 圆形半径占画布 13%，圆心内移 pad=cx*5% 保证圆完整不裁切；扩展名始终完整显示（放不下自动缩字号）。
-        const float kRadius = (float)cx * 0.13f;
-        const float kPad = (float)cx * 0.05f;
+        // 圆形直径占画布 38%（加大以保证小图下也能辨认格式），圆心内移 pad=cx*4%
+        // 保证圆完整不裁切；扩展名始终完整显示（放不下自动缩字号）。
+        const float kRadius = (float)cx * 0.19f;
+        const float kPad = (float)cx * 0.04f;
         const float d = kRadius * 2.0f; // 圆直径
         Gdiplus::Bitmap* badge = CreateBadgeBmp(extUpper, d);
         if (badge) {
