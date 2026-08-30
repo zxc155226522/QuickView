@@ -8,6 +8,8 @@ $ErrorActionPreference = 'SilentlyContinue'
 
 $clsid     = "{4F8C2A6E-3B5D-4E7F-9A1C-2D3E4F5A6B7C}"
 $thumbIID  = "{E357FCCD-A995-4576-B01F-234630154E96}"
+$iconClsid = "{DAA561A2-0EEA-478F-9C2E-DBC41B59056B}"
+$iconIID   = "{00021401-0000-0000-C000-000000000046}"   # IconHandler (IExtractIconW)
 $dllPath   = "E:\项目\看图软件\out\build\Release-LTO\QuickViewThumbnailProvider.dll"
 
 # 70 browsable image extensions (SupportedExtensions.h minus archive segments)
@@ -58,6 +60,28 @@ foreach ($ext in $exts) {
     $ok++
 }
 Write-Host ("Registered .ext ShellEx for " + $ok + " extensions")
+
+# --- Icon handler (file-type overlay icon, IExtractIconW): same pipeline ---
+$hkcuIcon = ("HKCU:\Software\Classes\CLSID\" + $iconClsid)
+New-Item -Path $hkcuIcon -Force | Out-Null
+New-Item -Path ($hkcuIcon + "\InprocServer32") -Force | Out-Null
+Set-ItemProperty -Path ($hkcuIcon + "\InprocServer32") -Name "(default)" -Value $dllPath
+Set-ItemProperty -Path ($hkcuIcon + "\InprocServer32") -Name "ThreadingModel" -Value "Apartment"
+Write-Host ("Icon CLSID InprocServer32 -> " + $dllPath)
+
+foreach ($p in @("QuickView.Image", "QuickView.Vector")) {
+    $pk = ("HKCU:\Software\Classes\" + $p + "\ShellEx\" + $iconIID)
+    New-Item -Path $pk -Force | Out-Null
+    Set-ItemProperty -Path $pk -Name "(default)" -Value $iconClsid
+}
+$okI = 0
+foreach ($ext in $exts) {
+    $ek = ("HKCU:\Software\Classes\" + $ext + "\ShellEx\" + $iconIID)
+    New-Item -Path $ek -Force | Out-Null
+    Set-ItemProperty -Path $ek -Name "(default)" -Value $iconClsid
+    $okI++
+}
+Write-Host ("Registered IconHandler .ext ShellEx for " + $okI + " extensions")
 
 # --- Clear thumbnail cache + restart Explorer (only if it was running) ---
 $wasRunning = Get-Process -Name explorer -ErrorAction SilentlyContinue

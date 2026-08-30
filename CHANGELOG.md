@@ -1,5 +1,14 @@
 # Changelog
 
+## [6.30.8] - 文件类型覆盖图标（IconHandler 动态字母章）
+**Release Date**: 2026-08-30
+
+### ✨ Features & UX
+- **IconHandler（IExtractIconW）文件类型覆盖图标**:
+  - 缩略图 DLL 新增第二个 COM 类（CLSID `{DAA561A2-0EEA-478F-9C2E-DBC41B59056B}`，注册于各 ProgID 与 `.ext` 级 `ShellEx\{00021401-…}`）：Explorer 显示"图标"（列表/详细信息/小图标/无缩略图场景）时**实时按扩展名合成**类别色圆形字母章，与静态 DefaultIcon/缩略图右上角胶囊同一套类别色语义。
+  - 与缩略图 provider 同一套注册管道：`SettingsOverlay::RegisterAssociations`、DLL 自注册 `DllRegisterServer`、`QuickView缩略图重注册.ps1` 三处同步；反注册三处同步清理。
+  - 视觉与静态图标一致，但实现动态化——以后调整章样式无需重新编译 exe 图标资源；缩略图显示完全不受影响。
+
 ## [6.30.7] - 文件图标改为纯圆形字母章（去 logo 底图）
 **Release Date**: 2026-08-30
 

@@ -340,6 +340,9 @@ static LONG SafeRegSetString(HKEY hRoot, const wchar_t* subKey, const wchar_t* v
     return r;
 }
 
+// IconHandler 的 ShellEx 类别 GUID（文件类型覆盖图标，IExtractIconW）
+static const wchar_t kIconHandlerIIDShell[] = L"{00021401-0000-0000-C000-000000000046}";
+
 // 为单个扩展名创建/更新独立 ProgID（QuickView.jpg / QuickView.cdr / ...）：
 // 打开命令 + 图标 + 每格式类型名（FriendlyTypeName）。资源管理器的「类型」列与
 // 「分组依据 → 类型」读取生效 ProgID 的 FriendlyTypeName —— 通用 ProgID
@@ -691,6 +694,44 @@ bool SettingsOverlay::RegisterAssociations() {
                                               L"\\ShellEx\\" + std::wstring(thumbnailIID);
                 SafeRegSetString(HKEY_CURRENT_USER, shellexKeyExt.c_str(), NULL, clsid);
             }
+
+            // ------------------------------------------------------------------
+            // 文件类型覆盖图标（IconHandler / IExtractIconW）：与缩略图 provider
+            // 同一套注册管道（CLSID + ProgID 级 + .ext 级），Explorer 显示"图标"
+            // （列表/详细信息/小图标/无缩略图场景）时按扩展名动态合成类别色圆形
+            // 字母章。与静态 DefaultIcon 视觉一致；缩略图显示不受影响。
+            // ------------------------------------------------------------------
+            const wchar_t* iconClsid = L"{DAA561A2-0EEA-478F-9C2E-DBC41B59056B}";
+            std::wstring iconClsidKey = L"Software\\Classes\\CLSID\\" + std::wstring(iconClsid);
+            SafeRegSetString(HKEY_CURRENT_USER, iconClsidKey.c_str(), NULL, L"QuickView Icon Provider");
+            std::wstring iconInprocKey = iconClsidKey + L"\\InprocServer32";
+            SafeRegSetString(HKEY_CURRENT_USER, iconInprocKey.c_str(), NULL, dllPath);
+            SafeRegSetString(HKEY_CURRENT_USER, iconInprocKey.c_str(), L"ThreadingModel", L"Apartment");
+
+            std::wstring iconShellexVec = L"Software\\Classes\\QuickView.Vector\\ShellEx\\" + std::wstring(kIconHandlerIIDShell);
+            SafeRegSetString(HKEY_CURRENT_USER, iconShellexVec.c_str(), NULL, iconClsid);
+            std::wstring iconShellexImg = L"Software\\Classes\\QuickView.Image\\ShellEx\\" + std::wstring(kIconHandlerIIDShell);
+            SafeRegSetString(HKEY_CURRENT_USER, iconShellexImg.c_str(), NULL, iconClsid);
+            for (auto tExt : QuickView::kThumbnailExts) {
+                std::wstring tExtStr(tExt);
+                bool isVector = false;
+                for (auto t : QuickView::kVectorExts)
+                    if (QuickView::ExtEqualsIgnoreCase(tExtStr, t)) { isVector = true; break; }
+                bool selected = false;
+                if (!selected) {
+                    for (const auto& s : selectedExts)
+                        if (QuickView::ExtEqualsIgnoreCase(s, tExtStr)) { selected = true; break; }
+                }
+                if (!isVector && !selected) continue; // ProgID not created for this ext
+                std::wstring iconKeyProgId = L"Software\\Classes\\QuickView" + tExtStr +
+                                              L"\\ShellEx\\" + std::wstring(kIconHandlerIIDShell);
+                SafeRegSetString(HKEY_CURRENT_USER, iconKeyProgId.c_str(), NULL, iconClsid);
+            }
+            for (auto vExt : QuickView::kThumbnailExts) {
+                std::wstring iconKeyExt = L"Software\\Classes\\" + std::wstring(vExt) +
+                                           L"\\ShellEx\\" + std::wstring(kIconHandlerIIDShell);
+                SafeRegSetString(HKEY_CURRENT_USER, iconKeyExt.c_str(), NULL, iconClsid);
+            }
         }
     }
 
@@ -775,6 +816,9 @@ void SettingsOverlay::UnregisterAssociations() {
     // Delete Thumbnail Provider COM DLL registration
     RegDeleteTreeW(HKEY_CURRENT_USER,
                    L"Software\\Classes\\CLSID\\{4F8C2A6E-3B5D-4E7F-9A1C-2D3E4F5A6B7C}");
+    // Delete Icon Provider（文件类型覆盖图标）COM 注册
+    RegDeleteTreeW(HKEY_CURRENT_USER,
+                   L"Software\\Classes\\CLSID\\{DAA561A2-0EEA-478F-9C2E-DBC41B59056B}");
     {
         const wchar_t* thumbnailIID = L"{E357FCCD-A995-4576-B01F-234630154E96}";
         // Clean .ext-level ShellEx for every image format (mirror of RegisterAssociations).
@@ -782,6 +826,8 @@ void SettingsOverlay::UnregisterAssociations() {
             std::wstring extStr(ext);
             std::wstring shellexKey = L"Software\\Classes\\" + extStr + L"\\ShellEx\\" + thumbnailIID;
             RegDeleteTreeW(HKEY_CURRENT_USER, shellexKey.c_str());
+            std::wstring iconShellexKey = L"Software\\Classes\\" + extStr + L"\\ShellEx\\" + kIconHandlerIIDShell;
+            RegDeleteTreeW(HKEY_CURRENT_USER, iconShellexKey.c_str());
         }
     }
 

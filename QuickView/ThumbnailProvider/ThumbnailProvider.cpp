@@ -109,6 +109,16 @@ public:
 DEFINE_GUID(CLSID_QuickViewThumbnailProvider,
     0x4F8C2A6E, 0x3B5D, 0x4E7F, 0x9A, 0x1C, 0x2D, 0x3E, 0x4F, 0x5A, 0x6B, 0x7C);
 
+// ============================================================================
+// CLSID — 文件类型覆盖图标（IconHandler, IExtractIconW）
+// {DAA561A2-0EEA-478F-9C2E-DBC41B59056B}
+// ============================================================================
+DEFINE_GUID(CLSID_QuickViewIconProvider,
+    0xDAA561A2, 0x0EEA, 0x478F, 0x9C, 0x2E, 0xDB, 0xC4, 0x1B, 0x59, 0x05, 0x6B);
+
+// IconHandler 的 ShellEx 类别 GUID（IExtractIconW）
+static const wchar_t kIconHandlerIID[] = L"{00021401-0000-0000-C000-000000000046}";
+
 // All extensions handled by this provider are defined once in ThumbnailExts.h
 // (derived from SupportedExtensions) and shared with SettingsOverlay, so the DLL
 // self-register and the app's RegisterAssociations can never drift apart.
@@ -966,11 +976,134 @@ private:
 };
 
 // ============================================================================
+// CIconProvider — 文件类型覆盖图标（IconHandler: IPersistFile + IExtractIconW）
+// Explorer 显示"图标"（列表/详细信息/小图标/无缩略图场景）时经 ShellEx
+// {00021401-0000-0000-C000-000000000046} 调用本类，按文件扩展名实时合成
+// 类别色圆形字母章（与静态文件图标/缩略图右上角胶囊同一套类别色语义）。
+// 不影响缩略图（IThumbnailProvider 优先）。
+// ============================================================================
+class CIconProvider : public IPersistFile, public IExtractIconW {
+public:
+    CIconProvider() : m_cRef(1) { InterlockedIncrement(&g_cRefModule); }
+    virtual ~CIconProvider() { InterlockedDecrement(&g_cRefModule); }
+
+    // IUnknown
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override {
+        if (!ppv) return E_POINTER;
+        *ppv = nullptr;
+        if (riid == __uuidof(IUnknown) || riid == __uuidof(IPersistFile))
+            *ppv = static_cast<IPersistFile*>(this);
+        else if (riid == __uuidof(IExtractIconW))
+            *ppv = static_cast<IExtractIconW*>(this);
+        else
+            return E_NOINTERFACE;
+        AddRef();
+        return S_OK;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&m_cRef); }
+    ULONG STDMETHODCALLTYPE Release() override {
+        ULONG c = InterlockedDecrement(&m_cRef);
+        if (c == 0) delete this;
+        return c;
+    }
+
+    // IPersist（IPersistFile 的基接口）
+    HRESULT STDMETHODCALLTYPE GetClassID(CLSID* pClassID) override {
+        if (!pClassID) return E_POINTER;
+        *pClassID = CLSID_QuickViewIconProvider;
+        return S_OK;
+    }
+
+    // IPersistFile
+    HRESULT STDMETHODCALLTYPE IsDirty() override { return S_FALSE; }
+    HRESULT STDMETHODCALLTYPE Load(LPCWSTR pszFileName, DWORD) override {
+        m_path = pszFileName ? pszFileName : L"";
+        DbgLog((L"IconProvider::Load " + m_path).c_str());
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE Save(LPCWSTR, BOOL) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE SaveCompleted(LPCWSTR) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE GetCurFile(LPWSTR*) override { return E_NOTIMPL; }
+
+    // IExtractIconW：返回 GIL_NOTFILENAME，让 Shell 调 Extract() 动态合成
+    HRESULT STDMETHODCALLTYPE GetIconLocation(UINT, LPWSTR szIconFile, UINT cch,
+                                              int* piIndex, UINT* pwFlags) override {
+        if (!piIndex || !pwFlags || !szIconFile || cch == 0) return E_POINTER;
+        lstrcpynW(szIconFile, L"QV", cch);
+        *piIndex = 0;
+        *pwFlags = GIL_NOTFILENAME;
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE Extract(LPCWSTR, UINT, HICON* phiconLarge, HICON* phiconSmall,
+                                      UINT nIconSize) override {
+        if (!phiconLarge && !phiconSmall) return E_POINTER;
+        if (phiconLarge) *phiconLarge = nullptr;
+        if (phiconSmall) *phiconSmall = nullptr;
+        EnsureGdiplus();
+        const std::wstring ext = ExtUpperOf(m_path);
+        if (phiconLarge) {
+            const UINT sz = LOWORD(nIconSize);
+            *phiconLarge = CreateCapsuleIcon(ext, sz ? sz : 32);
+        }
+        if (phiconSmall) {
+            const UINT sz = HIWORD(nIconSize);
+            *phiconSmall = CreateCapsuleIcon(ext, sz ? sz : 16);
+        }
+        if (phiconLarge && !*phiconLarge) *phiconLarge = nullptr;
+        return (*phiconLarge || *phiconSmall) ? S_OK : E_FAIL;
+    }
+
+private:
+    static std::wstring ExtUpperOf(const std::wstring& p) {
+        size_t dot = p.find_last_of(L'.');
+        if (dot == std::wstring::npos || dot + 1 >= p.size()) return L"";
+        std::wstring e = p.substr(dot + 1);
+        for (auto& c : e) c = (wchar_t)std::towupper((wint_t)c);
+        return e;
+    }
+
+    // 合成类别色圆形字母章 HICON（复用缩略图胶囊的绘制：BadgeColorForGdi + CreateBadgeBmp）
+    static HICON CreateCapsuleIcon(const std::wstring& extUpper, UINT size) {
+        if (size == 0 || size > 1024) size = 32;
+        Gdiplus::Bitmap* badge = CreateBadgeBmp(extUpper, (float)size);
+        if (!badge) return nullptr;
+        HBITMAP hColor = nullptr;
+        Gdiplus::Status st = badge->GetHBITMAP(Gdiplus::Color(0, 0, 0, 0), &hColor);
+        delete badge;
+        if (st != Gdiplus::Ok || !hColor) return nullptr;
+
+        // 全 0 单色掩码 = 整体不透明，颜色位图的 alpha 通道生效
+        HBITMAP hMask = CreateBitmap(size, size, 1, 1, nullptr);
+        if (hMask) {
+            HDC hdcMem = CreateCompatibleDC(nullptr);
+            if (hdcMem) {
+                HGDIOBJ old = SelectObject(hdcMem, hMask);
+                PatBlt(hdcMem, 0, 0, size, size, BLACKNESS);
+                SelectObject(hdcMem, old);
+                DeleteDC(hdcMem);
+            }
+        }
+        ICONINFO ii = {};
+        ii.fIcon = TRUE;
+        ii.hbmMask = hMask;
+        ii.hbmColor = hColor;
+        HICON hIcon = CreateIconIndirect(&ii);
+        if (hMask) DeleteObject(hMask);
+        DeleteObject(hColor);
+        return hIcon;
+    }
+
+    LONG m_cRef;
+    std::wstring m_path;
+};
+
+// ============================================================================
 // ClassFactory
 // ============================================================================
 class CClassFactory : public IClassFactory {
 public:
-    CClassFactory() : m_cRef(1) {}
+    explicit CClassFactory(bool iconProvider) : m_cRef(1), m_iconProvider(iconProvider) {}
     virtual ~CClassFactory() = default;
 
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override {
@@ -996,11 +1129,21 @@ public:
         if (!ppv) return E_POINTER;
         *ppv = nullptr;
         if (pUnk) { DbgLog(L"  -> CLASS_E_NOAGGREGATION"); return CLASS_E_NOAGGREGATION; }
-        auto* p = new CThumbnailProvider();
-        HRESULT hr = p->QueryInterface(riid, ppv);
-        DbgLog((std::wstring(L"  TP QI -> 0x") +
-                std::to_wstring((unsigned)(hr & 0xFFFFFFFF))).c_str());
-        p->Release();
+        // 多继承下直接 static_cast<IUnknown*> 有二义性，经具体接口指针调 QueryInterface
+        HRESULT hr = E_FAIL;
+        if (m_iconProvider) {
+            IPersistFile* p = new CIconProvider();
+            hr = p->QueryInterface(riid, ppv);
+            DbgLog((std::wstring(L"  Icon QI -> 0x") +
+                    std::to_wstring((unsigned)(hr & 0xFFFFFFFF))).c_str());
+            p->Release();
+        } else {
+            IInitializeWithFile* p = new CThumbnailProvider();
+            hr = p->QueryInterface(riid, ppv);
+            DbgLog((std::wstring(L"  TP QI -> 0x") +
+                    std::to_wstring((unsigned)(hr & 0xFFFFFFFF))).c_str());
+            p->Release();
+        }
         return hr;
     }
     HRESULT STDMETHODCALLTYPE LockServer(BOOL fLock) override {
@@ -1010,6 +1153,7 @@ public:
     }
 private:
     LONG m_cRef;
+    bool m_iconProvider;
 };
 
 // ============================================================================
@@ -1035,11 +1179,17 @@ extern "C" HRESULT __stdcall DllGetClassObject(REFCLSID rclsid, REFIID riid, voi
             L" riid=" + riidStr).c_str());
     if (!ppv) return E_POINTER;
     *ppv = nullptr;
+    if (rclsid == CLSID_QuickViewIconProvider) {
+        auto* p = new CClassFactory(/*iconProvider=*/true);
+        HRESULT hr = p->QueryInterface(riid, ppv);
+        p->Release();
+        return hr;
+    }
     if (rclsid != CLSID_QuickViewThumbnailProvider) {
         DbgLog(L"  -> CLASS_E_CLASSNOTAVAILABLE");
         return CLASS_E_CLASSNOTAVAILABLE;
     }
-    auto* p = new CClassFactory();
+    auto* p = new CClassFactory(false);
     HRESULT hr = p->QueryInterface(riid, ppv);
     wchar_t hrbuf[32];
     wsprintfW(hrbuf, L"  CF QI -> 0x%08X", (unsigned)(hr & 0xFFFFFFFF));
@@ -1076,16 +1226,38 @@ extern "C" HRESULT __stdcall DllRegisterServer() {
         RegCreateKeyExW(HKEY_CURRENT_USER, key.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr);
         if (hKey) { RegSetValueExW(hKey, nullptr, 0, REG_SZ, (const BYTE*)clsid, (DWORD)((wcslen(clsid)+1)*sizeof(wchar_t))); RegCloseKey(hKey); }
     }
+
+    // 文件类型覆盖图标（IconHandler）：每个扩展名 .ext 级 ShellEx 最高优先级，
+    // Explorer 显示图标时按扩展名动态合成类别色圆形字母章。
+    const wchar_t* iconClsid = L"{DAA561A2-0EEA-478F-9C2E-DBC41B59056B}";
+    std::wstring iconClsidKey = L"Software\\Classes\\CLSID\\" + std::wstring(iconClsid);
+    RegCreateKeyExW(HKEY_CURRENT_USER, iconClsidKey.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr);
+    if (hKey) { RegSetValueExW(hKey, nullptr, 0, REG_SZ, (const BYTE*)L"QuickView Icon", sizeof(L"QuickView Icon")); RegCloseKey(hKey); }
+    std::wstring iconInprocKey = iconClsidKey + L"\\InprocServer32";
+    RegCreateKeyExW(HKEY_CURRENT_USER, iconInprocKey.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr);
+    if (hKey) {
+        RegSetValueExW(hKey, nullptr, 0, REG_SZ, (const BYTE*)dllPath, (DWORD)((wcslen(dllPath)+1)*sizeof(wchar_t)));
+        RegSetValueExW(hKey, L"ThreadingModel", 0, REG_SZ, (const BYTE*)L"Apartment", sizeof(L"Apartment"));
+        RegCloseKey(hKey);
+    }
+    for (auto ext : QuickView::kThumbnailExts) {
+        std::wstring key = L"Software\\Classes\\" + std::wstring(ext) + L"\\ShellEx\\" + kIconHandlerIID;
+        RegCreateKeyExW(HKEY_CURRENT_USER, key.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr);
+        if (hKey) { RegSetValueExW(hKey, nullptr, 0, REG_SZ, (const BYTE*)iconClsid, (DWORD)((wcslen(iconClsid)+1)*sizeof(wchar_t))); RegCloseKey(hKey); }
+    }
     SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
     return S_OK;
 }
 
 extern "C" HRESULT __stdcall DllUnregisterServer() {
     RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Classes\\CLSID\\{4F8C2A6E-3B5D-4E7F-9A1C-2D3E4F5A6B7C}");
+    RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Classes\\CLSID\\{DAA561A2-0EEA-478F-9C2E-DBC41B59056B}");
     const wchar_t* thumbIID = L"{E357FCCD-A995-4576-B01F-234630154E96}";
     for (auto ext : QuickView::kThumbnailExts) {
         std::wstring key = L"Software\\Classes\\" + std::wstring(ext) + L"\\ShellEx\\" + thumbIID;
         RegDeleteTreeW(HKEY_CURRENT_USER, key.c_str());
+        std::wstring iconKey = L"Software\\Classes\\" + std::wstring(ext) + L"\\ShellEx\\" + kIconHandlerIID;
+        RegDeleteTreeW(HKEY_CURRENT_USER, iconKey.c_str());
     }
     SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
     return S_OK;
