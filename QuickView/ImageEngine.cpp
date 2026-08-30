@@ -585,21 +585,11 @@ void ImageEngine::DispatchImageLoad(const std::wstring& path, ImageID imageId, u
     // the frame never reaches the main view -> infinite loading spinner.
     // Force in-process FastLane for these vector formats, overriding any prior
     // TypeA/TypeB classification that would send them to HeavyLane.
-    // [v6.30.13] DXF/DWG 例外: LibreDWG 解析大文件可达数秒, 进程内 FastLane 在
-    // UI 线程执行会冻结界面且无法显示加载动画。HeavyLane worker 已支持 SVG_XML
-    // 帧的完整传输与主视图渲染(HeavyLanePool WorkerLoop 的 IsSvg 分支), 其
-    // LoadToFrameFromMemory 对 DXF/DWG 返回 E_NOTIMPL 后自动回退文件路径加载。
-    // CDR/CMX/PLT/SVG 解析很快, 维持 FastLane 不变。
     if (fmtUpper == L"CDR" || fmtUpper == L"CMX" || fmtUpper == L"PLT" ||
-        fmtUpper == L"SVG") {
+        fmtUpper == L"DXF" || fmtUpper == L"DWG" || fmtUpper == L"SVG") {
         useFastLane = true;
         useHeavy = false;
         QV_LOG("Dispatch_Route", TraceLoggingString("VectorForceFastLane", "Action"),
-               TraceLoggingWideString(fmtUpper.c_str(), "Format"));
-    } else if (fmtUpper == L"DXF" || fmtUpper == L"DWG") {
-        useFastLane = false;
-        useHeavy = true;
-        QV_LOG("Dispatch_Route", TraceLoggingString("VectorHeavyLane", "Action"),
                TraceLoggingWideString(fmtUpper.c_str(), "Format"));
     }
 
