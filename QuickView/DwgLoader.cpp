@@ -56,6 +56,42 @@ std::string EscapeXmlKeepUtf8(const std::string& s) {
     return out;
 }
 
+// 早期版本 (本地代码页) 字节 → UTF-8。
+// R2007+ 的 DXF 文本本身是 UTF-8 → 合法 UTF-8 直接保留;
+// 否则中文环境常见 GBK (ANSI_936) → 转换; 无代码页信息时退化非 ASCII 置 '?'
+std::string LocalBytesToUtf8(const char* s) {
+    if (!s) return {};
+    size_t len = strlen(s);
+    if (len == 0) return {};
+    bool hasHigh = false;
+    for (size_t i = 0; i < len; i++) {
+        if ((unsigned char)s[i] > 0x7F) { hasHigh = true; break; }
+    }
+    if (!hasHigh) return std::string(s, len);
+    if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                            s, (int)len, nullptr, 0) > 0) {
+        return std::string(s, len); // 已是合法 UTF-8
+    }
+    int wn = MultiByteToWideChar(936, 0, s, (int)len, nullptr, 0);
+    if (wn > 0) {
+        std::wstring w(wn, L'\0');
+        MultiByteToWideChar(936, 0, s, (int)len, &w[0], wn);
+        int n = WideCharToMultiByte(CP_UTF8, 0, w.data(), wn,
+                                    nullptr, 0, nullptr, nullptr);
+        if (n > 0) {
+            std::string out(n, '\0');
+            WideCharToMultiByte(CP_UTF8, 0, w.data(), wn,
+                                &out[0], n, nullptr, nullptr);
+            return out;
+        }
+    }
+    std::string out;
+    out.reserve(len);
+    for (size_t i = 0; i < len; i++)
+        out += ((unsigned char)s[i] > 0x7F) ? '?' : s[i];
+    return out;
+}
+
 // BITCODE_T → 原始 UTF-8 字节 (不转义; r2007+ 源为 UTF-16)
 std::string DwgTextToUtf8(BITCODE_T s, bool utf16) {
     if (!s) return {};
@@ -77,13 +113,12 @@ std::string DwgTextToUtf8(BITCODE_T s, bool utf16) {
         }
         return utf8;
     }
-    return s; // 早期版本: 本地编码字节
+    return LocalBytesToUtf8(s); // 早期版本: 本地代码页字节
 }
 
-// BITCODE_T → 已转义 XML 文本
+// BITCODE_T → 已转义 XML 文本 (保留合法 UTF-8 多字节)
 std::string DwgTextToXml(BITCODE_T s, bool utf16) {
-    std::string raw = DwgTextToUtf8(s, utf16);
-    return utf16 ? EscapeXmlKeepUtf8(raw) : SanitizeXmlText(raw);
+    return EscapeXmlKeepUtf8(DwgTextToUtf8(s, utf16));
 }
 
 // ---------------------------------------------------------------------------
@@ -91,8 +126,8 @@ std::string DwgTextToXml(BITCODE_T s, bool utf16) {
 // ---------------------------------------------------------------------------
 class DwgRenderer {
 public:
-    explicit DwgRenderer(Dwg_Data& dwg)
-        : m_dwg(dwg), m_utf16(dwg.header.version >= R_2007) {}
+    explicit DwgRenderer(Dwg_Data& dwg, bool utf16Text)
+        : m_dwg(dwg), m_utf16(utf16Text) {}
 
     std::string Render() {
         BuildLayerTable();
@@ -200,6 +235,13 @@ private:
         return true;
     }
 
+    // ACI → 预览色: 预览画布固定白底 (main.cpp whiteBg=true), ACI 7 (黑/白自适应)
+    // 按白底约定渲染为黑色, 否则无图层表的精简 DXF 全部默认白色 → 白底不可见
+    static std::string AciToHexPreview(int aci) {
+        if (aci == 7) return "#000000";
+        return ACIToHex(aci);
+    }
+
     // 单一颜色解析 (不含 BYLAYER)
     std::string ColorToHex(const Dwg_Color& c, int fallbackAci = 7) {
         if (ColorIsTrueColor(c)) {
@@ -212,7 +254,7 @@ private:
             c.method == DWG_COLOR_METHOD_BYBLOCK || c.method == 0) {
             aci = fallbackAci;
         }
-        return ACIToHex(aci);
+        return AciToHexPreview(aci);
     }
 
     // 实体颜色解析 (含 BYLAYER → 图层色)
@@ -227,11 +269,11 @@ private:
                 snprintf(buf, sizeof(buf), "#%06X", lay->rgb);
                 return buf;
             }
-            return ACIToHex(lay->aci);
+            return AciToHexPreview(lay->aci);
         }
         int aci = c.index;
         if (aci == 256 || aci == 0) aci = 7;
-        return ACIToHex(aci);
+        return AciToHexPreview(aci);
     }
 
     // -----------------------------------------------------------------
@@ -547,22 +589,48 @@ private:
         if (!pl) return;
         bool closed = (pl->flag & 1) != 0;
         std::vector<double> xs, ys, bulges;
-        for (BITCODE_BL i = 0; i < pl->num_owned; i++) {
-            Dwg_Object_Ref* ref = pl->vertex ? pl->vertex[i] : nullptr;
-            if (!ref) continue;
-            Dwg_Object* vobj = ref->obj ? ref->obj : dwg_ref_object(&m_dwg, ref);
-            if (!vobj || vobj->supertype != DWG_SUPERTYPE_ENTITY) continue;
-            Dwg_Object_Entity* vent = vobj->tio.entity;
-            if (!vent) continue;
-            if (vobj->fixedtype == DWG_TYPE_VERTEX_2D ||
-                vobj->fixedtype == DWG_TYPE_VERTEX_3D ||
-                vobj->fixedtype == DWG_TYPE_VERTEX_MESH ||
-                vobj->fixedtype == DWG_TYPE_VERTEX_PFACE) {
+        // DWG: 引用数组已填 → 按引用取顶点
+        if (pl->vertex && pl->num_owned > 0) {
+            for (BITCODE_BL i = 0; i < pl->num_owned; i++) {
+                Dwg_Object_Ref* ref = pl->vertex[i];
+                if (!ref) continue;
+                Dwg_Object* vobj = ref->obj ? ref->obj : dwg_ref_object(&m_dwg, ref);
+                if (!vobj || vobj->supertype != DWG_SUPERTYPE_ENTITY) continue;
+                Dwg_Object_Entity* vent = vobj->tio.entity;
+                if (!vent) continue;
+                if (vobj->fixedtype == DWG_TYPE_VERTEX_2D ||
+                    vobj->fixedtype == DWG_TYPE_VERTEX_3D ||
+                    vobj->fixedtype == DWG_TYPE_VERTEX_MESH ||
+                    vobj->fixedtype == DWG_TYPE_VERTEX_PFACE) {
+                    Dwg_Entity_VERTEX_2D* v = vent->tio.VERTEX_2D;
+                    if (!v) continue;
+                    xs.push_back(v->point.x);
+                    ys.push_back(v->point.y);
+                    // VERTEX_3D 无 bulge 字段, 仅 VERTEX_2D 有效
+                    bulges.push_back(vobj->fixedtype == DWG_TYPE_VERTEX_2D
+                                         ? v->bulge : 0.0);
+                }
+            }
+        }
+        // DXF (LibreDWG dxf_read_file): vertex 引用数组不填, VERTEX 也无 ownerhandle。
+        // DXF 文件顺序保证 VERTEX 紧跟其 POLYLINE、以 SEQEND 结束 → 顺序扫描兜底。
+        if (xs.size() < 2) {
+            xs.clear(); ys.clear(); bulges.clear();
+            BITCODE_RL start = (BITCODE_RL)(obj - m_dwg.object) + 1;
+            for (BITCODE_RL i = start; i < m_dwg.num_objects; i++) {
+                Dwg_Object* vobj = &m_dwg.object[i];
+                if (vobj->fixedtype == DWG_TYPE_SEQEND) break;
+                if (vobj->supertype != DWG_SUPERTYPE_ENTITY) break;
+                if (vobj->fixedtype != DWG_TYPE_VERTEX_2D &&
+                    vobj->fixedtype != DWG_TYPE_VERTEX_3D &&
+                    vobj->fixedtype != DWG_TYPE_VERTEX_MESH &&
+                    vobj->fixedtype != DWG_TYPE_VERTEX_PFACE) break;
+                Dwg_Object_Entity* vent = vobj->tio.entity;
+                if (!vent) continue;
                 Dwg_Entity_VERTEX_2D* v = vent->tio.VERTEX_2D;
                 if (!v) continue;
                 xs.push_back(v->point.x);
                 ys.push_back(v->point.y);
-                // VERTEX_3D 无 bulge 字段, 仅 VERTEX_2D 有效
                 bulges.push_back(vobj->fixedtype == DWG_TYPE_VERTEX_2D
                                      ? v->bulge : 0.0);
             }
@@ -582,37 +650,44 @@ private:
         std::string color = ResolveColor(ent);
 
         // scenario 2: 仅控制点(bezier); 有拟合点而无控制点时用拟合点连线
-        if (sp->num_ctrl_pts >= 2 && sp->num_knots >= 2) {
+        // 防护: knots/ctrl_pts 需非空, degree 需满足 knots[degree] 与
+        // knots[num_knots-degree-1] 均在界内 (畸形文件防御)
+        if (sp->num_ctrl_pts >= 2 && sp->num_knots >= 2 && sp->knots && sp->ctrl_pts) {
             int degree = sp->degree;
             if (degree < 1) degree = 3;
-            std::vector<double> knots(sp->knots, sp->knots + sp->num_knots);
-            std::vector<double> cx, cy, w;
-            cx.reserve(sp->num_ctrl_pts);
-            cy.reserve(sp->num_ctrl_pts);
-            for (BITCODE_BL i = 0; i < sp->num_ctrl_pts; i++) {
-                cx.push_back(sp->ctrl_pts[i].x);
-                cy.push_back(sp->ctrl_pts[i].y);
-                w.push_back(sp->ctrl_pts[i].w);
+            if (degree > (int)sp->num_knots - 2) degree = (int)sp->num_knots - 2;
+            if (degree >= 1) {
+                std::vector<double> knots(sp->knots, sp->knots + sp->num_knots);
+                std::vector<double> cx, cy, w;
+                cx.reserve(sp->num_ctrl_pts);
+                cy.reserve(sp->num_ctrl_pts);
+                for (BITCODE_BL i = 0; i < sp->num_ctrl_pts; i++) {
+                    cx.push_back(sp->ctrl_pts[i].x);
+                    cy.push_back(sp->ctrl_pts[i].y);
+                    w.push_back(sp->ctrl_pts[i].w);
+                }
+                bool rational = sp->rational && !w.empty();
+                double uMin = knots[degree];
+                double uMax = knots[sp->num_knots - degree - 1];
+                if (uMax <= uMin) uMax = uMin + 1.0;
+                int numSamples = std::max(100, (int)sp->num_ctrl_pts * 20);
+                double du = (uMax - uMin) / numSamples;
+                out() << "<path d=\"";
+                for (int i = 0; i <= numSamples; i++) {
+                    double u = (i == numSamples) ? uMax : (uMin + du * i);
+                    double px, py;
+                    DeBoorSpline(degree, knots, cx, cy,
+                                 rational ? w : std::vector<double>(), u, px, py);
+                    BboxAdd(px, py);
+                    if (i == 0) out() << "M " << FmtFloat(px) << " " << FmtFloat(-py);
+                    else        out() << " L " << FmtFloat(px) << " " << FmtFloat(-py);
+                }
+                out() << "\" stroke=\"" << color
+                      << "\" stroke-width=\"__SW__\" fill=\"none\"/>\n";
+                return;
             }
-            bool rational = sp->rational && !w.empty();
-            double uMin = knots[degree];
-            double uMax = knots[sp->num_knots - degree - 1];
-            if (uMax <= uMin) uMax = uMin + 1.0;
-            int numSamples = std::max(100, (int)sp->num_ctrl_pts * 20);
-            double du = (uMax - uMin) / numSamples;
-            out() << "<path d=\"";
-            for (int i = 0; i <= numSamples; i++) {
-                double u = (i == numSamples) ? uMax : (uMin + du * i);
-                double px, py;
-                DeBoorSpline(degree, knots, cx, cy,
-                             rational ? w : std::vector<double>(), u, px, py);
-                BboxAdd(px, py);
-                if (i == 0) out() << "M " << FmtFloat(px) << " " << FmtFloat(-py);
-                else        out() << " L " << FmtFloat(px) << " " << FmtFloat(-py);
-            }
-            out() << "\" stroke=\"" << color
-                  << "\" stroke-width=\"__SW__\" fill=\"none\"/>\n";
-        } else if (sp->num_fit_pts >= 2 && sp->fit_pts) {
+        }
+        if (sp->num_fit_pts >= 2 && sp->fit_pts) {
             out() << "<path d=\"";
             for (BITCODE_BL i = 0; i < sp->num_fit_pts; i++) {
                 double px = sp->fit_pts[i].x, py = sp->fit_pts[i].y;
@@ -713,8 +788,7 @@ private:
         double rotDeg = atan2(t->x_axis_dir.y, t->x_axis_dir.x) * 180.0 / kPi;
         // 先转 UTF-8 → 剥格式码 → 再 XML 转义 (顺序不可颠倒)
         std::string raw = DwgTextToUtf8(t->text, m_utf16);
-        std::string txt = m_utf16 ? EscapeXmlKeepUtf8(StripMTextFormatting(raw))
-                                  : SanitizeXmlText(StripMTextFormatting(raw));
+        std::string txt = EscapeXmlKeepUtf8(StripMTextFormatting(raw));
         EmitText(t->ins_pt.x, t->ins_pt.y, h, rotDeg, txt, ResolveColor(ent));
     }
 
@@ -933,9 +1007,12 @@ private:
                         }
                         case 4: { // 样条
                             if (seg.num_control_points >= 2 &&
-                                seg.num_knots >= 2 && seg.control_points) {
+                                seg.num_knots >= 2 && seg.knots &&
+                                seg.control_points) {
                                 int degree = seg.degree;
                                 if (degree < 1) degree = 3;
+                                if (degree > (int)seg.num_knots - 2)
+                                    degree = (int)seg.num_knots - 2;
                                 std::vector<double> knots(
                                     seg.knots, seg.knots + seg.num_knots);
                                 std::vector<double> cxv, cyv, wv;
@@ -1091,7 +1168,11 @@ static std::string LoadCadToSVG(const uint8_t* data, size_t size,
         int error = readFn(tempPath.c_str(), &dwg);
         // DWG_ERR_CRITICAL=128, 所有 >=128 的位均为致命错误
         if (!(static_cast<unsigned>(error) & ~0x7Fu)) {
-            DwgRenderer renderer(dwg);
+            // 文本编码: 仅二进制 DWG R2007+ 为 UTF-16;
+            // DXF 即使 R2007+ 也是 UTF-8 (LocalBytesToUtf8 会保留) 或旧代码页
+            bool utf16Text = (readFn == dwg_read_file) &&
+                             dwg.header.version >= R_2007;
+            DwgRenderer renderer(dwg, utf16Text);
             result = renderer.Render();
         }
         dwg_free(&dwg);

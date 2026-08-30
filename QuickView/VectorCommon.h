@@ -133,9 +133,15 @@ inline void DeBoorSpline(
     double u, double& outX, double& outY)
 {
     int n = (int)ctrlX.size() - 1;
+    // 畸形数据的 knot 索引钳制读取 (文件提供的 num_knots 可能不足以覆盖 degree)
+    auto knotAt = [&knots](int i) -> double {
+        if (i < 0) i = 0;
+        if (i >= (int)knots.size()) i = (int)knots.size() - 1;
+        return knots.empty() ? 0.0 : knots[i];
+    };
     int span = n + degree;
     for (int i = degree; i <= n + degree; i++) {
-        if (u >= knots[i] && u < knots[i + 1]) { span = i; break; }
+        if (u >= knotAt(i) && u < knotAt(i + 1)) { span = i; break; }
         if (i == n + degree) span = i;
     }
     std::vector<double> dx(degree + 1), dy(degree + 1), dw(degree + 1);
@@ -150,9 +156,9 @@ inline void DeBoorSpline(
     for (int r = 1; r <= degree; r++) {
         for (int j = degree; j >= r; j--) {
             int i = span - degree + j;
-            double denom = knots[i + degree - r + 1] - knots[i];
+            double denom = knotAt(i + degree - r + 1) - knotAt(i);
             if (denom == 0.0) denom = 1.0;
-            double alpha = (u - knots[i]) / denom;
+            double alpha = (u - knotAt(i)) / denom;
             if (hasWeights) {
                 double w0 = dw[j - 1], w1 = dw[j];
                 double wn = (1.0 - alpha) * w0 + alpha * w1;

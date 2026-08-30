@@ -31,12 +31,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "QuickView"
             VALUE "FileDescription", "QuickView"
-            VALUE "FileVersion", "6.30.11.0"
+            VALUE "FileVersion", "6.30.12.0"
             VALUE "InternalName", "QuickView"
             VALUE "LegalCopyright", "Copyright (C) 2026"
             VALUE "OriginalFilename", "QuickView.exe"
             VALUE "ProductName", "QuickView"
-            VALUE "ProductVersion", "6.30.11.0"
+            VALUE "ProductVersion", "6.30.12.0"
         END
     END
     BLOCK "VarFileInfo"
