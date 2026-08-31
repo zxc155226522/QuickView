@@ -12582,6 +12582,7 @@ void ProcessEngineEvents(HWND hwnd) {
                             ComPtr<IStream> xmlStream;
                             xmlStream.Attach(SHCreateMemStream(
                                 (const BYTE*)xml.data(), (UINT)xml.size()));
+                            const auto svgDomStart = std::chrono::steady_clock::now();
                             if (xmlStream) {
                                 hr = ctx5->CreateSvgDocument(
                                     xmlStream.Get(),
@@ -12590,6 +12591,8 @@ void ProcessEngineEvents(HWND hwnd) {
                             } else {
                                 hr = E_OUTOFMEMORY;
                             }
+                            const int svgDomMs = (int)std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now() - svgDomStart).count();
                             if (SUCCEEDED(hr) && svgDoc) {
                                 auto& vecRes = GetPaneContext(PaneSlot::Primary).resource;
                                 vecRes.Reset();
@@ -12602,8 +12605,8 @@ void ProcessEngineEvents(HWND hwnd) {
 
                                 char diag[256];
                                 snprintf(diag, sizeof(diag),
-                                    "[VEC-DIAG] D2D native SVG: format=%ls svgW=%.1f svgH=%.1f\n",
-                                    fmtDetails.c_str(), svgW, svgH);
+                                    "[VEC-DIAG] D2D native SVG: format=%ls svgW=%.1f svgH=%.1f createMs=%d xmlKB=%zu\n",
+                                    fmtDetails.c_str(), svgW, svgH, svgDomMs, xml.size() / 1024);
                                 OutputDebugStringA(diag);
                             } else {
                                 // Fallback to MuPDF if D2D SVG creation fails

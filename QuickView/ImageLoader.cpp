@@ -12158,7 +12158,14 @@ HRESULT CImageLoader::LoadDXF(LPCWSTR filePath,
   if (checkCancel && checkCancel())
     return E_ABORT;
 
+  const auto cadParseStart = std::chrono::steady_clock::now();
   std::string svgContent = QuickView::LoadDXFtoSVG(fileData.data(), fileData.size());
+  const int cadParseMs = (int)std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::steady_clock::now() - cadParseStart).count();
+  QV_LOG("Cad_Timing", TraceLoggingString("DXF_ParseToSVG", "Action"),
+         TraceLoggingInt32(cadParseMs, "Ms"),
+         TraceLoggingUInt64((uint64_t)fileData.size(), "SrcBytes"),
+         TraceLoggingUInt64((uint64_t)svgContent.size(), "SvgBytes"));
   if (svgContent.empty()) {
     if (pMetadata)
       pMetadata->Format = L"DXF (Parse Failed)";
@@ -12223,7 +12230,14 @@ HRESULT CImageLoader::LoadDWG(LPCWSTR filePath,
   if (checkCancel && checkCancel())
     return E_ABORT;
 
+  const auto cadParseStart = std::chrono::steady_clock::now();
   std::string svgContent = QuickView::LoadDWGtoSVG(fileData.data(), fileData.size());
+  const int cadParseMs = (int)std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::steady_clock::now() - cadParseStart).count();
+  QV_LOG("Cad_Timing", TraceLoggingString("DWG_ParseToSVG", "Action"),
+         TraceLoggingInt32(cadParseMs, "Ms"),
+         TraceLoggingUInt64((uint64_t)fileData.size(), "SrcBytes"),
+         TraceLoggingUInt64((uint64_t)svgContent.size(), "SvgBytes"));
   if (svgContent.empty()) {
     if (pMetadata)
       pMetadata->Format = L"DWG (Parse Failed / Timed Out)";

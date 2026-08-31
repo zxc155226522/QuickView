@@ -1831,7 +1831,7 @@ tile_decode_done: ; // [P14] Jump target for fast path (skip legacy TJ decode)
                     safeFrame->width = rawFrame.width;
                     safeFrame->height = rawFrame.height;
                     safeFrame->svg = std::make_unique<QuickView::RawImageFrame::SvgData>();
-                    safeFrame->svg->xmlData = rawFrame.svg->xmlData;
+                    safeFrame->svg->xmlData = std::move(rawFrame.svg->xmlData);
                     safeFrame->svg->viewBoxW = rawFrame.svg->viewBoxW;
                     safeFrame->svg->viewBoxH = rawFrame.svg->viewBoxH;
                 } else {
