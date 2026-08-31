@@ -12166,6 +12166,12 @@ HRESULT CImageLoader::LoadDXF(LPCWSTR filePath,
          TraceLoggingInt32(cadParseMs, "Ms"),
          TraceLoggingUInt64((uint64_t)fileData.size(), "SrcBytes"),
          TraceLoggingUInt64((uint64_t)svgContent.size(), "SvgBytes"));
+  {
+    char cadDiag[192];
+    snprintf(cadDiag, sizeof(cadDiag), "[CAD-DIAG] DXF parse=%d ms src=%zuKB svg=%zuKB\n",
+             cadParseMs, fileData.size() / 1024, svgContent.size() / 1024);
+    OutputDebugStringA(cadDiag);
+  }
   if (svgContent.empty()) {
     if (pMetadata)
       pMetadata->Format = L"DXF (Parse Failed)";
@@ -12238,6 +12244,12 @@ HRESULT CImageLoader::LoadDWG(LPCWSTR filePath,
          TraceLoggingInt32(cadParseMs, "Ms"),
          TraceLoggingUInt64((uint64_t)fileData.size(), "SrcBytes"),
          TraceLoggingUInt64((uint64_t)svgContent.size(), "SvgBytes"));
+  {
+    char cadDiag[192];
+    snprintf(cadDiag, sizeof(cadDiag), "[CAD-DIAG] DWG parse=%d ms src=%zuKB svg=%zuKB\n",
+             cadParseMs, fileData.size() / 1024, svgContent.size() / 1024);
+    OutputDebugStringA(cadDiag);
+  }
   if (svgContent.empty()) {
     if (pMetadata)
       pMetadata->Format = L"DWG (Parse Failed / Timed Out)";
