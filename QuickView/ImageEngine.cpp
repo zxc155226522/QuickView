@@ -579,17 +579,24 @@ void ImageEngine::DispatchImageLoad(const std::wstring& path, ImageID imageId, u
         return;
     }
 
-    // [Vector/SVG Fix] HeavyLane's decode-worker transports only pixel buffers.
-    // SVG-producing formats (CDR/CMX/PLT/DXF/DWG/SVG) return RawImageFrame with
-    // format=SVG_XML and no pixels; the worker rejects stride*height==0 and
-    // the frame never reaches the main view -> infinite loading spinner.
-    // Force in-process FastLane for these vector formats, overriding any prior
-    // TypeA/TypeB classification that would send them to HeavyLane.
+    // [Vector/SVG Fix] SVG-producing formats produce RawImageFrame with
+    // format=SVG_XML and no pixels (stride*height==0).  The HeavyLane
+    // worker's SVG transport branch (IsSvg deep-copy of SvgData +
+    // formatDetails) carries these frames to the main view, so heavy CAD
+    // formats can safely run on the pool; light vector formats stay on the
+    // in-process FastLane, overriding any prior TypeA/TypeB classification.
+    // [v6.30.13] DXF/DWG 例外: LibreDWG 解析大文件可达数秒, 走 HeavyLane
+    // 后台线程池避免独占 FastLane; CDR/CMX/PLT/SVG 解析很快, 维持 FastLane。
     if (fmtUpper == L"CDR" || fmtUpper == L"CMX" || fmtUpper == L"PLT" ||
-        fmtUpper == L"DXF" || fmtUpper == L"DWG" || fmtUpper == L"SVG") {
+        fmtUpper == L"SVG") {
         useFastLane = true;
         useHeavy = false;
         QV_LOG("Dispatch_Route", TraceLoggingString("VectorForceFastLane", "Action"),
+               TraceLoggingWideString(fmtUpper.c_str(), "Format"));
+    } else if (fmtUpper == L"DXF" || fmtUpper == L"DWG") {
+        useFastLane = false;
+        useHeavy = true;
+        QV_LOG("Dispatch_Route", TraceLoggingString("VectorHeavyLane", "Action"),
                TraceLoggingWideString(fmtUpper.c_str(), "Format"));
     }
 

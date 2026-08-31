@@ -24,6 +24,8 @@
 #include <future>
 #include <chrono>
 #include <thread>
+#include <atomic>
+#include <memory>
 
 namespace QuickView {
 namespace {
@@ -1152,59 +1154,77 @@ private:
 } // namespace
 
 // ============================================================================
-// 通用解析+渲染: 调用方指定 dxf_read_file 或 dwg_read_file
+// 通用解析+渲染: dwg_read_memory 直接解析内存缓冲 (无临时文件中转)
 // ============================================================================
-static std::string LoadCadToSVG(const uint8_t* data, size_t size,
-                                 int (*readFn)(const char*, Dwg_Data*)) {
+static std::string LoadCadToSVG(const uint8_t* data, size_t size, bool isDwg) {
     if (!data || size == 0) return {};
-
-    std::string tempPath = WriteTempFile(data, size, "qvcad");
-    if (tempPath.empty()) return {};
 
     std::string result;
     {
         Dwg_Data dwg;
         memset(&dwg, 0, sizeof(dwg));
-        int error = readFn(tempPath.c_str(), &dwg);
+        int error = dwg_read_memory(data, size, &dwg);
         // DWG_ERR_CRITICAL=128, 所有 >=128 的位均为致命错误
         if (!(static_cast<unsigned>(error) & ~0x7Fu)) {
             // 文本编码: 仅二进制 DWG R2007+ 为 UTF-16;
             // DXF 即使 R2007+ 也是 UTF-8 (LocalBytesToUtf8 会保留) 或旧代码页
-            bool utf16Text = (readFn == dwg_read_file) &&
-                             dwg.header.version >= R_2007;
+            bool utf16Text = isDwg && dwg.header.version >= R_2007;
             DwgRenderer renderer(dwg, utf16Text);
             result = renderer.Render();
         }
         dwg_free(&dwg);
     }
-    DeleteFileA(tempPath.c_str());
 
     return result;
 }
 
-// DXF (AutoCAD) → SVG (via LibreDWG dxf_read_file)
+// DXF (AutoCAD) → SVG (via LibreDWG dwg_read_memory)
 std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
-    return LoadCadToSVG(data, size, dxf_read_file);
+    return LoadCadToSVG(data, size, false);
 }
 
 // ----------------------------------------------------------------------------
-// DWG 异步超时包装: dwg_read_file 对大文件/不兼容版本可能耗时数十秒甚至无限卡住
-// 策略: 在后台线程执行解析, 主线程等待最多 kDwgTimeoutMs 毫秒
-// 超时后返回空字符串(后台线程继续运行, 结果被忽略)
+// DWG 异步超时包装: 大文件/不兼容版本解析可能耗时数十秒甚至无限卡住
+// 策略: 在后台线程执行解析, 调用线程等待最多 kDwgTimeoutMs 毫秒
+// 超时后置位取消标志, 后台解析在下一个对象检查点中止 (DWG_ERR_CANCELLED),
+// 不再空跑到结束; 返回空字符串
 // 注意: 项目禁用异常(/EHs-c-), 不使用 try/catch
 // ----------------------------------------------------------------------------
 static constexpr int kDwgTimeoutMs = 8000;  // DWG 解析超时阈值
+
+namespace {
+struct DwgCancelContext {
+    std::atomic<bool> cancelled{ false };
+};
+int DwgCancelCheck(void* ctx) {
+    return static_cast<DwgCancelContext*>(ctx)->cancelled.load(
+               std::memory_order_relaxed) ? 1 : 0;
+}
+} // namespace
 
 std::string LoadDWGtoSVG(const uint8_t* data, size_t size) {
     // 快速路径: 空文件直接返回
     if (!data || size == 0) return {};
 
+    auto cancelCtx = std::make_shared<DwgCancelContext>();
+
     // 使用 shared_future 避免 future 析构时阻塞
     // std::async 返回的 future 析构会阻塞等待任务完成,
     // 转为 shared_future 后析构不阻塞
     std::future<std::string> asyncFuture = std::async(
-        std::launch::async, [data, size]() -> std::string {
-            return LoadCadToSVG(data, size, dwg_read_file);
+        std::launch::async, [data, size, cancelCtx]() -> std::string {
+            std::string result;
+            Dwg_Data dwg;
+            memset(&dwg, 0, sizeof(dwg));
+            dwg.cancel_check = &DwgCancelCheck;
+            dwg.hook_ctx = cancelCtx.get();
+            int error = dwg_read_memory(data, size, &dwg);
+            if (!(static_cast<unsigned>(error) & ~0x7Fu)) {
+                DwgRenderer renderer(dwg, dwg.header.version >= R_2007);
+                result = renderer.Render();
+            }
+            dwg_free(&dwg);
+            return result;
         });
 
     // 转移共享状态到 shared_future (asyncFuture 变为空)
@@ -1213,8 +1233,9 @@ std::string LoadDWGtoSVG(const uint8_t* data, size_t size) {
     // 等待结果或超时
     if (future.wait_for(std::chrono::milliseconds(kDwgTimeoutMs)) ==
         std::future_status::timeout) {
-        // 超时: 返回空字符串
-        // shared_future 析构不阻塞, 后台线程继续运行至完成
+        // 超时: 通知后台解析中止并返回空字符串
+        // shared_future 析构不阻塞; 后台线程在下一检查点退出
+        cancelCtx->cancelled.store(true, std::memory_order_relaxed);
         return {};
     }
 

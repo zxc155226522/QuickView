@@ -1827,6 +1827,7 @@ tile_decode_done: ; // [P14] Jump target for fast path (skip legacy TJ decode)
 
                 if (rawFrame.IsSvg()) {
                     safeFrame->format = rawFrame.format;
+                    safeFrame->formatDetails = rawFrame.formatDetails; // 主视图据此选 D2D 矢量/MuPDF 通道
                     safeFrame->width = rawFrame.width;
                     safeFrame->height = rawFrame.height;
                     safeFrame->svg = std::make_unique<QuickView::RawImageFrame::SvgData>();

@@ -1,0 +1,19 @@
+diff --git a/src/in_dxf.c b/src/in_dxf.c
+index d9a78e0..bf74940 100644
+--- a/src/in_dxf.c
++++ b/src/in_dxf.c
+@@ -685,7 +685,13 @@ dxf_read_string (Bit_Chain *dat, char **string)
+            dat->byte++)
+         {
+           char *s = (char *)&dat->chain[dat->byte];
+-          if (memBEGINc (s, "\\M+") && s[3] >= '1' && s[3] <= '5')
++          /* PERF: memBEGINc expands to strlen(s)>=3 && memcmp(...).  Inside
++             this per-character loop over the whole (not yet 0-terminated)
++             file buffer, strlen scans to the very end of the file for every
++             single character => O(n^2) on large ASCII DXF files. */
++          if (dat->size - dat->byte >= 4
++              && s[0] == '\\' && s[1] == 'M' && s[2] == '+'
++              && s[3] >= '1' && s[3] <= '5')
+             {
+               const Dwg_Codepage mif_tbl[]
+                   = { CP_UNDEFINED, CP_ANSI_932,  CP_ANSI_950,
