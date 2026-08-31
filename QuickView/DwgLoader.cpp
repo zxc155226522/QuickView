@@ -1163,14 +1163,25 @@ static std::string LoadCadToSVG(const uint8_t* data, size_t size, bool isDwg) {
     {
         Dwg_Data dwg;
         memset(&dwg, 0, sizeof(dwg));
+        const auto t0 = std::chrono::steady_clock::now();
         int error = dwg_read_memory(data, size, &dwg);
+        const int readMs = (int)std::chrono::duration_cast<std::chrono::milliseconds>(
+                               std::chrono::steady_clock::now() - t0).count();
         // DWG_ERR_CRITICAL=128, 所有 >=128 的位均为致命错误
         if (!(static_cast<unsigned>(error) & ~0x7Fu)) {
             // 文本编码: 仅二进制 DWG R2007+ 为 UTF-16;
             // DXF 即使 R2007+ 也是 UTF-8 (LocalBytesToUtf8 会保留) 或旧代码页
             bool utf16Text = isDwg && dwg.header.version >= R_2007;
+            const auto t1 = std::chrono::steady_clock::now();
             DwgRenderer renderer(dwg, utf16Text);
             result = renderer.Render();
+            const int renderMs = (int)std::chrono::duration_cast<std::chrono::milliseconds>(
+                                     std::chrono::steady_clock::now() - t1).count();
+            char diag[192];
+            snprintf(diag, sizeof(diag),
+                     "[CAD-DIAG] %s split: libredwg_read=%d ms svg_render=%d ms\n",
+                     isDwg ? "DWG" : "DXF", readMs, renderMs);
+            OutputDebugStringA(diag);
         }
         dwg_free(&dwg);
     }

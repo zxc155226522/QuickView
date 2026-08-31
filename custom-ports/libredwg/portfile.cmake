@@ -10,6 +10,7 @@ vcpkg_from_github(
     fix_arm64_build.patch
     perf_dxf_ascii_strlen.patch
     libredwg_memory_cancel.patch
+    perf_dxf_table_control_probe.patch
 )
 
 # If generate dwg manipulation tools

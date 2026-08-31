@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <map>
 #include <memory>
+#include <future>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -12143,6 +12144,78 @@ HRESULT CImageLoader::LoadPLT(LPCWSTR filePath,
 // ============================================================================
 // DXF (AutoCAD) → SVG via LibreDWG → RawImageFrame(SVG_XML)
 // ============================================================================
+namespace {
+
+// CAD 解析共享缓存: 同 path+mtime+size 的 DXF/DWG→SVG 只完整解析一次。
+// 并发请求者(主视图/缩略图)挂接在途 future 等待结果, 避免秒级重复解析。
+// 空结果(失败/超时)不入缓存, 由后来者重新尝试。
+struct CadSvgCacheEntry {
+    std::shared_ptr<std::promise<std::string>> inFlight;
+    std::shared_future<std::string> waiter;
+};
+
+struct CadSvgCache {
+    std::mutex mtx;
+    std::unordered_map<std::wstring, CadSvgCacheEntry> entries;
+};
+CadSvgCache g_cadSvgCache;
+
+std::wstring MakeCadCacheKey(LPCWSTR filePath) {
+    WIN32_FILE_ATTRIBUTE_DATA fad{};
+    if (!GetFileAttributesExW(filePath, GetFileExInfoStandard, &fad))
+        return std::wstring(filePath);
+    wchar_t tail[64];
+    swprintf(tail, 64, L"|llu=%llu ft=%08lX%08lX",
+             (unsigned long long)fad.nFileSizeLow |
+                 ((unsigned long long)fad.nFileSizeHigh << 32),
+             (unsigned long)fad.ftLastWriteTime.dwHighDateTime,
+             (unsigned long)fad.ftLastWriteTime.dwLowDateTime);
+    return std::wstring(filePath) + tail;
+}
+
+template <class ParseFn>
+std::string LoadCadSvgShared(LPCWSTR filePath, ParseFn &&parseFn,
+                             bool *pServedFromCache) {
+    const std::wstring key = MakeCadCacheKey(filePath);
+
+    std::shared_ptr<std::promise<std::string>> promise;
+    std::shared_future<std::string> waiter;
+    {
+        std::lock_guard<std::mutex> lock(g_cadSvgCache.mtx);
+        auto it = g_cadSvgCache.entries.find(key);
+        if (it == g_cadSvgCache.entries.end()) {
+            if (g_cadSvgCache.entries.size() >= 24)
+                g_cadSvgCache.entries.clear();  // 粗略容量上限
+            CadSvgCacheEntry e;
+            e.inFlight = std::make_shared<std::promise<std::string>>();
+            e.waiter = e.inFlight->get_future().share();
+            promise = e.inFlight;
+            g_cadSvgCache.entries.emplace(key, std::move(e));
+        } else {
+            waiter = it->second.waiter;
+        }
+    }
+
+    if (promise) {  // 本线程负责解析
+        std::string svg = parseFn();
+        promise->set_value(svg);
+        if (svg.empty()) {
+            std::lock_guard<std::mutex> lock(g_cadSvgCache.mtx);
+            g_cadSvgCache.entries.erase(key);
+        }
+        return svg;
+    }
+
+    if (pServedFromCache)
+        *pServedFromCache = true;
+    // 挂接在途解析: 20s 上限兜底(解析线程仅可能卡在该时限内)
+    if (waiter.wait_for(std::chrono::seconds(20)) == std::future_status::ready)
+        return waiter.get();
+    return {};
+}
+
+} // namespace
+
 HRESULT CImageLoader::LoadDXF(LPCWSTR filePath,
                               QuickView::RawImageFrame *outFrame,
                               std::wstring *pLoaderName,
@@ -12159,17 +12232,25 @@ HRESULT CImageLoader::LoadDXF(LPCWSTR filePath,
     return E_ABORT;
 
   const auto cadParseStart = std::chrono::steady_clock::now();
-  std::string svgContent = QuickView::LoadDXFtoSVG(fileData.data(), fileData.size());
+  bool cadFromCache = false;
+  std::string svgContent = LoadCadSvgShared(
+      filePath,
+      [&]() { return QuickView::LoadDXFtoSVG(fileData.data(), fileData.size()); },
+      &cadFromCache);
   const int cadParseMs = (int)std::chrono::duration_cast<std::chrono::milliseconds>(
                              std::chrono::steady_clock::now() - cadParseStart).count();
   QV_LOG("Cad_Timing", TraceLoggingString("DXF_ParseToSVG", "Action"),
          TraceLoggingInt32(cadParseMs, "Ms"),
+         TraceLoggingBool(cadFromCache, "CacheJoin"),
          TraceLoggingUInt64((uint64_t)fileData.size(), "SrcBytes"),
          TraceLoggingUInt64((uint64_t)svgContent.size(), "SvgBytes"));
   {
-    char cadDiag[192];
-    snprintf(cadDiag, sizeof(cadDiag), "[CAD-DIAG] DXF parse=%d ms src=%zuKB svg=%zuKB\n",
-             cadParseMs, fileData.size() / 1024, svgContent.size() / 1024);
+    char cadDiag[224];
+    snprintf(cadDiag, sizeof(cadDiag),
+             "[CAD-DIAG] DXF %s=%d ms src=%zuKB svg=%zuKB pid=%lu tid=%lu\n",
+             cadFromCache ? "cache-join" : "parse", cadParseMs,
+             fileData.size() / 1024, svgContent.size() / 1024,
+             GetCurrentProcessId(), GetCurrentThreadId());
     OutputDebugStringA(cadDiag);
   }
   if (svgContent.empty()) {
@@ -12237,17 +12318,25 @@ HRESULT CImageLoader::LoadDWG(LPCWSTR filePath,
     return E_ABORT;
 
   const auto cadParseStart = std::chrono::steady_clock::now();
-  std::string svgContent = QuickView::LoadDWGtoSVG(fileData.data(), fileData.size());
+  bool cadFromCache = false;
+  std::string svgContent = LoadCadSvgShared(
+      filePath,
+      [&]() { return QuickView::LoadDWGtoSVG(fileData.data(), fileData.size()); },
+      &cadFromCache);
   const int cadParseMs = (int)std::chrono::duration_cast<std::chrono::milliseconds>(
                              std::chrono::steady_clock::now() - cadParseStart).count();
   QV_LOG("Cad_Timing", TraceLoggingString("DWG_ParseToSVG", "Action"),
          TraceLoggingInt32(cadParseMs, "Ms"),
+         TraceLoggingBool(cadFromCache, "CacheJoin"),
          TraceLoggingUInt64((uint64_t)fileData.size(), "SrcBytes"),
          TraceLoggingUInt64((uint64_t)svgContent.size(), "SvgBytes"));
   {
-    char cadDiag[192];
-    snprintf(cadDiag, sizeof(cadDiag), "[CAD-DIAG] DWG parse=%d ms src=%zuKB svg=%zuKB\n",
-             cadParseMs, fileData.size() / 1024, svgContent.size() / 1024);
+    char cadDiag[224];
+    snprintf(cadDiag, sizeof(cadDiag),
+             "[CAD-DIAG] DWG %s=%d ms src=%zuKB svg=%zuKB pid=%lu tid=%lu\n",
+             cadFromCache ? "cache-join" : "parse", cadParseMs,
+             fileData.size() / 1024, svgContent.size() / 1024,
+             GetCurrentProcessId(), GetCurrentThreadId());
     OutputDebugStringA(cadDiag);
   }
   if (svgContent.empty()) {

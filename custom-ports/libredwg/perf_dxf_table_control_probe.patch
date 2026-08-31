@@ -1,0 +1,111 @@
+Speed up large ASCII DXF import: cache the table-control probe incrementally.
+
+dwg_find_table_control () scanned the whole dwg->object [] vector for every
+call, while dwg_ctrl_table () only caches successes.  A DXF without a TABLES
+section - or one whose layer/style references are resolved per entity - thus
+re-scanned all objects once per reference: 57,426 probes x 28,609 objects
+(1.6e9 strEQ calls) = 2,997 ms of the 3,133 ms import of a 1.8MB file.
+
+Keep a per-name cursor over the object vector instead.  Objects are only
+appended during import, so the scan resumes where it stopped and a miss is
+never cached; the full scan from 0 stays as the fallback when the index is
+full or a cached index went stale.  Import time drops to ~100 ms with byte
+identical results (same error flags, same dwg->num_objects).
+
+diff --git a/include/dwg.h b/include/dwg.h
+--- a/include/dwg.h
++++ b/include/dwg.h
+@@ -11450,6 +11450,24 @@
+   int (*cancel_check) (void *ctx); /*!< return non-zero to abort decoding */
+   void (*progress) (void *ctx, size_t done, size_t total);
+   void *hook_ctx;                  /*!< user context passed to both hooks */
++
++  /* [QuickView/v0.13.4] incremental index for dwg_find_table_control().
++     That probe scanned the complete object vector on every call, so a DXF
++     with tens of thousands of layer/style/block references turned into
++     refs * objects string comparisons (96% of the import time on a 1.8MB
++     file).  Each entry remembers how far dwg->object was already scanned
++     for one control name, plus the object index that matched.  Scanning
++     resumes at the cursor, so a name that only appears later is still
++     found: a miss is never cached.  POD on purpose - the memset () of
++     Dwg_Data at import start initialises it.  */
++#define DWG_CTRL_PROBE_MAX 32
++  struct _dwg_ctrl_probe
++  {
++    char name[28];      /*!< control name queried, e.g. "LAYER_CONTROL" */
++    BITCODE_BL scanned; /*!< dwg->object entries already examined */
++    BITCODE_BL found;   /*!< 1 + object index that matched, 0 = none yet */
++  } ctrl_probe[DWG_CTRL_PROBE_MAX];
++  BITCODE_BL num_ctrl_probe; /*!< used entries of ctrl_probe */
+ } Dwg_Data;
+ 
+ #define DWG_OPTS_LOGLEVEL 0xf
+diff --git a/src/dwg.c b/src/dwg.c
+--- a/src/dwg.c
++++ b/src/dwg.c
+@@ -2351,12 +2351,55 @@
+ dwg_find_table_control (Dwg_Data *restrict dwg, const char *restrict table)
+ {
+   BITCODE_BL i;
++  struct _dwg_ctrl_probe *pr = NULL;
+   loglevel = dwg->opts & DWG_OPTS_LOGLEVEL;
+-  for (i = 0; i < dwg->num_objects; i++)
++
++  /* [QuickView/v0.13.4] upstream rescanned the whole object vector on every
++     call, which is quadratic in the number of name references of a DXF (see
++     the ctrl_probe comment in dwg.h).  Resume instead of restart: objects are
++     only appended while importing, so a control object that shows up later is
++     still found on the next call.  */
++  if (table && *table)
++    {
++      for (i = 0; i < dwg->num_ctrl_probe; i++)
++        if (strEQ (dwg->ctrl_probe[i].name, table))
++          {
++            pr = &dwg->ctrl_probe[i];
++            break;
++          }
++      if (!pr && dwg->num_ctrl_probe < DWG_CTRL_PROBE_MAX
++          && strlen (table) < sizeof (dwg->ctrl_probe[0].name))
++        {
++          pr = &dwg->ctrl_probe[dwg->num_ctrl_probe++];
++          memcpy (pr->name, table, strlen (table) + 1);
++        }
++      if (pr && pr->found)
++        {
++          Dwg_Object *obj = &dwg->object[pr->found - 1];
++          if (obj->name && strEQ (obj->name, table))
++            {
++              if (obj->handle.value)
++                return dwg_add_handleref (dwg, 3, obj->handle.value, NULL);
++              LOG_TRACE ("dwg_find_table_control: table control object %s has "
++                         "no handle\n",
++                         table)
++              return NULL;
++            }
++          pr->found = 0; // object vector was compacted: re-scan from scratch
++          pr->scanned = 0;
++        }
++    }
++
++  for (i = pr ? pr->scanned : 0; i < dwg->num_objects; i++)
+     {
+       if (dwg->object[i].name && strEQ (dwg->object[i].name, table))
+         {
+           Dwg_Handle *hdl = &dwg->object[i].handle;
++          if (pr)
++            {
++              pr->scanned = dwg->num_objects;
++              pr->found = i + 1;
++            }
+           if (hdl->value)
+             return dwg_add_handleref (dwg, 3, hdl->value, NULL);
+           else
+@@ -2369,6 +2412,8 @@
+             }
+         }
+     }
++  if (pr)
++    pr->scanned = dwg->num_objects;
+   // if we haven't read all objects yet, ignore this error
+   LOG_TRACE ("dwg_find_table_control: table control object %s not found\n",
+              table)

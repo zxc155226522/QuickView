@@ -1,5 +1,22 @@
 # Changelog
 
+## [6.30.15] - DXF 大文件解析提速约 30 倍（LibreDWG 表控制索引）
+**Release Date**: 2026-08-31
+
+### ⚡ Performance
+- **1.8MB 工程图 DXF 加载 3123ms → 126ms（实测）**：28609 对象的 AutoCAD 图纸打开耗时从 3.1 秒降到 0.13 秒，加载环基本不再出现。
+  - 根因：LibreDWG 的 `dwg_find_table_control()` 只缓存**命中**的表控制对象，未命中时退化为对 `dwg->object[0..num_objects)` 的全量线性名字扫描。本图有 57426 次表句柄解析，其中绝大多数查询的表（VISUALSTYLE、PLOTSTYLENAME 等）在图中根本不存在 → 57426 × 28609 ≈ 16 亿次字符串比较，独占 3133ms 中的 2997ms。
+  - 修复：`custom-ports/libredwg/perf_dxf_table_control_probe.patch` 在 `Dwg_Data` 内新增 POD 增量游标表 `ctrl_probe[32]`（零分配，随现有 memset 清零），按表名记住"已扫到第几个对象"，下次从游标续扫而非从头重扫。导入过程中对象只追加不删除，故后出现的表控制对象仍会被发现；**未命中永不被写入缓存**，因此不会伪造或抑制任何有效命中。
+  - 验证：补丁前后 `err=0x1`、`objects=28609` 完全一致（解码结果零变化），仅耗时下降；独立基准 3134ms → 87~95ms，应用内 `[CAD-DIAG]` 126ms / 119ms（其中 LibreDWG 解析 88~92ms、SVG 生成 26ms、D2D `CreateSvgDocument` 6ms）。
+
+### 🧰 Port 维护
+- 该补丁与已有的 `perf_dxf_ascii_strlen`（DXF 字符串读取 O(n²)）、`libredwg_memory_cancel`（内存解析 + 取消钩子）一并固化在 overlay port `custom-ports/libredwg`，`portfile.cmake` 已登记，重建端口即自动生效。
+
+### 🧹 Changes（承接 6.30.14）
+- DXF/DWG 改走 HeavyLane 后台线程池加载，解析不再阻塞 UI 线程；SVG 搬运补拷 `formatDetails`（修复上一版 MuPDF 降级问题）并改用移动语义省掉数十 MB memcpy。
+- `LoadCadToSVG` 消除"写临时文件再让 LibreDWG 读回"的中转，改为内存流直接解析；DWG 超时经 `cancel_check` 钩子真正中断解码。
+- 移除开发期写死 `E:\qv_cad_debug.log` 的临时文件日志，计时诊断统一保留在 `OutputDebugString` / `Cad_Timing` ETW。
+
 ## [6.30.11] - 加大缩略图右上角类型胶囊
 **Release Date**: 2026-08-30
 
