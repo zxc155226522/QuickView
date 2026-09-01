@@ -424,6 +424,115 @@ bool TextOutliner::BuildText(const std::wstring& text, const std::wstring& faceN
 }
 
 // ---------------------------------------------------------------------------
+// 样条离散 — 弦高自适应细分
+// ---------------------------------------------------------------------------
+// 固定"每个控制点 N 个采样"的策略在工程图上会失控: 一张图的样条控制点总数可达
+// 数万 (向量化底图/复杂轮廓), 乘以 20 后离散出上百万段, SVG 达数十 MB, 渲染耗时
+// 超过加载超时而被判为打不开。这里改为按曲线自身尺寸的相对弦高来离散: 平直区间
+// 一个 knot 区间只出一个点, 弯曲处自动加密, 放大若干倍仍看不出折线化。
+constexpr double kSplineFlatRelTol = 1e-4;
+// 单个 knot 区间最多细分 2^5 段: 实测深度 6 与 5 输出逐字节一致 (容差已收敛),
+// 而向量化底图这类锯齿样条若放开深度会一路细分到上限, 该上限即其代价闸门
+constexpr int kSplineFlatMaxDepth = 5;
+constexpr size_t kSplineFlatMaxPts = 6000; // 单条样条硬上限, 防御畸形数据
+
+void FlattenSegment(int degree, const std::vector<double>& knots,
+                    const std::vector<double>& cx, const std::vector<double>& cy,
+                    const std::vector<double>& w, double tol, int depth,
+                    double u0, double x0, double y0,
+                    double u1, double x1, double y1,
+                    std::vector<std::pair<double, double>>& pts) {
+    if (depth <= 0 || pts.size() >= kSplineFlatMaxPts) return;
+
+    double um = 0.5 * (u0 + u1);
+    double xm, ym;
+    DeBoorSpline(degree, knots, cx, cy, w, um, xm, ym);
+
+    // 弦的法向偏差取 1/4、1/2、3/4 三处最大值: 只看中点会放过中点恰好在弦上、
+    // 两端却外鼓的 S 形 (带拐点) 区间
+    double dx = x1 - x0, dy = y1 - y0;
+    double len2 = dx * dx + dy * dy;
+    auto chordDev = [&](double x, double y) {
+        if (len2 <= 0.0) return std::hypot(x - x0, y - y0);
+        double t = ((x - x0) * dx + (y - y0) * dy) / len2;
+        if (t < 0.0) t = 0.0;
+        if (t > 1.0) t = 1.0;
+        return std::hypot(x - (x0 + t * dx), y - (y0 + t * dy));
+    };
+    double dist = chordDev(xm, ym);
+    if (dist <= tol) {
+        double qx, qy;
+        double uq1 = u0 + (u1 - u0) * 0.25;
+        DeBoorSpline(degree, knots, cx, cy, w, uq1, qx, qy);
+        dist = chordDev(qx, qy);
+        if (dist <= tol) {
+            double uq3 = u0 + (u1 - u0) * 0.75;
+            DeBoorSpline(degree, knots, cx, cy, w, uq3, qx, qy);
+            dist = std::max(dist, chordDev(qx, qy));
+        }
+    }
+    if (dist <= tol) return;
+
+    FlattenSegment(degree, knots, cx, cy, w, tol, depth - 1,
+                   u0, x0, y0, um, xm, ym, pts);
+    pts.push_back({xm, ym});
+    FlattenSegment(degree, knots, cx, cy, w, tol, depth - 1,
+                   um, xm, ym, u1, x1, y1, pts);
+}
+
+// 输出 [uMin,uMax] 上的离散点 (含端点, 按 u 升序); 空 vector 表示数据不可用
+std::vector<std::pair<double, double>> FlattenSpline(
+    int degree, const std::vector<double>& knots,
+    const std::vector<double>& cx, const std::vector<double>& cy,
+    const std::vector<double>& w) {
+    std::vector<std::pair<double, double>> pts;
+    if (degree < 1 || knots.size() < 2 || cx.size() < 2) return pts;
+
+    double uMin = knots[degree];
+    double uMax = knots[knots.size() - degree - 1];
+    if (!(uMax > uMin)) return pts;
+
+    // 控制点包围盒: B 样条整条曲线落在控制点多边形凸包内, 故其尺寸可作为容差基准
+    double minX = cx[0], maxX = cx[0], minY = cy[0], maxY = cy[0];
+    for (size_t i = 1; i < cx.size(); i++) {
+        if (cx[i] < minX) minX = cx[i];
+        if (cx[i] > maxX) maxX = cx[i];
+        if (cy[i] < minY) minY = cy[i];
+        if (cy[i] > maxY) maxY = cy[i];
+    }
+    // 容差必须是纯几何量: 混入参数区间会让"参数跨度大而绘图尺寸小"的样条被
+    // 当成完全平直处理, 真实曲率整段丢失
+    double tol = std::hypot(maxX - minX, maxY - minY) * kSplineFlatRelTol;
+
+    // B 样条仅在 knot 处可能失去连续性, 以互异 knot 值分段
+    std::vector<double> bp;
+    bp.reserve(cx.size() + 1);
+    bp.push_back(uMin);
+    for (size_t i = degree + 1; i + degree + 1 < knots.size(); i++) {
+        if (knots[i] > bp.back() && knots[i] < uMax) bp.push_back(knots[i]);
+    }
+    bp.push_back(uMax);
+
+    double px, py;
+    DeBoorSpline(degree, knots, cx, cy, w, bp[0], px, py);
+    pts.push_back({px, py});
+    std::vector<std::pair<double, double>> mid;
+    for (size_t i = 1; i < bp.size(); i++) {
+        double qx, qy;
+        DeBoorSpline(degree, knots, cx, cy, w, bp[i], qx, qy);
+        mid.clear();
+        FlattenSegment(degree, knots, cx, cy, w, tol, kSplineFlatMaxDepth,
+                       bp[i - 1], px, py, bp[i], qx, qy, mid);
+        pts.insert(pts.end(), mid.begin(), mid.end());
+        pts.push_back({qx, qy});
+        px = qx;
+        py = qy;
+        if (pts.size() >= kSplineFlatMaxPts) break;
+    }
+    return pts;
+}
+
+// ---------------------------------------------------------------------------
 // DwgRenderer — Dwg_Data 遍历与 SVG 生成
 // ---------------------------------------------------------------------------
 class DwgRenderer {
@@ -505,6 +614,26 @@ private:
     std::ostringstream& out() { return *m_out; }
     std::ostringstream& fills() { return *m_fillsCur; }
     void BboxAdd(double x, double y) { m_bboxCur->add(x, y); }
+
+    // 写折线顶点序列 (模型坐标, Y 轴翻转)。first 表示尚未落任何点, 用引用传入
+    // 以便多段边界续接同一条 path。容差足够小时相邻点会落到同一个 %.3f 输出值
+    // 上, 这类重合点只放大路径不改外形, 直接跳过。
+    void EmitFlatPoints(std::ostringstream& sink, BBox* bbox,
+                        const std::vector<std::pair<double, double>>& pts,
+                        bool& first) {
+        long long lastIx = 0, lastIy = 0;
+        for (const auto& p : pts) {
+            long long ix = std::llround(p.first * 1000.0);
+            long long iy = std::llround(p.second * 1000.0);
+            if (!first && ix == lastIx && iy == lastIy) continue;
+            if (bbox) bbox->add(p.first, p.second);
+            sink << (first ? "M " : " L ") << FmtFloat(p.first) << " "
+                 << FmtFloat(-p.second);
+            first = false;
+            lastIx = ix;
+            lastIy = iy;
+        }
+    }
 
     // -----------------------------------------------------------------
     // 图层
@@ -978,24 +1107,17 @@ private:
                     w.push_back(sp->ctrl_pts[i].w);
                 }
                 bool rational = sp->rational && !w.empty();
-                double uMin = knots[degree];
-                double uMax = knots[sp->num_knots - degree - 1];
-                if (uMax <= uMin) uMax = uMin + 1.0;
-                int numSamples = std::max(100, (int)sp->num_ctrl_pts * 20);
-                double du = (uMax - uMin) / numSamples;
-                out() << "<path d=\"";
-                for (int i = 0; i <= numSamples; i++) {
-                    double u = (i == numSamples) ? uMax : (uMin + du * i);
-                    double px, py;
-                    DeBoorSpline(degree, knots, cx, cy,
-                                 rational ? w : std::vector<double>(), u, px, py);
-                    BboxAdd(px, py);
-                    if (i == 0) out() << "M " << FmtFloat(px) << " " << FmtFloat(-py);
-                    else        out() << " L " << FmtFloat(px) << " " << FmtFloat(-py);
+                static const std::vector<double> kNoWeights;
+                std::vector<std::pair<double, double>> pts = FlattenSpline(
+                    degree, knots, cx, cy, rational ? w : kNoWeights);
+                if (pts.size() >= 2) {
+                    out() << "<path d=\"";
+                    bool first = true;
+                    EmitFlatPoints(out(), m_bboxCur, pts, first);
+                    out() << "\" stroke=\"" << color
+                          << "\" stroke-width=\"__SW__\" fill=\"none\"/>\n";
+                    return;
                 }
-                out() << "\" stroke=\"" << color
-                      << "\" stroke-width=\"__SW__\" fill=\"none\"/>\n";
-                return;
             }
         }
         if (sp->num_fit_pts >= 2 && sp->fit_pts) {
@@ -1424,30 +1546,10 @@ private:
                                         seg.control_points[k].point.y);
                                     wv.push_back(seg.control_points[k].weight);
                                 }
-                                double uMin = knots[degree];
-                                double uMax =
-                                    knots[seg.num_knots - degree - 1];
-                                if (uMax <= uMin) uMax = uMin + 1.0;
-                                int numSamples =
-                                    std::max(50, (int)cxv.size() * 10);
-                                double du = (uMax - uMin) / numSamples;
-                                for (int k = 0; k <= numSamples; k++) {
-                                    double u = (k == numSamples)
-                                                   ? uMax
-                                                   : (uMin + du * k);
-                                    double px, py;
-                                    DeBoorSpline(degree, knots, cxv, cyv, wv,
-                                                 u, px, py);
-                                    hatchBbox.add(px, py);
-                                    if (firstPoint) {
-                                        pathSS << "M " << FmtFloat(px) << " "
-                                               << FmtFloat(-py) << " ";
-                                        firstPoint = false;
-                                    } else {
-                                        pathSS << "L " << FmtFloat(px) << " "
-                                               << FmtFloat(-py) << " ";
-                                    }
-                                }
+                                std::vector<std::pair<double, double>> pts =
+                                    FlattenSpline(degree, knots, cxv, cyv, wv);
+                                EmitFlatPoints(pathSS, &hatchBbox, pts,
+                                               firstPoint);
                             } else if (seg.num_fitpts >= 2 && seg.fitpts) {
                                 for (BITCODE_BL k = 0; k < seg.num_fitpts;
                                      k++) {
