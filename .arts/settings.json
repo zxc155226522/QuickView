@@ -1,0 +1,25 @@
+{
+  "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+  "C_Cpp.default.compileCommands": "${workspaceFolder}/out/build/Release-LTO/compile_commands.json",
+  "cmake.configureOnOpen": true,
+  "cmake.generator": "Ninja",
+  "files.associations": {
+    "*.h": "cpp",
+    "*.cpp": "cpp",
+    "*.hpp": "cpp",
+    "bit": "cpp",
+    "mutex": "cpp",
+    "shared_mutex": "cpp",
+    "unordered_map": "cpp",
+    "unordered_set": "cpp",
+    "filesystem": "cpp",
+    "expected": "cpp",
+    "*.qvtheme": "json",
+    "*.rc": "rc"
+  },
+  "editor.formatOnSave": true,
+  "C_Cpp.errorSquiggles": "enabled",
+  "C_Cpp.intelliSenseEngine": "default",
+  "C_Cpp.vcpkg.enabled": true,
+  "clawMode.mode": "claw"
+}
