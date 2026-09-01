@@ -12274,7 +12274,7 @@ HRESULT CImageLoader::LoadDXF(LPCWSTR filePath,
   bool cadFromCache = false;
   std::string svgContent = LoadCadSvgShared(
       filePath,
-      [&]() { return QuickView::LoadDXFtoSVG(fileData.data(), fileData.size()); },
+      [&]() { return QuickView::LoadDXFtoSVG(fileData.data(), fileData.size(), checkCancel); },
       &cadFromCache);
   const int cadParseMs = (int)std::chrono::duration_cast<std::chrono::milliseconds>(
                              std::chrono::steady_clock::now() - cadParseStart).count();
@@ -12360,7 +12360,7 @@ HRESULT CImageLoader::LoadDWG(LPCWSTR filePath,
   bool cadFromCache = false;
   std::string svgContent = LoadCadSvgShared(
       filePath,
-      [&]() { return QuickView::LoadDWGtoSVG(fileData.data(), fileData.size()); },
+      [&]() { return QuickView::LoadDWGtoSVG(fileData.data(), fileData.size(), checkCancel); },
       &cadFromCache);
   const int cadParseMs = (int)std::chrono::duration_cast<std::chrono::milliseconds>(
                              std::chrono::steady_clock::now() - cadParseStart).count();

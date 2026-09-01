@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 #include <cstdint>
+#include "ImageTypes.h"
 
 namespace QuickView {
 
@@ -27,5 +28,13 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size);
 /// DWG(AutoCAD) → SVG XML 转换 (via LibreDWG, 实现在 DwgLoader.cpp)
 /// 返回非空 SVG 字符串表示成功，空字符串表示失败。
 std::string LoadDWGtoSVG(const uint8_t* data, size_t size);
+
+/// DXF → SVG (带取消谓词: 渲染循环中定期检查, 返回 true 表示用户取消)
+std::string LoadDXFtoSVG(const uint8_t* data, size_t size,
+                         SimplePredicate checkCancel);
+
+/// DWG → SVG (带取消谓词, 无超时上限, 用户取消是唯一终止手段)
+std::string LoadDWGtoSVG(const uint8_t* data, size_t size,
+                         SimplePredicate checkCancel);
 
 } // namespace QuickView

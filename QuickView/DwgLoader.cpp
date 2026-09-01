@@ -537,23 +537,182 @@ std::vector<std::pair<double, double>> FlattenSpline(
 // ---------------------------------------------------------------------------
 class DwgRenderer {
 public:
-    explicit DwgRenderer(Dwg_Data& dwg, bool utf16Text)
-        : m_dwg(dwg), m_utf16(utf16Text) {}
+    explicit DwgRenderer(Dwg_Data& dwg, bool utf16Text,
+                         SimplePredicate cancel = {})
+        : m_dwg(dwg), m_utf16(utf16Text), m_cancel(cancel) {}
+
+    // 预构建所有块定义缓存 (并行前串行调用)
+    void PreloadBlockDefs() {
+        for (BITCODE_RL i = 0; i < m_dwg.num_objects; i++) {
+            Dwg_Object* obj = &m_dwg.object[i];
+            if (obj->fixedtype != DWG_TYPE_BLOCK_HEADER) continue;
+            RenderBlockDef(obj);
+        }
+    }
+
+    // 收集模型空间实体到 vector (供并行分片用)
+    std::vector<Dwg_Object*> CollectMspaceEntities() {
+        std::vector<Dwg_Object*> entities;
+        Dwg_Object_Ref* mspaceRef = dwg_model_space_ref(&m_dwg);
+        if (mspaceRef && mspaceRef->obj) {
+            Dwg_Object* obj = get_first_owned_entity(mspaceRef->obj);
+            while (obj) {
+                if (obj->supertype == DWG_SUPERTYPE_ENTITY)
+                    entities.push_back(obj);
+                obj = get_next_owned_entity(mspaceRef->obj, obj);
+            }
+        } else {
+            // 兜底路径: 遍历全部对象
+            for (BITCODE_RL i = 0; i < m_dwg.num_objects; i++) {
+                Dwg_Object* obj = &m_dwg.object[i];
+                if (obj->supertype != DWG_SUPERTYPE_ENTITY) continue;
+                Dwg_Object_Entity* ent = obj->tio.entity;
+                if (!ent) continue;
+                if (ent->entmode == 2 || (ent->entmode == 3 && IsMspaceOwner(ent)))
+                    entities.push_back(obj);
+            }
+        }
+        return entities;
+    }
+
+    // 渲染指定区间内的实体 (并行分片调用)
+    void RenderRange(size_t begin, size_t end,
+                     const std::vector<Dwg_Object*>& entities) {
+        for (size_t i = begin; i < end; i++) {
+            RenderEntity(entities[i]);
+            // 每 256 个实体检查一次取消
+            if (m_cancel && ((i - begin) & 255) == 0 && m_cancel()) {
+                m_cancelled = true;
+                return;
+            }
+        }
+    }
+
+    // 合并另一个 renderer 的输出 (并行后拼接用)
+    void MergeFrom(DwgRenderer& other) {
+        m_defs << other.m_defs.str();
+        m_fills << other.m_fills.str();
+        m_body << other.m_body.str();
+        if (other.m_bbox.valid) m_bbox.add(other.m_bbox.minX, other.m_bbox.minY);
+        if (other.m_bbox.valid) m_bbox.add(other.m_bbox.maxX, other.m_bbox.maxY);
+    }
+
+    BBox& GetBBox() { return m_bbox; }
+    std::ostringstream& Defs() { return m_defs; }
+    std::ostringstream& Fills() { return m_fills; }
+    std::ostringstream& Body() { return m_body; }
+    int NextClipId() { return m_clipId++; }
 
     std::string Render() {
         BuildLayerTable();
 
-        // 模型空间实体链
-        Dwg_Object_Ref* mspaceRef = dwg_model_space_ref(&m_dwg);
-        if (!mspaceRef || !mspaceRef->obj) {
-            // 兜底: 直接遍历全部对象, 渲染属于模型空间的实体
-            RenderAllObjectsFallback();
-        } else {
-            Dwg_Object* obj = get_first_owned_entity(mspaceRef->obj);
-            while (obj) {
-                if (obj->supertype == DWG_SUPERTYPE_ENTITY)
-                    RenderEntity(obj);
-                obj = get_next_owned_entity(mspaceRef->obj, obj);
+        // 收集模型空间实体
+        auto entities = CollectMspaceEntities();
+
+        // 大文件 (>=2000 实体) 启用并行渲染
+        if (entities.size() >= 2000) {
+            return RenderParallel(entities);
+        }
+
+        // 串行路径 (含取消检查)
+        for (size_t i = 0; i < entities.size(); i++) {
+            RenderEntity(entities[i]);
+            if (m_cancel && (i & 255) == 0 && m_cancel())
+                return {};
+        }
+
+        if (!m_bbox.valid) return {};
+
+        std::string body;
+        body.reserve(m_defs.str().size() + m_fills.str().size() +
+                     m_body.str().size() + 32);
+        body += m_defs.str();
+        body += m_fills.str();
+        body += m_body.str();
+        return AssembleSvg(m_bbox, std::move(body));
+    }
+
+private:
+    std::string RenderParallel(const std::vector<Dwg_Object*>& entities) {
+        // 串行预构建: 块定义缓存 (图层表已在 Render() 入口构建)
+        PreloadBlockDefs();
+
+        unsigned hwThreads = std::thread::hardware_concurrency();
+        if (hwThreads < 2) hwThreads = 2;
+        unsigned numShards = (hwThreads - 1);
+        size_t total = entities.size();
+        if (numShards > total / 500) numShards = (unsigned)(total / 500);
+        if (numShards < 1) numShards = 1;
+        if (numShards > 16) numShards = 16;
+
+        if (numShards <= 1) {
+            // 退化为串行
+            for (size_t i = 0; i < total; i++) {
+                RenderEntity(entities[i]);
+                if (m_cancel && (i & 255) == 0 && m_cancel())
+                    return {};
+            }
+            if (!m_bbox.valid) return {};
+            std::string body;
+            body.reserve(m_defs.str().size() + m_fills.str().size() +
+                         m_body.str().size() + 32);
+            body += m_defs.str();
+            body += m_fills.str();
+            body += m_body.str();
+            return AssembleSvg(m_bbox, std::move(body));
+        }
+
+        // 创建分片 renderer (ostringstream 不可拷贝/移动, 用 unique_ptr)
+        struct ShardResult {
+            std::unique_ptr<DwgRenderer> renderer;
+            size_t begin, end;
+        };
+        std::vector<ShardResult> shards;
+        shards.reserve(numShards);
+        size_t perShard = total / numShards;
+        size_t remainder = total % numShards;
+        size_t offset = 0;
+        for (unsigned s = 0; s < numShards; s++) {
+            size_t cnt = perShard + (s < remainder ? 1 : 0);
+            auto r = std::make_unique<DwgRenderer>(m_dwg, m_utf16, m_cancel);
+            // 拷贝预构建的缓存到分片
+            r->m_layers = m_layers;
+            r->m_blocks = m_blocks;
+            r->m_styles = m_styles;
+            r->m_clipId = m_clipId;
+            shards.push_back({std::move(r), offset, offset + cnt});
+            offset += cnt;
+        }
+
+        // 并行渲染
+        std::vector<std::thread> threads;
+        threads.reserve(numShards - 1);
+        for (unsigned s = 0; s < numShards - 1; s++) {
+            threads.emplace_back([&shards, &entities, s]() {
+                shards[s].renderer->RenderRange(
+                    shards[s].begin, shards[s].end, entities);
+            });
+        }
+        // 主线程处理最后一个分片
+        {
+            auto& last = shards.back();
+            last.renderer->RenderRange(last.begin, last.end, entities);
+        }
+        for (auto& t : threads) t.join();
+
+        // 检查取消
+        for (auto& s : shards) {
+            if (s.renderer->m_cancelled) return {};
+        }
+
+        // 按序合并
+        for (auto& s : shards) {
+            m_defs << s.renderer->m_defs.str();
+            m_fills << s.renderer->m_fills.str();
+            m_body << s.renderer->m_body.str();
+            if (s.renderer->m_bbox.valid) {
+                m_bbox.add(s.renderer->m_bbox.minX, s.renderer->m_bbox.minY);
+                m_bbox.add(s.renderer->m_bbox.maxX, s.renderer->m_bbox.maxY);
             }
         }
 
@@ -572,6 +731,7 @@ private:
     Dwg_Data& m_dwg;
     bool m_utf16;
     BBox m_bbox;
+    SimplePredicate m_cancel;   // 取消谓词 (可选)
     std::ostringstream m_body;   // 线框层 (上层)
     std::ostringstream m_fills;  // 填充层 (下层, 主空间)
     std::ostringstream m_defs;   // clipPath 定义
@@ -608,6 +768,9 @@ private:
     };
     std::unordered_map<const Dwg_Object*, StyleFont> m_styles;
     TextOutliner m_text;
+
+    // 取消标志 (分片渲染命中取消后置位)
+    bool m_cancelled = false;
 
     // --- 当前渲染目标 (渲染块定义时切换) ---
 
@@ -1655,9 +1818,15 @@ private:
 
 // ============================================================================
 // 通用解析+渲染: dwg_read_memory 直接解析内存缓冲 (无临时文件中转)
+// 取消谓词在渲染循环中每 256 个实体检查一次; 解析阶段无法注入检查点
+// (LibreDWG 内核未改造), 但渲染阶段是主要耗时环节
 // ============================================================================
-static std::string LoadCadToSVG(const uint8_t* data, size_t size, bool isDwg) {
+static std::string LoadCadToSVG(const uint8_t* data, size_t size, bool isDwg,
+                                SimplePredicate checkCancel = {}) {
     if (!data || size == 0) return {};
+
+    // 解析前检查取消
+    if (checkCancel && checkCancel()) return {};
 
     std::string result;
     {
@@ -1669,11 +1838,16 @@ static std::string LoadCadToSVG(const uint8_t* data, size_t size, bool isDwg) {
                                std::chrono::steady_clock::now() - t0).count();
         // DWG_ERR_CRITICAL=128, 所有 >=128 的位均为致命错误
         if (!(static_cast<unsigned>(error) & ~0x7Fu)) {
+            // 解析完成后再检查取消
+            if (checkCancel && checkCancel()) {
+                dwg_free(&dwg);
+                return {};
+            }
             // 文本编码: 仅二进制 DWG R2007+ 为 UTF-16;
             // DXF 即使 R2007+ 也是 UTF-8 (LocalBytesToUtf8 会保留) 或旧代码页
             bool utf16Text = isDwg && dwg.header.version >= R_2007;
             const auto t1 = std::chrono::steady_clock::now();
-            DwgRenderer renderer(dwg, utf16Text);
+            DwgRenderer renderer(dwg, utf16Text, checkCancel);
             result = renderer.Render();
             const int renderMs = (int)std::chrono::duration_cast<std::chrono::milliseconds>(
                                      std::chrono::steady_clock::now() - t1).count();
@@ -1694,64 +1868,25 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size) {
     return LoadCadToSVG(data, size, false);
 }
 
-// ----------------------------------------------------------------------------
-// DWG 异步超时包装: 大文件/不兼容版本解析可能耗时数十秒甚至无限卡住
-// 策略: 在后台线程执行解析, 调用线程等待最多 kDwgTimeoutMs 毫秒
-// 超时后置位取消标志, 后台解析在下一个对象检查点中止 (DWG_ERR_CANCELLED),
-// 不再空跑到结束; 返回空字符串
-// 注意: 项目禁用异常(/EHs-c-), 不使用 try/catch
-// ----------------------------------------------------------------------------
-static constexpr int kDwgTimeoutMs = 8000;  // DWG 解析超时阈值
-
-namespace {
-struct DwgCancelContext {
-    std::atomic<bool> cancelled{ false };
-};
-int DwgCancelCheck(void* ctx) {
-    return static_cast<DwgCancelContext*>(ctx)->cancelled.load(
-               std::memory_order_relaxed) ? 1 : 0;
-}
-} // namespace
-
+// DWG (AutoCAD) → SVG (via LibreDWG dwg_read_memory)
+// [v6.30.14] 移除 8 秒硬超时包装, 改为无时限模式:
+//   - 大 DWG 文件不再 8 秒后直接失败
+//   - 用户手动取消是唯一终止手段 (取消谓词透传至渲染循环)
+//   - 解析+渲染均在调用线程同步执行 (HeavyLanePool 后台线程)
 std::string LoadDWGtoSVG(const uint8_t* data, size_t size) {
-    // 快速路径: 空文件直接返回
-    if (!data || size == 0) return {};
+    return LoadCadToSVG(data, size, true);
+}
 
-    auto cancelCtx = std::make_shared<DwgCancelContext>();
+// --- 带取消谓词的重载 (DXF) ---
+std::string LoadDXFtoSVG(const uint8_t* data, size_t size,
+                         SimplePredicate checkCancel) {
+    return LoadCadToSVG(data, size, false, checkCancel);
+}
 
-    // 使用 shared_future 避免 future 析构时阻塞
-    // std::async 返回的 future 析构会阻塞等待任务完成,
-    // 转为 shared_future 后析构不阻塞
-    std::future<std::string> asyncFuture = std::async(
-        std::launch::async, [data, size, cancelCtx]() -> std::string {
-            std::string result;
-            Dwg_Data dwg;
-            memset(&dwg, 0, sizeof(dwg));
-            dwg.cancel_check = &DwgCancelCheck;
-            dwg.hook_ctx = cancelCtx.get();
-            int error = dwg_read_memory(data, size, &dwg);
-            if (!(static_cast<unsigned>(error) & ~0x7Fu)) {
-                DwgRenderer renderer(dwg, dwg.header.version >= R_2007);
-                result = renderer.Render();
-            }
-            dwg_free(&dwg);
-            return result;
-        });
-
-    // 转移共享状态到 shared_future (asyncFuture 变为空)
-    std::shared_future<std::string> future = asyncFuture.share();
-
-    // 等待结果或超时
-    if (future.wait_for(std::chrono::milliseconds(kDwgTimeoutMs)) ==
-        std::future_status::timeout) {
-        // 超时: 通知后台解析中止并返回空字符串
-        // shared_future 析构不阻塞; 后台线程在下一检查点退出
-        cancelCtx->cancelled.store(true, std::memory_order_relaxed);
-        return {};
-    }
-
-    // 正常完成
-    return future.get();
+// --- 带取消谓词的重载 (DWG) ---
+std::string LoadDWGtoSVG(const uint8_t* data, size_t size,
+                         SimplePredicate checkCancel) {
+    return LoadCadToSVG(data, size, true, checkCancel);
 }
 
 } // namespace QuickView
