@@ -240,15 +240,30 @@ inline std::string AssembleSvg(const BBox& bbox, std::string bodyStr) {
     if (vbH <= 0) vbH = 100;
 
     // 替换占位 stroke-width
+    // [Perf] 单遍扫描替换 __SW__，避免 std::string::replace 反复移动尾部数据
     std::string strokeW = CalcStrokeWidth(bbox.maxDim());
     {
-        const std::string placeholder = "\" stroke-width=\"__SW__\"";
+        const char* needle = "\" stroke-width=\"__SW__\"";
+        const size_t needleLen = 22; // strlen(needle)
         const std::string replacement = "\" stroke-width=\"" + strokeW + "\"";
-        size_t p = 0;
-        while ((p = bodyStr.find(placeholder, p)) != std::string::npos) {
-            bodyStr.replace(p, placeholder.size(), replacement);
-            p += replacement.size();
+        const size_t replLen = replacement.size();
+        // 估算: 原 body 大小 + 替换差值 × 预估占位符数量
+        size_t estPlaceholders = bodyStr.size() / 200; // 粗略估计
+        size_t estCapacity = bodyStr.size() + estPlaceholders * (replLen - needleLen);
+        std::string out;
+        out.reserve(std::max(estCapacity, bodyStr.size() + 256));
+        size_t pos = 0;
+        while (pos < bodyStr.size()) {
+            size_t found = bodyStr.find(needle, pos);
+            if (found == std::string::npos) {
+                out.append(bodyStr, pos, std::string::npos);
+                break;
+            }
+            out.append(bodyStr, pos, found - pos);
+            out.append(replacement);
+            pos = found + needleLen;
         }
+        bodyStr = std::move(out);
     }
 
     std::string svg;

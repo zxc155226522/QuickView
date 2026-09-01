@@ -7647,6 +7647,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
             KillTimer(hwnd, IDT_INTERACTION);
             GetPaneContext(PaneSlot::Primary).view.IsInteracting = false;  // End interaction mode
             TryUpgradeBitmapSurface(hwnd);
+            // [SVG Drag Optimization] After drag/zoom interaction ends, re-rasterize
+            // the SVG backing surface at the final zoom/pan position for sharp quality.
+            if (UseSvgViewportRendering(GetPaneContext(PaneSlot::Primary).resource)) {
+                UpgradeSvgSurface(hwnd, GetPaneContext(PaneSlot::Primary).resource);
+            }
             RequestRepaint(PaintLayer::Image);  // [v4.1] Trigger HQ interpolation redraw
         }
 
@@ -8867,7 +8872,11 @@ SKIP_EDGE_NAV:;
                  RECT rc; GetClientRect(hwnd, &rc);
                  SyncDCompState(hwnd, (float)rc.right, (float)rc.bottom);
 if (UseSurfaceBasedRendering(GetPaneContext(PaneSlot::Primary).resource)) {
-RequestRepaint(PaintLayer::Image | PaintLayer::Dynamic | PaintLayer::Static);
+// [SVG Drag Optimization] During drag, the SVG backing surface is already
+// rasterized. DComp transform handles pan/zoom — no need to re-rasterize.
+// Skip PaintLayer::Image to avoid triggering UpgradeSvgSurface in OnPaint.
+// Surface will be re-rasterized on IDT_INTERACTION timeout after drag ends.
+RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);
 } else {
 RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);  // OSD and Border indicators update
 }
@@ -14521,8 +14530,14 @@ void OnPaint(HWND hwnd) {
             // Background clearing and grid drawing are moved to CompositionEngine surfaces.
             SyncDCompState(hwnd, winPixelsW, winPixelsH);
 
+// [SVG Drag Optimization] Skip SVG re-rasterization during drag/pan interaction.
+// The backing surface already holds the full zoomed image; DComp performs
+// centering + pan via UpdateTransformMatrix (zero GPU re-raster cost).
+// Re-rasterization is deferred to IDT_INTERACTION timeout (150ms after drag end).
 if (imageWasDirty && UseSvgViewportRendering(GetPaneContext(PaneSlot::Primary).resource)) {
+if (!GetPaneContext(PaneSlot::Primary).view.IsInteracting) {
 UpgradeSvgSurface(hwnd, GetPaneContext(PaneSlot::Primary).resource);
+}
 }
 
 // [resvg Fix] resvg bitmaps also need re-rasterization when the surface size
