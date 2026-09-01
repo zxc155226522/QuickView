@@ -12149,16 +12149,42 @@ namespace {
 // CAD 解析共享缓存: 同 path+mtime+size 的 DXF/DWG→SVG 只完整解析一次。
 // 并发请求者(主视图/缩略图)挂接在途 future 等待结果, 避免秒级重复解析。
 // 空结果(失败/超时)不入缓存, 由后来者重新尝试。
+//
+// 容量按字节预算而非条数: 一张工程图的 SVG 就有数 MB (实测 DWG 达 7MB),
+// 固定条数上限最坏会长期占住上百 MB 且不随访问释放。超预算时按 LRU 逐条
+// 淘汰已完成条目; 在途条目(bytes==0)不淘汰, 否则并发等待者拿不到结果。
+constexpr size_t kCadCacheMaxBytes = 64ull * 1024 * 1024;
+
 struct CadSvgCacheEntry {
     std::shared_ptr<std::promise<std::string>> inFlight;
     std::shared_future<std::string> waiter;
+    size_t bytes = 0;      // 0 = 解析尚未完成
+    uint64_t lastUse = 0;  // LRU 序号, 越大越近使用
 };
 
 struct CadSvgCache {
     std::mutex mtx;
     std::unordered_map<std::wstring, CadSvgCacheEntry> entries;
+    size_t totalBytes = 0;
+    uint64_t tick = 0;
 };
 CadSvgCache g_cadSvgCache;
+
+// 需调用方持锁
+void TrimCadCacheLocked(CadSvgCache &c) {
+    while (c.totalBytes > kCadCacheMaxBytes) {
+        auto oldest = c.entries.end();
+        for (auto it = c.entries.begin(); it != c.entries.end(); ++it) {
+            if (it->second.bytes == 0) continue;
+            if (oldest == c.entries.end() ||
+                it->second.lastUse < oldest->second.lastUse)
+                oldest = it;
+        }
+        if (oldest == c.entries.end()) break;  // 剩的全在解析中, 只能暂时超预算
+        c.totalBytes -= oldest->second.bytes;
+        c.entries.erase(oldest);
+    }
+}
 
 std::wstring MakeCadCacheKey(LPCWSTR filePath) {
     WIN32_FILE_ATTRIBUTE_DATA fad{};
@@ -12182,27 +12208,40 @@ std::string LoadCadSvgShared(LPCWSTR filePath, ParseFn &&parseFn,
     std::shared_future<std::string> waiter;
     {
         std::lock_guard<std::mutex> lock(g_cadSvgCache.mtx);
-        auto it = g_cadSvgCache.entries.find(key);
-        if (it == g_cadSvgCache.entries.end()) {
-            if (g_cadSvgCache.entries.size() >= 24)
-                g_cadSvgCache.entries.clear();  // 粗略容量上限
+        auto &cache = g_cadSvgCache;
+        const uint64_t now = ++cache.tick;
+        auto it = cache.entries.find(key);
+        if (it == cache.entries.end()) {
             CadSvgCacheEntry e;
             e.inFlight = std::make_shared<std::promise<std::string>>();
             e.waiter = e.inFlight->get_future().share();
+            e.lastUse = now;
             promise = e.inFlight;
-            g_cadSvgCache.entries.emplace(key, std::move(e));
+            cache.entries.emplace(key, std::move(e));
         } else {
+            it->second.lastUse = now;
             waiter = it->second.waiter;
         }
     }
 
     if (promise) {  // 本线程负责解析
         std::string svg = parseFn();
-        promise->set_value(svg);
-        if (svg.empty()) {
+        {
             std::lock_guard<std::mutex> lock(g_cadSvgCache.mtx);
-            g_cadSvgCache.entries.erase(key);
+            auto it = g_cadSvgCache.entries.find(key);
+            // 仅当条目仍是本次解析登记的那条才记账
+            if (it != g_cadSvgCache.entries.end() && it->second.inFlight == promise) {
+                if (svg.empty()) {
+                    g_cadSvgCache.entries.erase(it);
+                } else {
+                    it->second.bytes = svg.size();
+                    it->second.lastUse = ++g_cadSvgCache.tick;
+                    g_cadSvgCache.totalBytes += it->second.bytes;
+                }
+                TrimCadCacheLocked(g_cadSvgCache);
+            }
         }
+        promise->set_value(svg);
         return svg;
     }
 
