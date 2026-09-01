@@ -36,28 +36,6 @@ constexpr double kPi = 3.14159265358979;
 // 文本处理
 // ---------------------------------------------------------------------------
 
-// XML 转义, 保留合法 UTF-8 多字节序列 (r2007+ 文本来源)
-std::string EscapeXmlKeepUtf8(const std::string& s) {
-    std::string out;
-    out.reserve(s.size() + 8);
-    for (size_t i = 0; i < s.size(); i++) {
-        unsigned char c = (unsigned char)s[i];
-        switch (c) {
-            case '&': out += "&amp;"; break;
-            case '<': out += "&lt;"; break;
-            case '>': out += "&gt;"; break;
-            case '"': out += "&quot;"; break;
-            default:
-                if (c < 0x20 && c != '\t' && c != '\n' && c != '\r') {
-                    out += '?';
-                } else {
-                    out += (char)c; // 含合法 UTF-8 多字节与 ASCII
-                }
-        }
-    }
-    return out;
-}
-
 // 早期版本 (本地代码页) 字节 → UTF-8。
 // R2007+ 的 DXF 文本本身是 UTF-8 → 合法 UTF-8 直接保留;
 // 否则中文环境常见 GBK (ANSI_936) → 转换; 无代码页信息时退化非 ASCII 置 '?'
@@ -118,9 +96,331 @@ std::string DwgTextToUtf8(BITCODE_T s, bool utf16) {
     return LocalBytesToUtf8(s); // 早期版本: 本地代码页字节
 }
 
-// BITCODE_T → 已转义 XML 文本 (保留合法 UTF-8 多字节)
-std::string DwgTextToXml(BITCODE_T s, bool utf16) {
-    return EscapeXmlKeepUtf8(DwgTextToUtf8(s, utf16));
+std::wstring Utf8ToWide(const std::string& s) {
+    if (s.empty()) return {};
+    int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0);
+    if (n <= 0) return {};
+    std::wstring w(n, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), &w[0], n);
+    return w;
+}
+
+std::wstring LowerWide(std::wstring s) {
+    for (auto& c : s) c = towlower(c);
+    return s;
+}
+
+// ---------------------------------------------------------------------------
+// 文字轮廓化
+// CAD 帧走 Direct2D 原生 ID2D1SvgDocument 管线, 而它只实现 SVG 1.1 的排版子集
+// —— 不做 <text> 布局, 文字会被整段吞掉。故在生成 SVG 阶段就用 GDI
+// GetGlyphOutline(GGO_NATIVE) 取 TrueType 原生轮廓, 展开成 <path>。
+// 轮廓统一按 em=1000 采集 (y 轴朝上、基线 y=0), 之后再缩放到 CAD 文字高度。
+// ---------------------------------------------------------------------------
+constexpr LONG kGlyphEm = 1000;
+// lpMat2 传 NULL 会让 GetGlyphOutline 一律返回 GDI_ERROR, 必须显式给单位矩阵
+const MAT2 kIdentMat2 = { {0, 1}, {0, 0}, {0, 0}, {0, 1} };
+
+struct GlyphSeg {
+    char op = 'M';        // 'M' 'L' 'C' 'Z'
+    double x[3] = {0, 0, 0};
+    double y[3] = {0, 0, 0};
+};
+
+struct GlyphShape {
+    std::vector<GlyphSeg> segs;
+    double advance = 0;
+    double minX = 0, minY = 0, maxX = 0, maxY = 0;   // em, 相对基线原点
+};
+
+struct GlyphPoint {
+    double x = 0, y = 0;
+    bool quad = false;    // true = TT_PRIM_QSPLINE 的控制点, false = 直线端点
+};
+
+double Fixed1616ToDouble(FIXED f) { return f.value + f.fract / 65536.0; }
+
+// 一条轮廓的顶点序列 → 闭合子路径。GDI 把 TrueType 轮廓摊平成 (off-curve,
+// on-curve) 交替序列: 首点可能是 off-curve (此时 pfxStart 已是隐含中点),
+// 末尾也可能悬空一个 off-curve, 需回到轮廓起点闭合。
+void EmitContour(GlyphShape& g, const POINTFX& start,
+                 const std::vector<GlyphPoint>& items) {
+    double sx = Fixed1616ToDouble(start.x), sy = Fixed1616ToDouble(start.y);
+    double cx = sx, cy = sy;
+    GlyphSeg m; m.op = 'M'; m.x[0] = cx; m.y[0] = cy;
+    g.segs.push_back(m);
+    size_t i = 0;
+    while (i < items.size()) {
+        if (!items[i].quad) {   // TT_PRIM_LINE
+            GlyphSeg s; s.op = 'L'; s.x[0] = items[i].x; s.y[0] = items[i].y;
+            g.segs.push_back(s);
+            cx = s.x[0]; cy = s.y[0];
+            i++;
+            continue;
+        }
+        double qx = items[i].x, qy = items[i].y;
+        i++;
+        double ex, ey;
+        if (i < items.size() && !items[i].quad) {
+            ex = items[i].x; ey = items[i].y;
+            i++;
+        } else if (i < items.size()) {
+            ex = (qx + items[i].x) / 2; ey = (qy + items[i].y) / 2;
+        } else {
+            ex = sx; ey = sy;
+        }
+        GlyphSeg s; s.op = 'C';
+        s.x[0] = cx + (2.0 / 3.0) * (qx - cx); s.y[0] = cy + (2.0 / 3.0) * (qy - cy);
+        s.x[1] = ex + (2.0 / 3.0) * (qx - ex); s.y[1] = ey + (2.0 / 3.0) * (qy - ey);
+        s.x[2] = ex; s.y[2] = ey;
+        g.segs.push_back(s);
+        cx = ex; cy = ey;
+    }
+    GlyphSeg z; z.op = 'Z';
+    g.segs.push_back(z);
+}
+
+void AppendPathNum(std::string& d, double v, int decimals) {
+    char buf[40];
+    int n = snprintf(buf, sizeof(buf), "%.*f", decimals, v);
+    if (n <= 0) return;
+    int e = n;
+    char* dot = (decimals > 0) ? (char*)memchr(buf, '.', (size_t)n) : nullptr;
+    if (dot) {
+        int stop = (int)(dot - buf);
+        while (e > stop && buf[e - 1] == '0') buf[--e] = '\0';
+        if (e > 0 && buf[e - 1] == '.') buf[--e] = '\0';
+    }
+    d.append(buf, e);
+}
+
+class TextOutliner {
+public:
+    TextOutliner() { m_dc = CreateCompatibleDC(nullptr); }
+    ~TextOutliner() {
+        for (auto* f : m_faces) {
+            if (f->font) DeleteObject(f->font);
+            delete f;
+        }
+        if (m_dc) DeleteDC(m_dc);
+    }
+    TextOutliner(const TextOutliner&) = delete;
+    TextOutliner& operator=(const TextOutliner&) = delete;
+
+    // face 为空 → 默认字体。d 为局部坐标路径 (x 沿基线, y 朝下), local 为其包围盒
+    bool BuildText(const std::wstring& text, const std::wstring& face, double height,
+                   double widthFactor, double oblique, std::string& d, BBox& local);
+
+private:
+    struct Face {
+        HFONT font = nullptr;
+        double cap = 700;     // 'H' 高度 (em), 用于把 CAD 文字高度换算成 em
+        size_t id = 0;
+    };
+
+    static HFONT MakeFont(const wchar_t* name) {
+        LOGFONTW lf;
+        memset(&lf, 0, sizeof(lf));
+        lf.lfHeight = -kGlyphEm;
+        lf.lfCharSet = DEFAULT_CHARSET;
+        lf.lfOutPrecision = OUT_TT_PRECIS;
+        lf.lfClipPrecision = CLIP_DEFAULT_PRECIS;
+        lf.lfQuality = PROOF_QUALITY;   // 按设计形状取轮廓, 不做像素网格 hinting
+        lf.lfPitchAndFamily = FF_DONTCARE | DEFAULT_PITCH;
+        wcsncpy_s(lf.lfFaceName, name, LF_FACESIZE - 1);
+        lf.lfFaceName[LF_FACESIZE - 1] = 0;
+        return CreateFontIndirectW(&lf);
+    }
+
+    bool UseFace(Face* f) {
+        if (!f || !f->font) return false;
+        if (m_selected != f->font) {
+            if (!SelectObject(m_dc, f->font)) return false;
+            m_selected = f->font;
+        }
+        return true;
+    }
+
+    Face* GetFace(const std::wstring& requested);
+    const GlyphShape* FetchGlyph(Face* face, wchar_t ch);
+
+    struct CachedText {
+        std::string d;
+        BBox box;
+    };
+
+    HDC m_dc = nullptr;
+    HFONT m_selected = nullptr;
+    std::vector<Face*> m_faces;
+    std::unordered_map<std::wstring, Face*> m_faceByName;
+    std::unordered_map<unsigned long long, GlyphShape> m_glyphs;
+    std::unordered_map<std::string, CachedText> m_strings;   // 重复文字串复用
+};
+
+TextOutliner::Face* TextOutliner::GetFace(const std::wstring& requested) {
+    if (!m_dc) return nullptr;
+    std::wstring key = LowerWide(requested.empty() ? L"arial" : requested);
+    auto hit = m_faceByName.find(key);
+    if (hit != m_faceByName.end()) return hit->second;
+
+    HFONT font = MakeFont(key.c_str());
+    if (!font) return nullptr;
+    if (!SelectObject(m_dc, font)) { DeleteObject(font); return nullptr; }
+    m_selected = font;
+    // GDI 会把不存在的族名替换成别的字体: 改用真实族名, 让缓存键与实际字形一致
+    wchar_t actual[LF_FACESIZE] = {0};
+    if (GetTextFaceW(m_dc, LF_FACESIZE, actual) > 0) {
+        std::wstring real = LowerWide(actual);
+        if (!real.empty() && real != key) {
+            hit = m_faceByName.find(real);
+            if (hit != m_faceByName.end()) {
+                m_selected = nullptr;
+                DeleteObject(font);
+                return hit->second;
+            }
+            DeleteObject(font);
+            font = MakeFont(real.c_str());
+            key = real;
+            if (!font) return nullptr;
+            if (!SelectObject(m_dc, font)) { DeleteObject(font); return nullptr; }
+            m_selected = font;
+        }
+    }
+
+    Face* f = new Face();
+    f->font = font;
+    f->id = m_faces.size();
+    GLYPHMETRICS gm;
+    memset(&gm, 0, sizeof(gm));
+    if (GetGlyphOutlineW(m_dc, L'H', GGO_NATIVE, &gm, 0, nullptr, &kIdentMat2) != GDI_ERROR
+        && gm.gmBlackBoxY > 0) {
+        f->cap = gm.gmBlackBoxY;
+    }
+    m_faces.push_back(f);
+    m_faceByName[key] = f;
+    return f;
+}
+
+const GlyphShape* TextOutliner::FetchGlyph(Face* face, wchar_t ch) {
+    unsigned long long key = ((unsigned long long)face->id << 32) | (unsigned short)ch;
+    auto hit = m_glyphs.find(key);
+    if (hit != m_glyphs.end()) return &hit->second;
+
+    GlyphShape g;
+    if (!UseFace(face)) return &m_glyphs.emplace(key, g).first->second;
+    GLYPHMETRICS gm;
+    memset(&gm, 0, sizeof(gm));
+    DWORD sz = GetGlyphOutlineW(m_dc, ch, GGO_NATIVE, &gm, 0, nullptr, &kIdentMat2);
+    if (sz == GDI_ERROR) {
+        // 无轮廓字形(空格等): 退回只取度量
+        memset(&gm, 0, sizeof(gm));
+        if (GetGlyphOutlineW(m_dc, ch, GGO_METRICS, &gm, 0, nullptr, &kIdentMat2) == GDI_ERROR)
+            memset(&gm, 0, sizeof(gm));
+        sz = 0;
+    }
+    if (gm.gmBlackBoxX || gm.gmBlackBoxY) {
+        g.advance = gm.gmCellIncX;
+        g.minX = gm.gmptGlyphOrigin.x;
+        g.maxX = g.minX + (double)gm.gmBlackBoxX;
+        g.maxY = gm.gmptGlyphOrigin.y;
+        g.minY = g.maxY - (double)gm.gmBlackBoxY;
+    }
+    if (sz > 0) {
+        std::vector<unsigned char> buf(sz);
+        if (GetGlyphOutlineW(m_dc, ch, GGO_NATIVE, &gm, sz, buf.data(), &kIdentMat2)
+            != GDI_ERROR) {
+            const unsigned char* data = buf.data();
+            DWORD off = 0;
+            while (off + sizeof(TTPOLYGONHEADER) <= sz) {
+                const TTPOLYGONHEADER* ph = (const TTPOLYGONHEADER*)(data + off);
+                if (ph->dwType != TT_POLYGON_TYPE
+                    || ph->cb < sizeof(TTPOLYGONHEADER) || off + ph->cb > sz) break;
+                DWORD end = off + ph->cb;
+                std::vector<GlyphPoint> items;
+                DWORD coff = off + sizeof(TTPOLYGONHEADER);
+                while (coff + 2 * sizeof(WORD) <= end) {
+                    const TTPOLYCURVE* pc = (const TTPOLYCURVE*)(data + coff);
+                    if (pc->wType != TT_PRIM_LINE && pc->wType != TT_PRIM_QSPLINE) break;
+                    bool quad = (pc->wType == TT_PRIM_QSPLINE);
+                    size_t bytes = 2 * sizeof(WORD) + (size_t)pc->cpfx * sizeof(POINTFX);
+                    if (coff + bytes > end) break;
+                    for (WORD i = 0; i < pc->cpfx; i++)
+                        items.push_back({ Fixed1616ToDouble(pc->apfx[i].x),
+                                          Fixed1616ToDouble(pc->apfx[i].y), quad });
+                    coff += (DWORD)bytes;
+                }
+                EmitContour(g, ph->pfxStart, items);
+                off = end;
+            }
+        }
+    }
+    return &m_glyphs.emplace(key, std::move(g)).first->second;
+}
+
+bool TextOutliner::BuildText(const std::wstring& text, const std::wstring& faceName,
+                             double height, double widthFactor, double oblique,
+                             std::string& d, BBox& local) {
+    d.clear();
+    local = BBox();
+    if (text.empty() || height <= 0) return false;
+
+    // 重复文字串在工程图里极常见 (测试 DXF: 210 个 TEXT 仅 13 种文本)
+    std::string key;
+    key.reserve(faceName.size() * 2 + text.size() * 2 + 24);
+    key.append((const char*)faceName.data(), faceName.size() * sizeof(wchar_t));
+    key.push_back('\1');
+    key.append((const char*)text.data(), text.size() * sizeof(wchar_t));
+    key.push_back('\1');
+    const double nums[3] = { height, widthFactor, oblique };
+    key.append((const char*)nums, sizeof(nums));
+    auto cached = m_strings.find(key);
+    if (cached != m_strings.end()) {
+        d = cached->second.d;
+        local = cached->second.box;
+        return !d.empty();
+    }
+
+    Face* face = GetFace(faceName);
+    if (!face) return false;
+
+    const double wf = widthFactor > 0.01 ? widthFactor : 1.0;
+    const double shear = oblique ? tan(oblique) : 0.0;
+    const double s = height / face->cap;          // em → CAD 单位
+    const double lineFeed = height * (5.0 / 3.0); // MTEXT 默认行距 (5 取 3)
+    // 精度随字高走: 约 1/10000 字高, 与图纸单位无关
+    int decimals = (int)lround(log10(10000.0 / height));
+    if (decimals < 0) decimals = 0; else if (decimals > 7) decimals = 7;
+    double gx = 0;                                // em, 已含字宽因子
+    int line = 0;
+    bool any = false;
+
+    for (wchar_t ch : text) {
+        if (ch == L'\n') { line++; gx = 0; continue; }
+        if (ch < 0x20) continue;
+        if (ch >= 0xD800 && ch <= 0xDFFF) continue;   // 代理对: CAD 文字不涉及
+        const GlyphShape* g = FetchGlyph(face, ch);
+        if (!g) continue;
+        for (const GlyphSeg& seg : g->segs) {
+            if (seg.op == 'Z') { d += " Z"; continue; }
+            int npts = seg.op == 'C' ? 3 : 1;
+            d += ' ';
+            d += seg.op;
+            for (int i = 0; i < npts; i++) {
+                double u = (seg.x[i] * wf + gx + shear * seg.y[i]) * s;
+                double v = line * lineFeed - seg.y[i] * s;
+                if (i) d += ' ';
+                AppendPathNum(d, u, decimals);
+                d += ' ';
+                AppendPathNum(d, v, decimals);
+                local.add(u, v);
+            }
+            any = true;
+        }
+        gx += g->advance * wf;
+    }
+    if (!any) d.clear();
+    m_strings.emplace(std::move(key), CachedText{ d, local });
+    return any;
 }
 
 // ---------------------------------------------------------------------------
@@ -190,6 +490,15 @@ private:
     };
     std::unordered_map<long, BlockDef> m_blocks;
     std::unordered_set<long> m_blockActive; // 递归环保护
+
+    // --- 文字样式表 (key = STYLE 对象指针, nullptr = 默认字体) ---
+    struct StyleFont {
+        std::wstring face;          // 空 → 默认 TTF
+        double widthFactor = 1.0;
+        double oblique = 0.0;       // 弧度
+    };
+    std::unordered_map<const Dwg_Object*, StyleFont> m_styles;
+    TextOutliner m_text;
 
     // --- 当前渲染目标 (渲染块定义时切换) ---
 
@@ -735,7 +1044,7 @@ private:
                           << ")";
                 if (std::abs(angle_deg) > 0.001)
                     out() << " rotate(" << FmtFloat(-angle_deg) << ")";
-                out() << ">\n" << block.svg << "</g>\n";
+                out() << "\">\n" << block.svg << "</g>\n";
 
                 if (block.valid) {
                     double cosA = cos(ang), sinA = sin(ang);
@@ -758,18 +1067,81 @@ private:
     }
 
     // -----------------------------------------------------------------
-    // 文本
+    // 文本 → 轮廓
     // -----------------------------------------------------------------
-    void EmitText(double x, double y, double h, double rotationDeg,
-                  const std::string& xmlText, const std::string& color) {
-        BboxAdd(x, y);
-        out() << "<text x=\"" << FmtFloat(x) << "\" y=\"" << FmtFloat(-y)
-              << "\" font-size=\"" << FmtFloat(h) << "\" fill=\"" << color
-              << "\"";
-        if (std::abs(rotationDeg) > 0.01)
-            out() << " transform=\"rotate(" << FmtFloat(-rotationDeg) << ","
-                  << FmtFloat(x) << "," << FmtFloat(-y) << ")\"";
-        out() << ">" << xmlText << "</text>\n";
+    // SHX/PS 等线字体无 TrueType 轮廓, 返回空让调用方退回默认 TTF
+    static std::wstring FaceFromFileName(const std::string& file) {
+        if (file.empty()) return {};
+        size_t slash = file.find_last_of("\\/");
+        std::string stem = (slash == std::string::npos) ? file : file.substr(slash + 1);
+        size_t dot = stem.find_last_of('.');
+        if (dot == std::string::npos) return Utf8ToWide(stem);
+        std::string ext = stem.substr(dot + 1);
+        for (auto& c : ext) c = (char)towlower((unsigned char)c);
+        if (ext == "shx" || ext == "mxs" || ext == "shz" || ext == "pfb"
+            || ext == "pfm" || ext == "afm")
+            return {};
+        return Utf8ToWide(stem.substr(0, dot));
+    }
+
+    // DIMSTYLE 等非 STYLE 的句柄一律退回默认字体
+    const StyleFont& ResolveStyle(BITCODE_H ref) {
+        Dwg_Object* obj = ref ? ref->obj : nullptr;
+        if (!obj && ref) obj = dwg_ref_object(&m_dwg, ref);
+        if (!obj || obj->fixedtype != DWG_TYPE_STYLE) {
+            obj = nullptr;
+        }
+        auto hit = m_styles.find(obj);
+        if (hit != m_styles.end()) return hit->second;
+
+        StyleFont sf;
+        if (obj && obj->tio.object && obj->tio.object->tio.STYLE) {
+            Dwg_Object_STYLE* st = obj->tio.object->tio.STYLE;
+            if (st->width_factor > 0.01) sf.widthFactor = st->width_factor;
+            sf.oblique = st->oblique_angle;
+            if (!(st->flag & 32))   // is_shx
+                sf.face = FaceFromFileName(DwgTextToUtf8(st->font_file, m_utf16));
+        }
+        return m_styles.emplace(obj, sf).first->second;
+    }
+
+    // hAlign: 0 左 1 中 2 右; vAlign: 0 基线 1 下 2 中 3 上
+    void EmitText(double x, double y, double h, double rotDeg, const StyleFont& sf,
+                  int hAlign, int vAlign, const std::string& utf8,
+                  const std::string& color) {
+        if (utf8.empty() || h <= 0) { BboxAdd(x, y); return; }
+        std::string d;
+        BBox local;
+        if (!m_text.BuildText(Utf8ToWide(utf8), sf.face, h, sf.widthFactor,
+                              sf.oblique, d, local)) {
+            BboxAdd(x, y);
+            return;
+        }
+        double dx = hAlign == 1 ? -(local.minX + local.maxX) / 2
+                                : (hAlign == 2 ? -local.maxX : 0.0);
+        double dv = vAlign == 1 ? -local.maxY
+                    : vAlign == 2 ? -(local.minY + local.maxY) / 2
+                    : vAlign == 3 ? -local.minY : 0.0;
+
+        // 局部 (u,v): u 沿基线, v 朝下 → CAD 偏移 (u·cosθ + v·sinθ, u·sinθ − v·cosθ)
+        double rad = rotDeg * kPi / 180.0;
+        double c = cos(rad), s = sin(rad);
+        double tx = x + dx * c + dv * s;
+        double ty = y + dx * s - dv * c;
+
+        out() << "<g transform=\"translate(" << FmtFloat(tx) << "," << FmtFloat(-ty)
+              << ")";
+        if (std::abs(rotDeg) > 0.01)
+            out() << " rotate(" << FmtFloat(-rotDeg) << ")";
+        out() << "\"><path d=\"" << d << "\" fill=\"" << color
+              << "\" stroke=\"none\"/></g>\n";
+
+        const double corners[4][2] = {
+            {local.minX, local.minY}, {local.maxX, local.minY},
+            {local.minX, local.maxY}, {local.maxX, local.maxY}
+        };
+        for (auto& p : corners)
+            BboxAdd(tx + p[0] * c + p[1] * s, ty + p[0] * s - p[1] * c);
     }
 
     void RenderText(Dwg_Object_Entity* ent) {
@@ -777,9 +1149,24 @@ private:
         Dwg_Entity_TEXT* t = ent->tio.TEXT;
         if (!t) return;
         double h = t->height > 0 ? t->height : 2.5;
-        EmitText(t->ins_pt.x, t->ins_pt.y, h,
-                 t->rotation * 180.0 / kPi,
-                 DwgTextToXml(t->text_value, m_utf16), ResolveColor(ent));
+        int ha = t->horiz_alignment, va = t->vert_alignment;
+        // 对齐非默认时, DXF 11 才是真正的锚点
+        double ax = t->ins_pt.x, ay = t->ins_pt.y;
+        if ((ha || va)
+            && (std::abs(t->alignment_pt.x) > 1e-6 || std::abs(t->alignment_pt.y) > 1e-6)) {
+            ax = t->alignment_pt.x;
+            ay = t->alignment_pt.y;
+        }
+        if (ha == 4) { ha = 1; va = 2; }          // Middle
+        if (ha == 3 || ha == 5) ha = 0;           // Aligned / Fit
+        if (ha > 2) ha = 0;
+        if (va > 3) va = 0;
+
+        StyleFont sf = ResolveStyle(t->style);
+        if (t->width_factor > 0.01) sf.widthFactor = t->width_factor;
+        if (t->oblique_angle) sf.oblique = t->oblique_angle;
+        EmitText(ax, ay, h, t->rotation * 180.0 / kPi, sf, ha, va,
+                 DwgTextToUtf8(t->text_value, m_utf16), ResolveColor(ent));
     }
 
     void RenderMText(Dwg_Object_Entity* ent) {
@@ -788,10 +1175,20 @@ private:
         if (!t) return;
         double h = t->text_height > 0 ? t->text_height : 2.5;
         double rotDeg = atan2(t->x_axis_dir.y, t->x_axis_dir.x) * 180.0 / kPi;
-        // 先转 UTF-8 → 剥格式码 → 再 XML 转义 (顺序不可颠倒)
+        // \P 先换成真实换行, 再剥其余格式码 (顺序不可颠倒)
         std::string raw = DwgTextToUtf8(t->text, m_utf16);
-        std::string txt = EscapeXmlKeepUtf8(StripMTextFormatting(raw));
-        EmitText(t->ins_pt.x, t->ins_pt.y, h, rotDeg, txt, ResolveColor(ent));
+        for (size_t i = 0; i + 1 < raw.size(); i++) {
+            if (raw[i] == '\\' && (raw[i + 1] == 'P' || raw[i + 1] == 'p')) {
+                raw[i] = '\n';
+                raw.erase(i + 1, 1);
+            }
+        }
+        int att = (t->attachment >= 1 && t->attachment <= 9) ? t->attachment : 1;
+        int ha = (att - 1) % 3;                    // 0 左 1 中 2 右
+        int row = (att - 1) / 3;                   // 0 上 1 中 2 下
+        int va = row == 0 ? 3 : row == 1 ? 2 : 1;
+        EmitText(t->ins_pt.x, t->ins_pt.y, h, rotDeg, ResolveStyle(t->style),
+                 ha, va, StripMTextFormatting(raw), ResolveColor(ent));
     }
 
     // -----------------------------------------------------------------
@@ -867,10 +1264,11 @@ private:
             x = d->def_pt.x; y = d->def_pt.y;
         }
         double h = 2.5;
-        std::string txt = DwgTextToXml(d->user_text, m_utf16);
-        if (txt.empty()) txt = "&lt;&gt;";
-        EmitText(x, y, h, d->text_rotation * 180.0 / kPi, txt,
-                 ResolveColor(ent));
+        std::string txt = DwgTextToUtf8(d->user_text, m_utf16);
+        if (txt.empty()) txt = "<>";
+        // DIMENSION 的句柄是 DIMSTYLE, 不是文字样式 → 用默认字体
+        EmitText(x, y, h, d->text_rotation * 180.0 / kPi, ResolveStyle(nullptr),
+                 1, 2, txt, ResolveColor(ent));
     }
 
     // -----------------------------------------------------------------

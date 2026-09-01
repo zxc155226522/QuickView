@@ -1,5 +1,22 @@
 # Changelog
 
+## [6.30.16] - DXF/DWG 文字轮廓化，文字终于显示出来了
+**Release Date**: 2026-09-01
+
+### 🐛 Bug Fixes
+- **修复：DXF/DWG 大图所有文字（TEXT/MTEXT/DIMENSION）不显示**:
+  - 根因：PLT/DXF/DWG 走 Direct2D 原生 `ID2D1DeviceContext5::CreateSvgDocument`，而 D2D 实现的 SVG 1.1 子集**不做任何 `<text>` 排版**（不取字体、不算字距、不支持 `textPath`）。原先发出的 `<text>` 元素被静默丢弃，图纸几何画得出来、标注和标题栏文字全部消失。
+  - 修复（按选定路线：生成 SVG 时把文字转成 path 轮廓，D2D 后端不动）：`DwgLoader.cpp` 新增 `TextOutliner`，用 GDI `GetGlyphOutlineW(GGO_NATIVE)` 取字体二次贝塞尔轮廓，转三次曲线写成 `<path d=...>`；按字形基线推进 `advanceX` 排版，支持旋转、倾斜、镜像与字宽/字高缩放，`<mtext>` 的段落换行与 `dim` 的测量文本同样走该路径。本地坐标 `(u,v)`（u 沿基线、v 向下）映射回 CAD 为 `(u·cosθ+v·sinθ, u·sinθ−v·cosθ)`，SVG 再取负 y。字形映射表按 (字体, 字号) 缓存，同一字符串不重复取轮廓。
+  - 顺带修掉一个**潜伏的 XML 合法性 bug**：文字分组与 INSERT 块引用两处 `<g transform="translate(x,y)"` 的 `transform` 属性**少写了闭合引号**，生成的 SVG 不是合法 XML。前者是本次新代码，后者自 6.30.14 起就存在——任何含块引用的 CAD 文件都会整份渲染失败（`CreateSvgDocument` 直接返回 `E_INVALIDARG 0x80070057`）。两处均已补齐。
+  - 验证：`DNTS30062(1).dxf` 210 个文字对象全部出轮廓，无一个丢失；离屏光栅化对比加字前后像素 `ink 34447 → 45279`（全图）/ `10742 → 34058`（标题栏裁剪），字形形状、字腔（hollow counter）与中英文混排均正确；`--export-png` 走应用自身加载链路输出结果一致。
+
+### ⚡ Performance（轮廓化的代价，实测）
+- 应用内 CAD 加载 126ms → 约 180ms（`libredwg_read=92ms`、`svg_render=88ms`，其中 210 个文字取轮廓）；SVG 体积 686KB → 2461KB；`CreateSvgDocument` 5.5ms → 18.4ms。
+- 相对 6.30.15 之前的 3123ms 仍是约 17 倍提速，文字可见性远值得这点开销。
+
+### 🧹 Changes
+- 移除开发期把生成的 SVG 与计时落盘到 `%TEMP%\qv_cad_dump.*.svg` / `qv_cad_diag.txt` 的临时诊断，`LoadCadToSVG` 只保留 `OutputDebugStringA` 的 `[CAD-DIAG]` 计时行。
+
 ## [6.30.15] - DXF 大文件解析提速约 30 倍（LibreDWG 表控制索引）
 **Release Date**: 2026-08-31
 
