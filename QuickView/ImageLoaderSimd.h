@@ -36,6 +36,15 @@ void ConvertRGBToBGRA(const uint8_t* src, uint8_t* dst, int width, int height, i
 void ResizeBilinear(const uint8_t* src, int srcW, int srcH, int srcStride,
                     uint8_t* dst, int dstW, int dstH, int dstStride);
 
+/// High-quality Area-Averaging downscale for thumbnails (preserves sharp lines & eliminates moire).
+/// src: BGRA8888, dst: BGRA8888
+void ResizeAreaAverage(const uint8_t* src, int srcW, int srcH, int srcStride,
+                      uint8_t* dst, int dstW, int dstH, int dstStride);
+
+/// Lightweight thumbnail unsharp masking for enhanced clarity on high-DPI icons/galleries.
+/// amount typically 0.2f ~ 0.35f
+void SharpenThumbnail(uint8_t* data, int width, int height, int stride, float amount = 0.25f);
+
 /// Pack 16-bit packed pixels to 8-bit pixels (taking upper 8 bits).
 void Pack16to8(const uint16_t* src, uint8_t* dst, size_t pixelCount);
 

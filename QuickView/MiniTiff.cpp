@@ -1029,19 +1029,46 @@ static std::vector<IfdInfo> EnumerateTiffIfds(const uint8_t* data, size_t size) 
 
 static const IfdInfo* SelectThumbIfd(const std::vector<IfdInfo>& ifds, uint32_t targetPx) {
     if (ifds.empty()) return nullptr;
-    // 1) explicit thumbnail subfile (NewSubfileType bit1) if adequate
-    for (auto& i : ifds)
-        if ((i.newSubfileType & 0x1) && i.w >= targetPx && i.h >= targetPx) return &i;
-    // 2) smallest IFD whose max dimension >= targetPx
-    const IfdInfo* best = nullptr;
+
+    // 1) Smallest IFD whose max dimension >= targetPx (exact or larger mipmap)
+    const IfdInfo* bestAdequate = nullptr;
     uint32_t bestMax = UINT32_MAX;
     for (auto& i : ifds) {
         uint32_t m = std::max(i.w, i.h);
-        if (m >= targetPx && m < bestMax) { best = &i; bestMax = m; }
+        if (m >= targetPx && m < bestMax) {
+            bestAdequate = &i;
+            bestMax = m;
+        }
     }
-    if (best) return best;
-    // 3) fallback: largest IFD (primary full-res) — caller decodes full res
-    best = &ifds[0];
+    if (bestAdequate) return bestAdequate;
+
+    // 2) Explicit thumbnail subfile (NewSubfileType bit0/bit1), even if slightly smaller
+    // than targetPx (e.g. 160x120 or 200x200), as long as it has reasonable resolution (>= 64px).
+    // Avoiding decoding 20MP~100MP full-res for a 256px thumbnail is a 100x+ speedup.
+    for (auto& i : ifds) {
+        if ((i.newSubfileType & 0x1) && i.w >= 64 && i.h >= 64) {
+            return &i;
+        }
+    }
+
+    // 3) Largest sub-IFD that is still smaller than targetPx, if primary IFD is huge (> 1024px)
+    const IfdInfo* primary = &ifds[0];
+    if (primary->w > 1024 || primary->h > 1024) {
+        const IfdInfo* bestSub = nullptr;
+        uint32_t bestSubM = 0;
+        for (auto& i : ifds) {
+            if (&i == primary) continue;
+            uint32_t m = std::max(i.w, i.h);
+            if (m >= 64 && m > bestSubM) {
+                bestSub = &i;
+                bestSubM = m;
+            }
+        }
+        if (bestSub) return bestSub;
+    }
+
+    // 4) Fallback: largest IFD (primary full-res) — caller decodes full res
+    const IfdInfo* best = &ifds[0];
     uint32_t bm = 0;
     for (auto& i : ifds) {
         uint32_t m = std::max(i.w, i.h);

@@ -67,19 +67,29 @@ bool PreviewExtractor::ExtractFromTIFF(const uint8_t* data, size_t size, Extract
     uint16_t magic = isLE ? U16LE(data + 2) : U16BE(data + 2);
     if (magic != 42 && magic != 43) return false;
 
-    uint32_t ifd0 = isLE ? U32LE(data + 4) : U32BE(data + 4);
-    if (ifd0 >= size) return false;
-
-    uint64_t jpgOff = 0;
-    uint64_t jpgSz = 0;
-    if (!ParseTiffIFD(data, size, ifd0, isLE, jpgOff, jpgSz)) {
-        return false;
-    }
-
-    if (jpgOff > 0 && jpgSz > 512 && jpgOff + jpgSz <= size) {
-        out.pData = data + jpgOff;
-        out.size = static_cast<size_t>(jpgSz);
-        return true;
+    uint32_t currentIFD = isLE ? U32LE(data + 4) : U32BE(data + 4);
+    int ifdLimit = 8; // prevent infinite loops in malformed TIFFs
+    while (currentIFD > 0 && currentIFD + 2 <= size && ifdLimit-- > 0) {
+        uint64_t jpgOff = 0;
+        uint64_t jpgSz = 0;
+        if (ParseTiffIFD(data, size, currentIFD, isLE, jpgOff, jpgSz)) {
+            if (jpgOff > 0 && jpgSz >= 512 && jpgOff + jpgSz <= size) {
+                // Verify JPEG SOI marker (0xFF 0xD8)
+                if (data[jpgOff] == 0xFF && data[jpgOff + 1] == 0xD8) {
+                    out.pData = data + jpgOff;
+                    out.size = static_cast<size_t>(jpgSz);
+                    return true;
+                }
+            }
+        }
+        // Read next IFD offset (located right after directory entries)
+        uint16_t count = isLE ? U16LE(data + currentIFD) : U16BE(data + currentIFD);
+        size_t nextIfdPtr = currentIFD + 2 + static_cast<size_t>(count) * 12;
+        if (nextIfdPtr + 4 <= size) {
+            currentIFD = isLE ? U32LE(data + nextIfdPtr) : U32BE(data + nextIfdPtr);
+        } else {
+            break;
+        }
     }
 
     return false;
@@ -95,6 +105,7 @@ bool PreviewExtractor::ParseTiffIFD(const uint8_t* data, size_t size, size_t off
     if (current + count * entrySize > size) return false;
 
     uint64_t subIfdOffset = 0;
+    uint64_t exifIfdOffset = 0;
     
     for (int i = 0; i < count; i++) {
         const uint8_t* ev = data + current + i * entrySize;
@@ -111,40 +122,49 @@ bool PreviewExtractor::ParseTiffIFD(const uint8_t* data, size_t size, size_t off
         else if (tag == 0x0202) { 
             jpegSize = valOrOff; 
         }
-        // StripOffsets (0x0111) - Sometimes used for thumb
-        // StripByteCounts (0x0117)
-        // SubIFDs (0x014A) - VERY IMPORTANT for RAW
+        // SubIFDs (0x014A)
         else if (tag == 0x014A) {
-             // SubIFDs usually points to a list of offsets.
-             // If type=4 (LONG), cnt=1, then valOrOff is offset.
-             // If cnt > 1, valOrOff is offset to array of offsets.
-             if (type == 4 || type == 3) { // LONG or SHORT
-                 if (cnt == 1) subIfdOffset = valOrOff;
-                 else subIfdOffset = valOrOff; // Offset to array
-             }
+             if (cnt == 1 || type == 4) subIfdOffset = valOrOff;
+             else subIfdOffset = valOrOff;
+        }
+        // ExifIFD (0x8769)
+        else if (tag == 0x8769) {
+            exifIfdOffset = valOrOff;
         }
     }
     
-    // If found valid JPEG in this IFD, check if it's "large enough" (> 50KB?)
-    // Thumbnails are small. Previews are large.
-    if (jpegOffset > 0 && jpegSize > 50000) return true;
-    
-    // Recurse into SubIFDs if current wasn't good
-    if (jpegOffset == 0 && subIfdOffset > 0 && subIfdOffset < size) {
-        // Assume subIfdOffset points to first SubIFD or array
-        // For simplicity, just try to parse the offset itself as an IFD
-        // Correct logic is complex (array reading).
-        // Hack: Try to parse whatever is at subIfdOffset.
-        // Usually it's an array of LONGs. Read first one.
-        // If SubIFDS tag pointed to array, we need to read memory.
-        // Let's assume it points to valid IFD.
-        
-        // Actually for ARW/DNG, SubIFD is main image or preview.
-        // Let's implement full parsing later. 
-        // For now, let's enable DNG/ARW basic detection.
+    // Check if valid JPEG thumbnail was found in this IFD
+    if (jpegOffset > 0 && jpegSize >= 512 && jpegOffset + jpegSize <= size) {
+        if (data[jpegOffset] == 0xFF && data[jpegOffset + 1] == 0xD8) {
+            return true;
+        }
+    }
+
+    // Check Exif IFD
+    if (exifIfdOffset > 0 && exifIfdOffset + 2 <= size) {
+        uint64_t eOff = 0, eSz = 0;
+        if (ParseTiffIFD(data, size, exifIfdOffset, isLE, eOff, eSz)) {
+            if (eOff > 0 && eSz >= 512 && eOff + eSz <= size && data[eOff] == 0xFF && data[eOff + 1] == 0xD8) {
+                jpegOffset = eOff;
+                jpegSize = eSz;
+                return true;
+            }
+        }
+    }
+
+    // Check SubIFD
+    if (subIfdOffset > 0 && subIfdOffset + 2 <= size) {
+        uint64_t sOff = 0, sSz = 0;
+        if (ParseTiffIFD(data, size, subIfdOffset, isLE, sOff, sSz)) {
+            if (sOff > 0 && sSz >= 512 && sOff + sSz <= size && data[sOff] == 0xFF && data[sOff + 1] == 0xD8) {
+                jpegOffset = sOff;
+                jpegSize = sSz;
+                return true;
+            }
+        }
     }
     
-    return (jpegOffset > 0 && jpegSize > 0);
+    return (jpegOffset > 0 && jpegSize >= 512);
 }
 
 

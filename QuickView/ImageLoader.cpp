@@ -3831,6 +3831,12 @@ static HRESULT DownscaleThumbDataIfNeeded(CImageLoader::ThumbData *pData,
         reinterpret_cast<const float *>(pData->pixels.data()), pData->width,
         pData->height, pData->stride, reinterpret_cast<float *>(resized.data()),
         finalW, finalH, finalStride);
+  } else if (scale < 0.75f) {
+    // High-quality Area Averaging for significant downscales (eliminates aliasing/moire and preserves lines)
+    ImageLoaderSimd::ResizeAreaAverage(
+        pData->pixels.data(), pData->width, pData->height, pData->stride,
+        resized.data(), finalW, finalH, finalStride);
+    ImageLoaderSimd::SharpenThumbnail(resized.data(), finalW, finalH, finalStride, 0.22f);
   } else {
     ImageLoaderSimd::ResizeBilinear(
         pData->pixels.data(), pData->width, pData->height, pData->stride,

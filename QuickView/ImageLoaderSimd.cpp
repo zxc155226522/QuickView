@@ -1602,6 +1602,164 @@ void ResizeBilinear(const uint8_t* src, int srcW, int srcH, int srcStride,
                                               dst, dstW, dstH, dstStride);
 }
 
+struct AreaFilterSpan {
+    int srcStart = 0;
+    int srcCount = 0;
+    int weightSum = 0;
+    std::vector<int> weights;
+};
+
+static void BuildAreaAverageWeights(int srcSize, int dstSize, std::vector<AreaFilterSpan>& spans) {
+    spans.resize(dstSize);
+    const double scale = static_cast<double>(srcSize) / static_cast<double>(dstSize);
+    constexpr int kWeightScale = 4096;
+
+    for (int i = 0; i < dstSize; ++i) {
+        double startF = i * scale;
+        double endF = (i + 1) * scale;
+        int iStart = static_cast<int>(startF);
+        int iEnd = static_cast<int>(std::ceil(endF));
+        if (iEnd > srcSize) iEnd = srcSize;
+        int count = iEnd - iStart;
+        if (count <= 0) {
+            iStart = std::clamp(iStart, 0, srcSize - 1);
+            count = 1;
+            iEnd = iStart + 1;
+        }
+
+        AreaFilterSpan& span = spans[i];
+        span.srcStart = iStart;
+        span.srcCount = count;
+        span.weights.resize(count);
+        int sum = 0;
+
+        for (int k = 0; k < count; ++k) {
+            int srcIdx = iStart + k;
+            double p0 = (std::max)(startF, static_cast<double>(srcIdx));
+            double p1 = (std::min)(endF, static_cast<double>(srcIdx + 1));
+            double weight = (std::max)(0.0, p1 - p0);
+            int wInt = static_cast<int>(weight * kWeightScale + 0.5);
+            span.weights[k] = wInt;
+            sum += wInt;
+        }
+        if (sum == 0) {
+            span.weights[0] = kWeightScale;
+            sum = kWeightScale;
+        }
+        span.weightSum = sum;
+    }
+}
+
+void ResizeAreaAverage(const uint8_t* src, int srcW, int srcH, int srcStride,
+                      uint8_t* dst, int dstW, int dstH, int dstStride) {
+    if (!src || !dst || srcW <= 0 || srcH <= 0 || dstW <= 0 || dstH <= 0) return;
+    if (srcStride == 0) srcStride = srcW * 4;
+    if (dstStride == 0) dstStride = dstW * 4;
+
+    std::vector<AreaFilterSpan> xSpans, ySpans;
+    BuildAreaAverageWeights(srcW, dstW, xSpans);
+    BuildAreaAverageWeights(srcH, dstH, ySpans);
+
+    // Intermediate horizontal buffer: dstW x srcH with 4 integer channels per pixel
+    std::vector<int32_t> tempBuf(static_cast<size_t>(dstW) * 4 * srcH);
+
+    // Pass 1: Horizontal downscaling (srcW -> dstW)
+#pragma omp parallel for schedule(static) if(srcH > 64)
+    for (int y = 0; y < srcH; ++y) {
+        const uint8_t* srcRow = src + static_cast<size_t>(y) * srcStride;
+        int32_t* tempRow = tempBuf.data() + static_cast<size_t>(y) * dstW * 4;
+
+        for (int x = 0; x < dstW; ++x) {
+            const AreaFilterSpan& span = xSpans[x];
+            int sumB = 0, sumG = 0, sumR = 0, sumA = 0;
+            const uint8_t* pSrc = srcRow + static_cast<size_t>(span.srcStart) * 4;
+
+            for (int k = 0; k < span.srcCount; ++k) {
+                int w = span.weights[k];
+                sumB += pSrc[k * 4 + 0] * w;
+                sumG += pSrc[k * 4 + 1] * w;
+                sumR += pSrc[k * 4 + 2] * w;
+                sumA += pSrc[k * 4 + 3] * w;
+            }
+
+            int invSum = span.weightSum;
+            int half = invSum / 2;
+            tempRow[x * 4 + 0] = (sumB + half) / invSum;
+            tempRow[x * 4 + 1] = (sumG + half) / invSum;
+            tempRow[x * 4 + 2] = (sumR + half) / invSum;
+            tempRow[x * 4 + 3] = (sumA + half) / invSum;
+        }
+    }
+
+    // Pass 2: Vertical downscaling (srcH -> dstH)
+#pragma omp parallel for schedule(static) if(dstH > 32)
+    for (int y = 0; y < dstH; ++y) {
+        const AreaFilterSpan& span = ySpans[y];
+        uint8_t* dstRow = dst + static_cast<size_t>(y) * dstStride;
+
+        for (int x = 0; x < dstW; ++x) {
+            int sumB = 0, sumG = 0, sumR = 0, sumA = 0;
+
+            for (int k = 0; k < span.srcCount; ++k) {
+                int srcY = span.srcStart + k;
+                const int32_t* tempPx = tempBuf.data() + (static_cast<size_t>(srcY) * dstW + x) * 4;
+                int w = span.weights[k];
+                sumB += tempPx[0] * w;
+                sumG += tempPx[1] * w;
+                sumR += tempPx[2] * w;
+                sumA += tempPx[3] * w;
+            }
+
+            int invSum = span.weightSum;
+            int half = invSum / 2;
+            dstRow[x * 4 + 0] = static_cast<uint8_t>(std::clamp((sumB + half) / invSum, 0, 255));
+            dstRow[x * 4 + 1] = static_cast<uint8_t>(std::clamp((sumG + half) / invSum, 0, 255));
+            dstRow[x * 4 + 2] = static_cast<uint8_t>(std::clamp((sumR + half) / invSum, 0, 255));
+            dstRow[x * 4 + 3] = static_cast<uint8_t>(std::clamp((sumA + half) / invSum, 0, 255));
+        }
+    }
+}
+
+void SharpenThumbnail(uint8_t* data, int width, int height, int stride, float amount) {
+    if (!data || width <= 2 || height <= 2 || amount <= 0.001f) return;
+    if (stride == 0) stride = width * 4;
+
+    int kAmount = static_cast<int>(amount * 256.0f + 0.5f);
+    if (kAmount <= 0) return;
+
+    std::vector<uint8_t> prevRow(static_cast<size_t>(width) * 4);
+    std::vector<uint8_t> currRow(static_cast<size_t>(width) * 4);
+
+    memcpy(prevRow.data(), data, width * 4);
+    memcpy(currRow.data(), data + stride, width * 4);
+
+    for (int y = 1; y < height - 1; ++y) {
+        const uint8_t* nextRow = data + static_cast<size_t>(y + 1) * stride;
+        uint8_t* dstRow = data + static_cast<size_t>(y) * stride;
+
+        for (int x = 1; x < width - 1; ++x) {
+            for (int c = 0; c < 3; ++c) { // B, G, R channels
+                int cVal = currRow[x * 4 + c];
+                int nUp = prevRow[x * 4 + c];
+                int nDown = nextRow[x * 4 + c];
+                int nLeft = currRow[(x - 1) * 4 + c];
+                int nRight = currRow[(x + 1) * 4 + c];
+
+                int laplacian = (cVal * 4) - (nUp + nDown + nLeft + nRight);
+                int sharpened = cVal + (laplacian * kAmount + 128) / 256;
+                dstRow[x * 4 + c] = static_cast<uint8_t>(std::clamp(sharpened, 0, 255));
+            }
+            // Preserve alpha channel
+            dstRow[x * 4 + 3] = currRow[x * 4 + 3];
+        }
+
+        prevRow = currRow;
+        if (y + 1 < height - 1) {
+            memcpy(currRow.data(), nextRow, width * 4);
+        }
+    }
+}
+
 void Pack16to8(const uint16_t* src, uint8_t* dst, size_t pixelCount) {
     HWY_DYNAMIC_DISPATCH(Pack16to8Impl)(src, dst, pixelCount);
 }
