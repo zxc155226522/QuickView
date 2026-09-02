@@ -13004,6 +13004,17 @@ void ProcessEngineEvents(HWND hwnd) {
                         SyncDCompState(hwnd, (float)rc.right, (float)rc.bottom);
                         g_compEngine->Commit();
                     }
+
+                    // [Fix] SVG viewport 路径(SVG/CDR/CMX/resvg/PDFium)在首次加载后
+                    // 需要触发一次 UpgradeSvgSurface 以确保 surface 尺寸与窗口匹配。
+                    // 否则 DXF/DWG 等矢量格式在普通窗口下不自适应，需双击才 fit。
+                    {
+                        auto& res_ = GetPaneContext(PaneSlot::Primary).resource;
+                        if (res_.isSvg || res_.isResvg || res_.isMupdf || res_.isPdfium) {
+                            g_isImageDirty = true;
+                            InvalidateRect(hwnd, nullptr, FALSE);
+                        }
+                    }
                 }
 
                 if (!IsWindowVisible(hwnd)) {
