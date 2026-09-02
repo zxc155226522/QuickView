@@ -29,8 +29,6 @@
 #include <cmath>
 #include <gdiplus.h>
 #include <objidl.h>          // STATSTG, STATFLAG_NONAME
-#include <exdisp.h>          // IShellWindows, IWebBrowser2
-#include <exdispid.h>        // IShellFolderViewDual, IShellFolderDual
 #include <atomic>            // bounded one-shot worker fallback
 
 // Thumbnail extension coverage (single source of truth, shared with SettingsOverlay).
@@ -60,20 +58,15 @@ public:
 };
 #endif
 
-// IInitializeWithStream (propsys.h): Windows 10/11 Explorer PREFERS this over
-// IInitializeWithFile and hands us only a byte stream (no path). We implement
-// this interface so Explorer always initializes us. Inside Initialize() we
-// recover the real file path via IShellWindows enumeration of open Explorer
-// windows, so the worker can use MappedFile (random-read a few KB of embedded
-// preview) instead of spilling the entire network stream to a temp file.
-#ifndef __IInitializeWithStream_INTERFACE_DEFINED__
-#define __IInitializeWithStream_INTERFACE_DEFINED__
-MIDL_INTERFACE("b824b49d-22ac-4161-ac8a-9916e8fa3f7f")
-IInitializeWithStream : public IUnknown {
-public:
-    virtual HRESULT STDMETHODCALLTYPE Initialize(IStream* pstream, DWORD grfMode) = 0;
-};
-#endif
+// NOTE: IInitializeWithStream is intentionally NOT implemented.
+// Windows Explorer prefers IInitializeWithStream over IInitializeWithFile,
+// but the stream interface only provides a byte stream with no file path.
+// On network drives, this forces the provider to spill the entire file to
+// %TEMP% before the worker can read it — catastrophically slow for 300MB+ files.
+// Instead, we implement only IInitializeWithFile and set DisableProcessIsolation=1
+// in the registry, which tells Explorer to skip IInitializeWithStream and call
+// IInitializeWithFile directly, giving us the real file path for fast MappedFile
+// random access (reading only the embedded preview, not the whole file).
 
 // WTS_ALPHATYPE
 typedef enum __MIDL___MIDL_itf_shobjidl_0000_0000_0002 {
@@ -143,7 +136,7 @@ static constexpr DWORD kWatchdogMs = 4000;
 static LONG g_cRefModule = 0;
 static LONG g_cRefServer = 0;
 static HMODULE g_hModule = nullptr;
-static LONG g_tempCounter = 0;
+// (g_tempCounter removed — IInitializeWithStream spill path eliminated)
 
 // [Debug] Log provider activity to diagnose shell invocation issues.
 static void DbgLog(const wchar_t* msg) {
@@ -684,8 +677,7 @@ namespace {
 // ============================================================================
 // CThumbnailProvider
 // ============================================================================
-class CThumbnailProvider : public IInitializeWithStream,
-                            public IInitializeWithFile,
+class CThumbnailProvider : public IInitializeWithFile,
                             public IThumbnailProvider, public IObjectWithSite {
 public:
     CThumbnailProvider() : m_cRef(1) {
@@ -693,10 +685,6 @@ public:
     }
     virtual ~CThumbnailProvider() {
         if (m_spSite) m_spSite->Release();
-        // Clean up the IStream spill temp file (if any) to avoid accumulation.
-        if (!m_streamTempFile.empty()) {
-            DeleteFileW(m_streamTempFile.c_str());
-        }
         InterlockedDecrement(&g_cRefModule);
     }
 
@@ -705,9 +693,7 @@ public:
         if (!ppv) return E_POINTER;
         *ppv = nullptr;
         if (riid == __uuidof(IUnknown)) {
-            *ppv = static_cast<IInitializeWithStream*>(this);
-        } else if (riid == __uuidof(IInitializeWithStream)) {
-            *ppv = static_cast<IInitializeWithStream*>(this);
+            *ppv = static_cast<IInitializeWithFile*>(this);
         } else if (riid == __uuidof(IInitializeWithFile)) {
             *ppv = static_cast<IInitializeWithFile*>(this);
         } else if (riid == __uuidof(IThumbnailProvider)) {
@@ -735,200 +721,6 @@ public:
         if (!m_path.empty()) return HRESULT_FROM_WIN32(ERROR_ALREADY_INITIALIZED);
         m_path = pszFilePath;
         m_realPath = pszFilePath;
-        return S_OK;
-    }
-
-    // IInitializeWithStream — Explorer 优先用此接口，只给字节流（无路径）。
-    // 把流落盘为临时文件交 worker 解码（恢复提取），同时用 IStream::Stat 取真实路径用于角标。
-    HRESULT STDMETHODCALLTYPE Initialize(IStream* pstream, DWORD) override {
-        DbgLog(L"IInitStream::Initialize");
-        if (!pstream) return E_POINTER;
-        if (!m_path.empty()) return HRESULT_FROM_WIN32(ERROR_ALREADY_INITIALIZED);
-
-        // 真实路径：Explorer 提供的文件流，Stat 名称通常为真实全路径（用于角标扩展名）。
-        // 但在某些 Shell 上下文（如预览窗格、搜索结果）中，Stat 只返回纯文件名（不含路径），
-        // 此时需要额外回溯才能拿到完整物理路径。
-        STATSTG stg = {};
-        if (SUCCEEDED(pstream->Stat(&stg, STATFLAG_DEFAULT)) && stg.pwcsName) {
-            m_realPath = stg.pwcsName;
-            CoTaskMemFree(stg.pwcsName);
-            DbgLog((std::wstring(L"  realPath(Stat)=") + m_realPath).c_str());
-        }
-
-        // 核心优化：如果能够直接访问到真实物理路径（本地或网络 UNC 共享），直接使用该路径！
-        // 彻底免去把几百 MB 的大型文件从网络全量读取落盘到 %TEMP% 的巨大开销！
-        if (!m_realPath.empty() && GetFileAttributesW(m_realPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
-            m_path = m_realPath;
-            DbgLog((std::wstring(L"  Direct realPath hit (no temp file): ") + m_path).c_str());
-            return S_OK;
-        }
-
-        // [Fix] Stat 仅返回纯文件名（无盘符/路径分隔符）时，用 IShellWindows
-        // 枚举当前 Explorer 打开的窗口，在目录路径下拼接纯文件名得到完整路径。
-        // 这样 worker 可以用 MappedFile 对网络文件做按需随机读取（只读嵌入预览
-        // 的几 KB），避免 Explorer 通过 IStream 全量传输几百 MB 文件再落盘的巨量开销。
-        if (!m_realPath.empty() &&
-            m_realPath.find_first_of(L"\\/") == std::wstring::npos) {
-            // 枚举当前打开的 Explorer 窗口，在目录路径下查找匹配文件
-            // CLSID_ShellWindows = {9AC9FBE1-E0A2-4AD6-B4C8-5F2E8A8E8A8E}
-            // 简化实现：用 CoCreateInstance + IShellWindows
-            IShellWindows* pShellWindows = nullptr;
-            if (SUCCEEDED(CoCreateInstance(
-                    __uuidof(ShellWindows), nullptr, CLSCTX_ALL,
-                    IID_PPV_ARGS(&pShellWindows))) && pShellWindows) {
-                long count = 0;
-                pShellWindows->get_Count(&count);
-                for (long i = 0; i < count; ++i) {
-                    IDispatch* pDisp = nullptr;
-                    if (SUCCEEDED(pShellWindows->Item(i, &pDisp)) && pDisp) {
-                        // QueryInterface IWebBrowser2 → Document → Folder → Self.Path
-                        IWebBrowser2* pBrowser = nullptr;
-                        if (SUCCEEDED(pDisp->QueryInterface(IID_PPV_ARGS(&pBrowser))) && pBrowser) {
-                            IDispatch* pDoc = nullptr;
-                            if (SUCCEEDED(pBrowser->get_Document(&pDoc)) && pDoc) {
-                                // Folder 对象通过 IDispatch 获取，用 IShellFolderViewDual
-                                IShellFolderViewDual* pView = nullptr;
-                                if (SUCCEEDED(pDoc->QueryInterface(
-                                        IID_PPV_ARGS(&pView))) && pView) {
-                                    IDispatch* pFolder = nullptr;
-                                    if (SUCCEEDED(pView->get_Folder(&pFolder)) && pFolder) {
-                                        IShellFolderDual* pFldDual = nullptr;
-                                        if (SUCCEEDED(pFolder->QueryInterface(
-                                                IID_PPV_ARGS(&pFldDual))) && pFldDual) {
-                                            PIDL pPidl = nullptr;
-                                            if (SUCCEEDED(pFldDual->GetCurFolder(&pPidl)) && pPidl) {
-                                                wchar_t szPath[MAX_PATH] = {};
-                                                if (SHGetPathFromIDListW(pPidl, szPath) && szPath[0]) {
-                                                    std::wstring candidate = std::wstring(szPath);
-                                                    if (candidate.back() != L'\\' && candidate.back() != L'/')
-                                                        candidate += L"\\";
-                                                    candidate += m_realPath;
-                                                    if (GetFileAttributesW(candidate.c_str()) != INVALID_FILE_ATTRIBUTES) {
-                                                        m_realPath = candidate;
-                                                        m_path = candidate;
-                                                        DbgLog((std::wstring(L"  Direct realPath hit (ShellWindows): ") + m_path).c_str());
-                                                        pFldDual->Release();
-                                                        pFolder->Release();
-                                                        pView->Release();
-                                                        pDoc->Release();
-                                                        pBrowser->Release();
-                                                        pDisp->Release();
-                                                        pShellWindows->Release();
-                                                        return S_OK;
-                                                    }
-                                                }
-                                                CoTaskMemFree(pPidl);
-                                            }
-                                            pFldDual->Release();
-                                        }
-                                        pFolder->Release();
-                                    }
-                                    pView->Release();
-                                }
-                                pDoc->Release();
-                            }
-                            pBrowser->Release();
-                        }
-                        pDisp->Release();
-                    }
-                }
-                pShellWindows->Release();
-            }
-            DbgLog(L"  ShellWindows path recovery failed");
-        }
-
-        // 流式 spill（仅针对无法直接定位物理文件的纯内存流/虚拟流兜底）：
-        // 先读前缀用于 magic 判定，后续边读流边写临时文件（内存恒定 64KB 缓冲）。
-        std::vector<uint8_t> head(64);
-        ULONG got = 0;
-        HRESULT shr = pstream->Read(head.data(), (ULONG)head.size(), &got);
-        if (FAILED(shr) || got == 0) { DbgLog(L"  stream read head fail"); return E_FAIL; }
-        head.resize(got);
-
-        const unsigned char* p = head.data();
-        size_t n = head.size();
-        if (n >= 3 && p[0] == 0xEF && p[1] == 0xBB && p[2] == 0xBF) { p += 3; n -= 3; }
-
-        const wchar_t* ext = L"bin";
-        if (n >= 4 && memcmp(p, "%PDF", 4) == 0)           ext = L"pdf";
-        else if (n >= 3 && p[0] == 0xFF && p[1] == 0xD8 && p[2] == 0xFF) ext = L"jpg";
-        else if (n >= 4 && p[0] == 0x89 && p[1] == 0x50 && p[2] == 0x4E && p[3] == 0x47) ext = L"png";
-        else if (n >= 12 && p[0] == 'R' && p[1] == 'I' && p[2] == 'F' && p[3] == 'F' &&
-                 p[8] == 'W' && p[9] == 'E' && p[10] == 'B' && p[11] == 'P') ext = L"webp";
-        else if (n >= 2 && p[0] == 'B' && p[1] == 'M')     ext = L"bmp";
-        else if (n >= 3 && p[0] == 'G' && p[1] == 'I' && p[2] == 'F') ext = L"gif";
-        else if (n >= 4 && p[0] == '8' && p[1] == 'B' && p[2] == 'P' && p[3] == 'S') ext = L"psd";
-        else if (n >= 4 && p[0] == 'P' && p[1] == 'K' &&
-                 ((p[2] == 0x03 && p[3] == 0x04) ||
-                  (p[2] == 0x05 && p[3] == 0x06)))         ext = L"cdr";
-        else if (n >= 4 && memcmp(p, "RIFF", 4) == 0)      ext = L"cdr";
-        else if (n >= 4 &&
-                 (p[0] == 'A' || p[0] == 'a') && p[1] == 'C' &&
-                 p[2] >= '0' && p[2] <= '9')                              ext = L"dwg";
-        else if (n >= 4 && p[0] == ' ' && p[1] == ' ' &&
-                 p[2] == '0' && (p[3] == '\r' || p[3] == '\n'))          ext = L"dxf";
-        else if (n >= 4 &&
-                 ((p[0] == 0x49 && p[1] == 0x49 && (p[2] == 0x2A || p[2] == 0x2B)) ||
-                  (p[0] == 0x4D && p[1] == 0x4D && (p[2] == 0x00 || p[3] == 0x2A || p[3] == 0x2B))))
-            ext = L"tif";
-        else if (n >= 12 && p[4] == 'f' && p[5] == 't' && p[6] == 'y' && p[7] == 'p') {
-            if (memcmp(p + 8, "avif", 4) == 0 || memcmp(p + 8, "avis", 4) == 0) ext = L"avif";
-            else ext = L"heic";
-        }
-        else if ((n >= 2 && p[0] == 0xFF && p[1] == 0x0A) ||
-                 (n >= 12 && p[4] == 'J' && p[5] == 'X' && p[6] == 'L' && p[7] == ' ')) ext = L"jxl";
-        else if (n >= 4 && p[0] == 0x76 && p[1] == 0x2F && p[2] == 0x31 && p[3] == 0x01) ext = L"exr";
-        else if (n >= 5 && memcmp(p, "<?xml", 5) == 0)     ext = L"svg";
-        else if (n >= 4 && p[0] == '<' && p[1] == 's' &&
-                 p[2] == 'v' && p[3] == 'g')                              ext = L"svg";
-        else if (n >= 11 && memcmp(p, "%!PS-Adobe", 11) == 0) ext = L"ai";
-        else {
-            bool asc = true;
-            size_t probe = n < 1024 ? n : 1024;
-            for (size_t i = 0; i < probe; ++i) {
-                if (p[i] == 0) { asc = false; break; }
-            }
-            if (asc) ext = L"plt";
-        }
-        DbgLog((std::wstring(L"  ext=") + ext).c_str());
-
-        wchar_t tempDir[MAX_PATH];
-        if (!GetTempPathW(MAX_PATH, tempDir)) return E_FAIL;
-        wchar_t path[MAX_PATH];
-        StringCchPrintfW(path, MAX_PATH, L"%sqvstream_%lu_%lu_%ld.%s",
-                         tempDir, GetCurrentProcessId(), GetCurrentThreadId(),
-                         InterlockedIncrement(&g_tempCounter), ext);
-        HANDLE h = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
-                               FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (h == INVALID_HANDLE_VALUE) return E_FAIL;
-        DWORD written = 0;
-        if (!WriteFile(h, head.data(), (DWORD)head.size(), &written, nullptr)
-            || written != head.size()) {
-            CloseHandle(h); DeleteFileW(path); return E_FAIL;
-        }
-        const ULONGLONG kMaxStream = 2ULL * 1024 * 1024 * 1024;
-        BYTE chunk[65536];
-        ULONGLONG total = head.size();
-        for (;;) {
-            ULONG r = 0;
-            HRESULT sr = pstream->Read(chunk, sizeof(chunk), &r);
-            if (r == 0) break;
-            if (FAILED(sr)) break;
-            DWORD w = 0;
-            if (!WriteFile(h, chunk, r, &w, nullptr) || w != r) {
-                CloseHandle(h); DeleteFileW(path); return E_FAIL;
-            }
-            total += r;
-            if (total > kMaxStream) {
-                DbgLog(L"  stream too large, abort");
-                CloseHandle(h); DeleteFileW(path); return E_OUTOFMEMORY;
-            }
-        }
-        CloseHandle(h);
-
-        m_path = path;
-        m_streamTempFile = path; // track for cleanup on destruction
-        DbgLog((std::wstring(L"  temp=") + m_path).c_str());
         return S_OK;
     }
 
@@ -1054,11 +846,6 @@ public:
         hbmp = ComposeSquareThumbnail(hbmp, GetExtUpper(m_realPath.empty() ? m_path : m_realPath), cx);
         *phbmp = hbmp;
         *pdwAlpha = WTSAT_ARGB;
-        // Clean up the IStream spill temp file immediately after use.
-        if (!m_streamTempFile.empty()) {
-            DeleteFileW(m_streamTempFile.c_str());
-            m_streamTempFile.clear();
-        }
         DbgLog((L"  OK (" + std::to_wstring(t1 - t0) + L"ms)").c_str());
         return S_OK;
     }
@@ -1087,9 +874,8 @@ public:
 
 private:
     LONG m_cRef;
-    std::wstring m_path;      // worker 解码输入（stream 落盘临时文件，或 IInitializeWithFile 真实路径）
-    std::wstring m_realPath;  // 真实文件路径（角标扩展名来源：Stat / Site / IInitializeWithFile）
-    std::wstring m_streamTempFile; // IInitializeWithStream 创建的临时文件路径（析构时删除）
+    std::wstring m_path;      // worker 解码输入（IInitializeWithFile 传入的真实文件路径）
+    std::wstring m_realPath;  // 真实文件路径副本（角标扩展名来源，与 m_path 相同）
     IUnknown* m_spSite = nullptr;
 };
 
@@ -1329,7 +1115,15 @@ extern "C" HRESULT __stdcall DllRegisterServer() {
     // CLSID
     std::wstring clsidKey = L"Software\\Classes\\CLSID\\" + std::wstring(clsid);
     RegCreateKeyExW(HKEY_CURRENT_USER, clsidKey.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr);
-    if (hKey) { RegSetValueExW(hKey, nullptr, 0, REG_SZ, (const BYTE*)L"QuickView Thumb", sizeof(L"QuickView Thumb")); RegCloseKey(hKey); }
+    if (hKey) {
+        RegSetValueExW(hKey, nullptr, 0, REG_SZ, (const BYTE*)L"QuickView Thumb", sizeof(L"QuickView Thumb"));
+        // DisableProcessIsolation=1: 告诉 Explorer 不要用 IInitializeWithStream（进程隔离模式），
+        // 直接用 IInitializeWithFile 传入完整文件路径。这样 Provider 拿到真实路径后
+        // worker 可用 MappedFile 按需随机读取，避免网络大文件全量复制到 %TEMP%。
+        DWORD dwOne = 1;
+        RegSetValueExW(hKey, L"DisableProcessIsolation", 0, REG_DWORD, (const BYTE*)&dwOne, sizeof(dwOne));
+        RegCloseKey(hKey);
+    }
     // InprocServer32
     std::wstring inprocKey = clsidKey + L"\\InprocServer32";
     RegCreateKeyExW(HKEY_CURRENT_USER, inprocKey.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr);
