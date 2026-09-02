@@ -1,4 +1,4 @@
-# QuickView thumbnails re-registration (single-click deploy)
+﻿# QuickView thumbnails re-registration (single-click deploy)
 # Mirrors QuickView/ThumbnailExts.h: every browsable image format (SUPPORTED_EXTENSIONS
 # minus VFS archive containers .zip/.cbz/.cbr/.rar = 70) gets an .ext-level
 # IThumbnailProvider ShellEx handler, so badges show regardless of default app.
@@ -10,7 +10,7 @@ $clsid     = "{4F8C2A6E-3B5D-4E7F-9A1C-2D3E4F5A6B7C}"
 $thumbIID  = "{E357FCCD-A995-4576-B01F-234630154E96}"
 $iconClsid = "{DAA561A2-0EEA-478F-9C2E-DBC41B59056B}"
 $iconIID   = "{00021401-0000-0000-C000-000000000046}"   # IconHandler (IExtractIconW)
-$dllPath   = "E:\项目\看图软件\out\build\Release-LTO\QuickViewThumbnailProvider.dll"
+$dllPath   = Join-Path $PSScriptRoot "out\build\Release-LTO\QuickViewThumbnailProvider.dll"
 
 # 70 browsable image extensions (SupportedExtensions.h minus archive segments)
 $exts = @(

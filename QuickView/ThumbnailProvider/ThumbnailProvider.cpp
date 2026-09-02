@@ -461,15 +461,20 @@ static PipeResult RequestThumbnailViaPipe(const std::wstring& exePath,
     bool launched = false;
     for (int attempt = 0; attempt < 2; ++attempt) {
         HANDLE hPipe = INVALID_HANDLE_VALUE;
-        for (int k = 0; k < 60 && hPipe == INVALID_HANDLE_VALUE; ++k) {
+        for (int k = 0; k < 100 && hPipe == INVALID_HANDLE_VALUE; ++k) {
             hPipe = OpenServerPipe();
             if (hPipe != INVALID_HANDLE_VALUE) break;
             DWORD err = GetLastError();
             if (err == ERROR_FILE_NOT_FOUND && !launched) {
                 LaunchServer(exePath);
                 launched = true;
+                Sleep(50);
+            } else if (err == ERROR_PIPE_BUSY) {
+                // Wait until an instance becomes available
+                WaitNamedPipeW(kPipeName, 2000);
+            } else {
+                Sleep(20);
             }
-            Sleep(100);
         }
         if (hPipe == INVALID_HANDLE_VALUE) break; // unreachable -> one-shot fallback
         PipeResult r = PipeTransaction(hPipe, inputPath, size, outBmp);
@@ -698,8 +703,10 @@ public:
         const wchar_t* hit = L"";
         if (riid == __uuidof(IUnknown) || riid == __uuidof(IInitializeWithFile))
             { *ppv = static_cast<IInitializeWithFile*>(this); hit = L" ->IInitFile"; }
+        // Deliberately refuse IInitializeWithStream so Explorer falls back to IInitializeWithFile.
+        // This avoids copying entire 300MB+ network files from SMB into local %TEMP% on every thumbnail request!
         else if (riid == __uuidof(IInitializeWithStream))
-            { *ppv = static_cast<IInitializeWithStream*>(this); hit = L" ->IInitStream"; }
+            { return E_NOINTERFACE; }
         else if (riid == __uuidof(IThumbnailProvider))
             { *ppv = static_cast<IThumbnailProvider*>(this); hit = L" ->IThumb"; }
         else if (riid == __uuidof(IObjectWithSite))

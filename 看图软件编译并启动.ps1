@@ -1,11 +1,11 @@
-# ===========================================================================
+﻿# ===========================================================================
 # QuickView 编译并启动脚本
 # ===========================================================================
 
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-$ProjectPath = "E:\项目\看图软件"
+$ProjectPath = $PSScriptRoot
 $JunctionPath = "E:\qv_build_tmp"
 
 $LLVM_BIN = "C:\Program Files\LLVM\bin"
@@ -34,7 +34,7 @@ Write-Host "`n[2/5] 创建临时编译路径..." -ForegroundColor Yellow
 if (Test-Path $JunctionPath) {
     Remove-Item -Recurse -Force $JunctionPath -ErrorAction SilentlyContinue
 }
-cmd /c "mklink /J `"$JunctionPath`" `"$ProjectPath`""
+New-Item -ItemType Junction -Path $JunctionPath -Target $ProjectPath -Force | Out-Null
 
 # 3. 设置环境
 $env:PATH = "$LLVM_BIN;$VS_CMAKE;$env:PATH"
