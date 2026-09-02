@@ -4576,10 +4576,11 @@ static HRESULT RasterizeSvgThumbnail(const std::vector<uint8_t> &xmlData,
   // fragmented/invisible.
   std::vector<uint8_t> processedXml = xmlData;
   if (scale < 1.0f) {
-    // [CDR Fix] Reuse the shared stroke-upscaling helper so thin lines stay
+    // [CDR/CAD Fix] Reuse the shared stroke-upscaling helper so thin lines stay
     // visible when the SVG is downscaled to a small thumbnail.
+    // 1.3px ensures CAD blueprint lines don't get anti-aliased away into blank.
     std::string xmlStr(processedXml.begin(), processedXml.end());
-    QuickView::QvUpscaleSvgStrokeWidths(xmlStr, 0.5f, scale);
+    QuickView::QvUpscaleSvgStrokeWidths(xmlStr, 1.3f, scale);
     processedXml.assign(xmlStr.begin(), xmlStr.end());
   }
 
@@ -4806,6 +4807,27 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
                                               targetSize, pData)) &&
         pData->isValid) {
       pData->loaderName = L"CDR Embed";
+      pData->isBlurry = false;
+      PopulateThumbOriginalInfo(headerInfo, static_cast<uint64_t>(mappedSize),
+                                pData);
+      return S_OK;
+    }
+    // Fall through to vector rasterization path below.
+  }
+
+  // AutoCAD DWG: prefer embedded preview (RASTERPREVIEW / Preview BMP/PNG)
+  // over full vector parse (sub-millisecond decode matching AutoCAD rasterization).
+  // Falls through to vector path below on any failure.
+  if ((format == L"DWG" || pathLower.ends_with(L".dwg")) &&
+      mappedData && mappedSize > 0) {
+    std::vector<uint8_t> dwgPreview;
+    bool isPng = false;
+    if (QuickView::ExtractDwgEmbeddedPreview(mappedData, mappedSize, dwgPreview, &isPng) &&
+        !dwgPreview.empty() &&
+        SUCCEEDED(LoadThumbImageFromMemoryWIC(dwgPreview.data(), dwgPreview.size(),
+                                              targetSize, pData)) &&
+        pData->isValid) {
+      pData->loaderName = L"DWG Embed";
       pData->isBlurry = false;
       PopulateThumbOriginalInfo(headerInfo, static_cast<uint64_t>(mappedSize),
                                 pData);

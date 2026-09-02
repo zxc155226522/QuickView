@@ -51,15 +51,15 @@ bool TryReadPositiveIntArg(int argc, LPWSTR* argv, const wchar_t* name,
   return true;
 }
 
-// Vector formats: transparent background. Documents (PDF/AI): opaque white.
+// Vector graphics (SVG/CDR/CMX/PLT): transparent background.
+// Documents & CAD blueprints (PDF/AI/DXF/DWG): opaque white (paper/drawing semantics,
+// ensures black lines remain visible on dark Windows Explorer themes).
 bool WantsTransparentBackground(const std::wstring& path) {
   std::wstring_view ext = QuickView::ExtensionOf(path);
   return QuickView::ExtEqualsIgnoreCase(ext, L".svg") ||
          QuickView::ExtEqualsIgnoreCase(ext, L".cdr") ||
          QuickView::ExtEqualsIgnoreCase(ext, L".cmx") ||
-         QuickView::ExtEqualsIgnoreCase(ext, L".plt") ||
-         QuickView::ExtEqualsIgnoreCase(ext, L".dxf") ||
-         QuickView::ExtEqualsIgnoreCase(ext, L".dwg");
+         QuickView::ExtEqualsIgnoreCase(ext, L".plt");
 }
 
 
