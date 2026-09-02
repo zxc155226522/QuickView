@@ -29,6 +29,8 @@
 #include <cmath>
 #include <gdiplus.h>
 #include <objidl.h>          // STATSTG, STATFLAG_NONAME
+#include <exdisp.h>          // IShellWindows, IWebBrowser2
+#include <exdispid.h>        // IShellFolderViewDual, IShellFolderDual
 #include <atomic>            // bounded one-shot worker fallback
 
 // Thumbnail extension coverage (single source of truth, shared with SettingsOverlay).
@@ -59,10 +61,11 @@ public:
 #endif
 
 // IInitializeWithStream (propsys.h): Windows 10/11 Explorer PREFERS this over
-// IInitializeWithFile and hands us only a byte stream (no path). Because we need
-// the real on-disk path for the badge extension, we deliberately do NOT implement
-// this interface — so the shell falls back to IInitializeWithFile and gives us the
-// path directly. (The interface definition is kept below only for completeness.)
+// IInitializeWithFile and hands us only a byte stream (no path). We implement
+// this interface so Explorer always initializes us. Inside Initialize() we
+// recover the real file path via IShellWindows enumeration of open Explorer
+// windows, so the worker can use MappedFile (random-read a few KB of embedded
+// preview) instead of spilling the entire network stream to a temp file.
 #ifndef __IInitializeWithStream_INTERFACE_DEFINED__
 #define __IInitializeWithStream_INTERFACE_DEFINED__
 MIDL_INTERFACE("b824b49d-22ac-4161-ac8a-9916e8fa3f7f")
@@ -760,32 +763,78 @@ public:
             return S_OK;
         }
 
-        // [Fix] Stat 仅返回纯文件名（无盘符/路径分隔符）时，尝试从 IStream 对象本身
-        // 查询 IPersistFile 接口获取完整物理路径。Shell 创建的文件流通常内部持有
-        // 真实文件路径，通过 IPersistFile::GetCurFile 可直接拿到。
-        // 这避免了网络驱动器（如 Z: 映射到 \\192.168.x.x\share）上大文件被逐块
-        // 复制到本地 %TEMP% 的"复制文件"现象。
+        // [Fix] Stat 仅返回纯文件名（无盘符/路径分隔符）时，用 IShellWindows
+        // 枚举当前 Explorer 打开的窗口，在目录路径下拼接纯文件名得到完整路径。
+        // 这样 worker 可以用 MappedFile 对网络文件做按需随机读取（只读嵌入预览
+        // 的几 KB），避免 Explorer 通过 IStream 全量传输几百 MB 文件再落盘的巨量开销。
         if (!m_realPath.empty() &&
             m_realPath.find_first_of(L"\\/") == std::wstring::npos) {
-            // Stat 返回的是纯文件名（不含路径分隔符），尝试 QI 回溯完整路径
-            IPersistFile* pPF = nullptr;
-            if (SUCCEEDED(pstream->QueryInterface(IID_IPersistFile,
-                                                   reinterpret_cast<void**>(&pPF)))) {
-                LPWSTR pCurFile = nullptr;
-                if (SUCCEEDED(pPF->GetCurFile(&pCurFile)) && pCurFile) {
-                    std::wstring fullPath(pCurFile);
-                    CoTaskMemFree(pCurFile);
-                    if (GetFileAttributesW(fullPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
-                        m_realPath = fullPath;
-                        m_path = fullPath;
-                        DbgLog((std::wstring(L"  Direct realPath hit (IPersistFile): ") + m_path).c_str());
-                        pPF->Release();
-                        return S_OK;
+            // 枚举当前打开的 Explorer 窗口，在目录路径下查找匹配文件
+            // CLSID_ShellWindows = {9AC9FBE1-E0A2-4AD6-B4C8-5F2E8A8E8A8E}
+            // 简化实现：用 CoCreateInstance + IShellWindows
+            IShellWindows* pShellWindows = nullptr;
+            if (SUCCEEDED(CoCreateInstance(
+                    __uuidof(ShellWindows), nullptr, CLSCTX_ALL,
+                    IID_PPV_ARGS(&pShellWindows))) && pShellWindows) {
+                long count = 0;
+                pShellWindows->get_Count(&count);
+                for (long i = 0; i < count; ++i) {
+                    IDispatch* pDisp = nullptr;
+                    if (SUCCEEDED(pShellWindows->Item(i, &pDisp)) && pDisp) {
+                        // QueryInterface IWebBrowser2 → Document → Folder → Self.Path
+                        IWebBrowser2* pBrowser = nullptr;
+                        if (SUCCEEDED(pDisp->QueryInterface(IID_PPV_ARGS(&pBrowser))) && pBrowser) {
+                            IDispatch* pDoc = nullptr;
+                            if (SUCCEEDED(pBrowser->get_Document(&pDoc)) && pDoc) {
+                                // Folder 对象通过 IDispatch 获取，用 IShellFolderViewDual
+                                IShellFolderViewDual* pView = nullptr;
+                                if (SUCCEEDED(pDoc->QueryInterface(
+                                        IID_PPV_ARGS(&pView))) && pView) {
+                                    IDispatch* pFolder = nullptr;
+                                    if (SUCCEEDED(pView->get_Folder(&pFolder)) && pFolder) {
+                                        IShellFolderDual* pFldDual = nullptr;
+                                        if (SUCCEEDED(pFolder->QueryInterface(
+                                                IID_PPV_ARGS(&pFldDual))) && pFldDual) {
+                                            PIDL pPidl = nullptr;
+                                            if (SUCCEEDED(pFldDual->GetCurFolder(&pPidl)) && pPidl) {
+                                                wchar_t szPath[MAX_PATH] = {};
+                                                if (SHGetPathFromIDListW(pPidl, szPath) && szPath[0]) {
+                                                    std::wstring candidate = std::wstring(szPath);
+                                                    if (candidate.back() != L'\\' && candidate.back() != L'/')
+                                                        candidate += L"\\";
+                                                    candidate += m_realPath;
+                                                    if (GetFileAttributesW(candidate.c_str()) != INVALID_FILE_ATTRIBUTES) {
+                                                        m_realPath = candidate;
+                                                        m_path = candidate;
+                                                        DbgLog((std::wstring(L"  Direct realPath hit (ShellWindows): ") + m_path).c_str());
+                                                        pFldDual->Release();
+                                                        pFolder->Release();
+                                                        pView->Release();
+                                                        pDoc->Release();
+                                                        pBrowser->Release();
+                                                        pDisp->Release();
+                                                        pShellWindows->Release();
+                                                        return S_OK;
+                                                    }
+                                                }
+                                                CoTaskMemFree(pPidl);
+                                            }
+                                            pFldDual->Release();
+                                        }
+                                        pFolder->Release();
+                                    }
+                                    pView->Release();
+                                }
+                                pDoc->Release();
+                            }
+                            pBrowser->Release();
+                        }
+                        pDisp->Release();
                     }
-                    DbgLog((std::wstring(L"  IPersistFile path not found: ") + fullPath).c_str());
                 }
-                pPF->Release();
+                pShellWindows->Release();
             }
+            DbgLog(L"  ShellWindows path recovery failed");
         }
 
         // 流式 spill（仅针对无法直接定位物理文件的纯内存流/虚拟流兜底）：
