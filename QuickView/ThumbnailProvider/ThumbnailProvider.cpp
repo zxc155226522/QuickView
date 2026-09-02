@@ -698,25 +698,20 @@ public:
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override {
         if (!ppv) return E_POINTER;
         *ppv = nullptr;
-        wchar_t iidStr[64] = {};
-        StringFromGUID2(riid, iidStr, 64);
-        const wchar_t* hit = L"";
-        if (riid == __uuidof(IUnknown) || riid == __uuidof(IInitializeWithFile))
-            { *ppv = static_cast<IInitializeWithFile*>(this); hit = L" ->IInitFile"; }
-        // Deliberately refuse IInitializeWithStream so Explorer falls back to IInitializeWithFile.
-        // This avoids copying entire 300MB+ network files from SMB into local %TEMP% on every thumbnail request!
-        else if (riid == __uuidof(IInitializeWithStream))
-            { return E_NOINTERFACE; }
-        else if (riid == __uuidof(IThumbnailProvider))
-            { *ppv = static_cast<IThumbnailProvider*>(this); hit = L" ->IThumb"; }
-        else if (riid == __uuidof(IObjectWithSite))
-            { *ppv = static_cast<IObjectWithSite*>(this); hit = L" ->IObjSite"; }
-        else {
-            DbgLog((std::wstring(L"Provider QI: ") + iidStr + L" ->NOINTERFACE").c_str());
+        if (riid == __uuidof(IUnknown)) {
+            *ppv = static_cast<IInitializeWithStream*>(this);
+        } else if (riid == __uuidof(IInitializeWithStream)) {
+            *ppv = static_cast<IInitializeWithStream*>(this);
+        } else if (riid == __uuidof(IInitializeWithFile)) {
+            *ppv = static_cast<IInitializeWithFile*>(this);
+        } else if (riid == __uuidof(IThumbnailProvider)) {
+            *ppv = static_cast<IThumbnailProvider*>(this);
+        } else if (riid == __uuidof(IObjectWithSite)) {
+            *ppv = static_cast<IObjectWithSite*>(this);
+        } else {
             return E_NOINTERFACE;
         }
-        AddRef();
-        DbgLog((std::wstring(L"Provider QI: ") + iidStr + hit + L" OK").c_str());
+        reinterpret_cast<IUnknown*>(*ppv)->AddRef();
         return S_OK;
     }
     ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&m_cRef); }
@@ -752,7 +747,16 @@ public:
             DbgLog((std::wstring(L"  realPath(Stat)=") + m_realPath).c_str());
         }
 
-        // 流式 spill：先读前缀用于 magic 判定，后续边读流边写临时文件（内存恒定 64KB 缓冲）。
+        // 核心优化：如果能够直接访问到真实物理路径（本地或网络 UNC 共享），直接使用该路径！
+        // 彻底免去把几百 MB 的大型文件从网络全量读取落盘到 %TEMP% 的巨大开销！
+        if (!m_realPath.empty() && GetFileAttributesW(m_realPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            m_path = m_realPath;
+            DbgLog((std::wstring(L"  Direct realPath hit (no temp file): ") + m_path).c_str());
+            return S_OK;
+        }
+
+        // 流式 spill（仅针对无法直接定位物理文件的纯内存流/虚拟流兜底）：
+        // 先读前缀用于 magic 判定，后续边读流边写临时文件（内存恒定 64KB 缓冲）。
         std::vector<uint8_t> head(64);
         ULONG got = 0;
         HRESULT shr = pstream->Read(head.data(), (ULONG)head.size(), &got);
