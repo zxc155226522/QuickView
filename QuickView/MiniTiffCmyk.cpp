@@ -34,7 +34,10 @@ bool CmykIccXform::Build(const uint8_t* icc, size_t iccLen) {
     if (!hOut) { cmsCloseProfile(hIn); hIn = nullptr; return false; }
     xform = cmsCreateTransform(hIn, TYPE_CMYK_8, hOut, TYPE_BGRA_8,
                                INTENT_RELATIVE_COLORIMETRIC,
-                               cmsFLAGS_BLACKPOINTCOMPENSATION);
+                               cmsFLAGS_BLACKPOINTCOMPENSATION | cmsFLAGS_NOCACHE);
+    // cmsFLAGS_NOCACHE: lcms2's internal 1-pixel cache is not thread-safe, so
+    // it must be off for cmsDoTransform to be callable from multiple worker
+    // threads on the same transform (thumbnail paths decode rows in parallel).
     if (!xform) { cmsCloseProfile(hOut); cmsCloseProfile(hIn); hOut = nullptr; hIn = nullptr; return false; }
     return true;
 }

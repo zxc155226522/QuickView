@@ -23,6 +23,7 @@
 #include <vector>
 #include <span>
 #include <atomic>
+#include <thread>
 #include <omp.h>
 #include <zlib.h>
 #include <algorithm>
@@ -1146,9 +1147,12 @@ static HRESULT LoadUncompressedPreview(const uint8_t* data, size_t size,
     // 比纯最近邻(1点)平滑得多，比完整区域平均(step²点)快 ~20 倍。
     static constexpr uint32_t kGrid = 4;              // 4×4 采样网格
 
-    for (uint32_t oy = 0; oy < outH; ++oy) {
+    // One output row is self-contained (disjoint dstRow, read-only xform) so
+    // rows run on a small strided thread pool: scattered page faults over SMB
+    // overlap instead of serializing (~RTT per cold row otherwise).
+    auto processRow = [&](uint32_t oy) {
         const uint32_t syBase = oy * step;
-        if (syBase >= h) break;
+        if (syBase >= h) return;
         uint8_t* dstRow = pixels + static_cast<size_t>(oy) * outStride;
 
         for (uint32_t ox = 0; ox < outW; ++ox) {
@@ -1200,6 +1204,24 @@ static HRESULT LoadUncompressedPreview(const uint8_t* data, size_t size,
             dstRow[o + 1] = static_cast<uint8_t>(sumG / kTotal);
             dstRow[o + 2] = static_cast<uint8_t>(sumR / kTotal);
             dstRow[o + 3] = static_cast<uint8_t>(sumA / kTotal);
+        }
+    };
+
+    {
+        unsigned hw = std::thread::hardware_concurrency();
+        unsigned nThreads = (std::min<unsigned>)(hw ? hw : 4u, 8u);
+        if (outH < nThreads * 2) nThreads = 1;
+        if (nThreads <= 1) {
+            for (uint32_t oy = 0; oy < outH; ++oy) processRow(oy);
+        } else {
+            std::vector<std::thread> pool;
+            pool.reserve(nThreads);
+            for (unsigned t = 0; t < nThreads; ++t) {
+                pool.emplace_back([&, t]() {
+                    for (uint32_t oy = t; oy < outH; oy += nThreads) processRow(oy);
+                });
+            }
+            for (auto& th : pool) th.join();
         }
     }
 
@@ -1314,15 +1336,14 @@ static HRESULT LoadCompressedSampledPreview(const uint8_t* data, size_t size,
             QvCmykDbg("QV: CMYK(sampled) ICC present but build failed -> naive\n");
     }
     const bool cmykPremultiply = (desc.extraSamples != 1);
-    std::vector<uint8_t> cmykRow;
-    if (photometric == 5) cmykRow.resize(static_cast<size_t>(outW) * samples);
 
     std::atomic<bool> decodeFailed{false};
 
-    // Parallel over independent strips; each writes disjoint output rows.
-    #pragma omp parallel for if(jobs.size() >= 4) schedule(dynamic)
-    for (int ji = 0; ji < static_cast<int>(jobs.size()); ++ji) {
-        if (decodeFailed.load(std::memory_order_relaxed)) continue;
+    // Process one strip: decompress, then convert each output row mapped to it.
+    // Each job writes disjoint output rows; shared state below is read-only
+    // (cmykXform is thread-safe because Build() sets cmsFLAGS_NOCACHE).
+    auto processJob = [&](int ji) {
+        if (decodeFailed.load(std::memory_order_relaxed)) return;
         const StripJob& job = jobs[ji];
         const uint64_t stripStart = static_cast<uint64_t>(job.strip) * rowsPerStrip;
         const uint32_t unitH = static_cast<uint32_t>(
@@ -1331,7 +1352,7 @@ static HRESULT LoadCompressedSampledPreview(const uint8_t* data, size_t size,
         const uint64_t byteCount = desc.byteCounts[job.strip];
         if (offset + byteCount > size) {
             decodeFailed.store(true, std::memory_order_relaxed);
-            continue;
+            return;
         }
 
         std::vector<uint8_t> stripBuf(static_cast<size_t>(unitH) * rowBytes);
@@ -1355,8 +1376,11 @@ static HRESULT LoadCompressedSampledPreview(const uint8_t* data, size_t size,
         }
         if (!ok) {
             decodeFailed.store(true, std::memory_order_relaxed);
-            continue;
+            return;
         }
+
+        std::vector<uint8_t> cmykRow;
+        if (photometric == 5) cmykRow.resize(static_cast<size_t>(outW) * samples);
 
         for (uint32_t oy = job.oyBegin; oy < job.oyEnd; ++oy) {
             uint64_t sy = static_cast<uint64_t>(oy) * step + step / 2;
@@ -1424,6 +1448,30 @@ static HRESULT LoadCompressedSampledPreview(const uint8_t* data, size_t size,
                 dstRow[o + 2] = static_cast<uint8_t>(sum2 / n);
                 dstRow[o + 3] = static_cast<uint8_t>(sum3 / n);
             }
+        }
+    };
+
+    // Run jobs on a small thread pool with strided assignment (neighbouring
+    // strips land on different threads, so scattered SMB reads overlap).
+    // NOTE: the #pragma omp directives in this file are NO-OPS — the build
+    // does not enable OpenMP — so the pool is done explicitly with std::thread.
+    {
+        unsigned hw = std::thread::hardware_concurrency();
+        unsigned nThreads = (std::min<unsigned>)(hw ? hw : 4u, 8u);
+        if (jobs.size() < nThreads * 2) nThreads = 1;
+        if (nThreads <= 1) {
+            for (int ji = 0; ji < static_cast<int>(jobs.size()); ++ji)
+                processJob(ji);
+        } else {
+            std::vector<std::thread> pool;
+            pool.reserve(nThreads);
+            for (unsigned t = 0; t < nThreads; ++t) {
+                pool.emplace_back([&, t]() {
+                    for (size_t i = t; i < jobs.size(); i += nThreads)
+                        processJob(static_cast<int>(i));
+                });
+            }
+            for (auto& th : pool) th.join();
         }
     }
 
