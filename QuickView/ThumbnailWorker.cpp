@@ -191,7 +191,7 @@ static HANDLE g_hStopEvent = nullptr;
 static std::queue<PipeTask> g_parallelQ;
 static std::mutex g_parallelMtx;
 static std::condition_variable g_parallelCv;
-static const size_t kParallelCap = 32;
+static const size_t kParallelCap = 128;
 
 // Large-file (non-CDR/CMX) dedicated channel: a pool of workers. CDR/CMX are
 // no longer isolated here -- they now share the parallel pool (IsSmallAndParallelSafe
@@ -205,7 +205,7 @@ static std::condition_variable g_largeCv;
 // CDR/large files queues instead of being dropped stale (the real cause of
 // ">16 CDR at once" failures). Overflow beyond this is rare and handled by the
 // bounded one-shot fallback in the provider.
-static const size_t kSlowCap = 64;
+static const size_t kSlowCap = 128;
 
 // Number of large-file (non-CDR/CMX) worker threads. The large channel was
 // single-threaded only to bound resource use, not for correctness: each
@@ -213,11 +213,11 @@ static const size_t kSlowCap = 64;
 // fz_context, so there is no shared mutable state to race on. A small pool
 // stops one slow large file (e.g. a 5s .ai) from serializing every other
 // large file behind it.
-static const int kLargeThreads = 3;
+static const int kLargeThreads = 4;
 
 // Decode-target cap for large-file thumbnails: render at a smaller size to cut
 // decode cost / timeout risk (the on-screen thumbnail is tiny anyway).
-static const uint32_t kLargeThumbMax = 128;
+static const uint32_t kLargeThumbMax = 256;
 
 // Locate QuickView.ini the same way the main app does: portable copy next to
 // the exe, otherwise %APPDATA%\QuickView\QuickView.ini.
@@ -272,15 +272,16 @@ static uint64_t GetFileSizeSafe(const std::wstring& path) {
   return ok ? static_cast<uint64_t>(sz.QuadPart) : 0;
 }
 
-// Parallel channel accepts: (1) CDR/CMX -- always, regardless of size, because
-// they fetch their internal thumbnail and each parallel worker runs with
-// m_bPopulateCdrCache=false (never touches the shared global g_cdrPageCache,
-// ImageLoader.cpp:62), so race-free; (2) every other format below the small
-// file threshold. Large non-CDR/CMX files fall through to the large channel.
+// Parallel channel accepts: (1) CDR/CMX/TIF/TIFF -- always, regardless of size, because
+// they fetch internal thumbnails / use strided downsample and each worker owns its own
+// CImageLoader instance, so race-free; (2) every other format below the small
+// file threshold. Large non-CDR/CMX/TIF files fall through to the large channel.
 static bool IsSmallAndParallelSafe(const std::wstring& path) {
   std::wstring_view ext = QuickView::ExtensionOf(path);
   if (QuickView::ExtEqualsIgnoreCase(ext, L".cdr") ||
-      QuickView::ExtEqualsIgnoreCase(ext, L".cmx")) return true;
+      QuickView::ExtEqualsIgnoreCase(ext, L".cmx") ||
+      QuickView::ExtEqualsIgnoreCase(ext, L".tif") ||
+      QuickView::ExtEqualsIgnoreCase(ext, L".tiff")) return true;
   if (GetFileSizeSafe(path) >= g_smallFileBytes.load()) return false;
   return true;
 }

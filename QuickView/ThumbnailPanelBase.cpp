@@ -269,6 +269,8 @@ void ThumbnailPanelBase::CreateDeviceResources(ID2D1RenderTarget* pRT) {
         : D2D1::ColorF(0.12f, 0.12f, 0.14f, 0.97f);
     pRT->CreateSolidColorBrush(tipBg, &m_brushTipBg);
     pRT->CreateSolidColorBrush(D2D1::ColorF(pal.text.r, pal.text.g, pal.text.b, 0.55f), &m_brushTipDim);
+    pRT->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.75f), &m_brushBadgeBg);
+    pRT->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.95f), &m_brushBadgeText);
 
     if (!m_dwriteFactory) {
         DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
@@ -317,6 +319,15 @@ void ThumbnailPanelBase::CreateDeviceResources(ID2D1RenderTarget* pRT) {
             m_textFormatTipPath->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
             m_textFormatTipPath->SetTrimming(&trimming, nullptr);
         }
+        // Badge font: bold, small for crisp caps
+        m_dwriteFactory->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_BOLD,
+                                          DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+                                          9.0f * g_uiScale, L"en-US", &m_textFormatBadge);
+        if (m_textFormatBadge) {
+            m_textFormatBadge->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+            m_textFormatBadge->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+            m_textFormatBadge->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        }
     }
     OnDeviceResourcesCreated();
 }
@@ -333,11 +344,14 @@ void ThumbnailPanelBase::DiscardDeviceResources() {
     m_brushTitleBg.Reset();
     m_brushTipBg.Reset();
     m_brushTipDim.Reset();
+    m_brushBadgeBg.Reset();
+    m_brushBadgeText.Reset();
     m_textFormatPage.Reset();
     m_textFormatTitle.Reset();
     m_textFormatLabel.Reset();
     m_textFormatTipName.Reset();
     m_textFormatTipPath.Reset();
+    m_textFormatBadge.Reset();
     m_dwriteFactory.Reset();
     OnDeviceResourcesDiscarded();
 }

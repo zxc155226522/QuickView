@@ -758,6 +758,13 @@ public:
 
         const wchar_t* ext = L"bin";
         if (n >= 4 && memcmp(p, "%PDF", 4) == 0)           ext = L"pdf";
+        else if (n >= 3 && p[0] == 0xFF && p[1] == 0xD8 && p[2] == 0xFF) ext = L"jpg";
+        else if (n >= 4 && p[0] == 0x89 && p[1] == 0x50 && p[2] == 0x4E && p[3] == 0x47) ext = L"png";
+        else if (n >= 12 && p[0] == 'R' && p[1] == 'I' && p[2] == 'F' && p[3] == 'F' &&
+                 p[8] == 'W' && p[9] == 'E' && p[10] == 'B' && p[11] == 'P') ext = L"webp";
+        else if (n >= 2 && p[0] == 'B' && p[1] == 'M')     ext = L"bmp";
+        else if (n >= 3 && p[0] == 'G' && p[1] == 'I' && p[2] == 'F') ext = L"gif";
+        else if (n >= 4 && p[0] == '8' && p[1] == 'B' && p[2] == 'P' && p[3] == 'S') ext = L"psd";
         else if (n >= 4 && p[0] == 'P' && p[1] == 'K' &&
                  ((p[2] == 0x03 && p[3] == 0x04) ||
                   (p[2] == 0x05 && p[3] == 0x06)))         ext = L"cdr";
@@ -768,9 +775,16 @@ public:
         else if (n >= 4 && p[0] == ' ' && p[1] == ' ' &&
                  p[2] == '0' && (p[3] == '\r' || p[3] == '\n'))          ext = L"dxf";
         else if (n >= 4 &&
-                 ((p[0] == 0x49 && p[1] == 0x49 && p[2] == 0x2A && p[3] == 0x00) ||
-                  (p[0] == 0x4D && p[1] == 0x4D && p[2] == 0x00 && p[3] == 0x2A)))
+                 ((p[0] == 0x49 && p[1] == 0x49 && (p[2] == 0x2A || p[2] == 0x2B)) ||
+                  (p[0] == 0x4D && p[1] == 0x4D && (p[2] == 0x00 || p[3] == 0x2A || p[3] == 0x2B))))
             ext = L"tif";
+        else if (n >= 12 && p[4] == 'f' && p[5] == 't' && p[6] == 'y' && p[7] == 'p') {
+            if (memcmp(p + 8, "avif", 4) == 0 || memcmp(p + 8, "avis", 4) == 0) ext = L"avif";
+            else ext = L"heic";
+        }
+        else if ((n >= 2 && p[0] == 0xFF && p[1] == 0x0A) ||
+                 (n >= 12 && p[4] == 'J' && p[5] == 'X' && p[6] == 'L' && p[7] == ' ')) ext = L"jxl";
+        else if (n >= 4 && p[0] == 0x76 && p[1] == 0x2F && p[2] == 0x31 && p[3] == 0x01) ext = L"exr";
         else if (n >= 5 && memcmp(p, "<?xml", 5) == 0)     ext = L"svg";
         else if (n >= 4 && p[0] == '<' && p[1] == 's' &&
                  p[2] == 'v' && p[3] == 'g')                              ext = L"svg";

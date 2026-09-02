@@ -161,12 +161,15 @@ protected:
     ComPtr<ID2D1SolidColorBrush> m_brushTitleBg;
     ComPtr<ID2D1SolidColorBrush> m_brushTipBg;   // Near-opaque tooltip backdrop
     ComPtr<ID2D1SolidColorBrush> m_brushTipDim;  // Tooltip secondary (path) text
+    ComPtr<ID2D1SolidColorBrush> m_brushBadgeBg;
+    ComPtr<ID2D1SolidColorBrush> m_brushBadgeText;
     ComPtr<IDWriteTextFormat> m_textFormatPage;
     ComPtr<IDWriteTextFormat> m_textFormatTitle;
     // Single-line label: no wrap + ellipsis trimming — long names clip instead of wrapping
     ComPtr<IDWriteTextFormat> m_textFormatLabel;
     ComPtr<IDWriteTextFormat> m_textFormatTipName;
     ComPtr<IDWriteTextFormat> m_textFormatTipPath;
+    ComPtr<IDWriteTextFormat> m_textFormatBadge;
     ComPtr<IDWriteFactory> m_dwriteFactory;
 
     HWND m_hwnd = nullptr;

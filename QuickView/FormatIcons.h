@@ -93,4 +93,24 @@ constexpr int IconResourceIdForExt(std::wstring_view ext) {
     return -1;
 }
 
+inline D2D1_COLOR_F BadgeColorFor(std::wstring_view ext) {
+    auto in = [&](std::wstring_view s) -> bool {
+        if (ext.size() != s.size()) return false;
+        for (size_t i = 0; i < ext.size(); ++i) {
+            if (::towupper(ext[i]) != ::towupper(s[i])) return false;
+        }
+        return true;
+    };
+    if (in(L"PNG")||in(L"JPG")||in(L"JPEG")||in(L"BMP")||in(L"GIF")||in(L"WEBP")||in(L"HEIC")||in(L"TIF")||in(L"TIFF")||in(L"JXL")||in(L"AVIF")) return D2D1::ColorF(0.063f,0.725f,0.506f); // 翠绿(位图)
+    if (in(L"CR2")||in(L"CR3")||in(L"ARW")||in(L"NEF")||in(L"DNG")||in(L"RAF")||in(L"RW2")||in(L"ORF")) return D2D1::ColorF(0.545f,0.361f,0.965f); // 紫(RAW)
+    if (in(L"CDR")||in(L"CMX")||in(L"AI")||in(L"SVG")||in(L"SVGZ")||in(L"EPS")) return D2D1::ColorF(0.231f,0.510f,0.965f); // 蓝(矢量)
+    if (in(L"PDF")||in(L"TXT")||in(L"DOC")||in(L"DOCX")||in(L"XLS")||in(L"XLSX")||in(L"PPT")||in(L"PPTX")) return D2D1::ColorF(0.937f,0.267f,0.267f); // 玫红(文档)
+    if (in(L"PLT")||in(L"DXF")||in(L"DWG")) return D2D1::ColorF(0.024f,0.714f,0.831f); // 青(CAD)
+    if (in(L"MP4")||in(L"MOV")||in(L"AVI")||in(L"MKV")||in(L"WEBM")) return D2D1::ColorF(0.957f,0.247f,0.369f); // 粉(视频)
+    if (in(L"MP3")||in(L"WAV")||in(L"FLAC")||in(L"OGG")||in(L"M4A")) return D2D1::ColorF(0.133f,0.773f,0.369f); // 绿(音频)
+    if (in(L"ZIP")||in(L"RAR")||in(L"7Z")||in(L"TAR")) return D2D1::ColorF(0.961f,0.620f,0.043f); // 琥珀(压缩)
+    if (in(L"CPP")||in(L"H")||in(L"PY")||in(L"JS")||in(L"TS")||in(L"JSON")||in(L"XML")||in(L"HTML")) return D2D1::ColorF(0.388f,0.400f,0.945f); // 靛(代码)
+    return D2D1::ColorF(0.392f,0.455f,0.545f); // 中性灰(兜底)
+}
+
 } // namespace QuickView

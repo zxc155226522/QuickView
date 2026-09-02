@@ -2,6 +2,7 @@
 #include "ImageListThumbnailPanel.h"
 #include "FileNavigator.h"
 #include "ImageLoader.h"
+#include "FormatIcons.h"
 
 #include <algorithm>
 #include <cmath>
@@ -232,6 +233,31 @@ void ImageListThumbnailPanel::DrawItems(ID2D1RenderTarget* pRT) {
         if (isCurrentPage && m_brushBorder) {
             D2D1_ROUNDED_RECT borderRect = D2D1::RoundedRect(thumbRect, 3.0f * g_uiScale, 3.0f * g_uiScale);
             pRT->DrawRoundedRectangle(borderRect, m_brushBorder.Get(), 2.0f * g_uiScale);
+        }
+
+        // Type Badge (top-right capsule, category-colored)
+        if (pageIndex < m_imagePaths.size()) {
+            const std::wstring& path = m_imagePaths[pageIndex];
+            size_t dot = path.rfind(L'.');
+            if (dot != std::wstring::npos && dot + 1 < path.size()) {
+                std::wstring ext = path.substr(dot + 1);
+                for (auto& c : ext) c = (wchar_t)std::towupper((wint_t)c);
+                if (!ext.empty()) {
+                    D2D1_COLOR_F clr = QuickView::BadgeColorFor(ext);
+                    const float bw = (6.0f + 5.5f * (float)ext.length()) * g_uiScale;
+                    const float bh = 13.0f * g_uiScale;
+                    const float bm = 3.0f * g_uiScale;
+                    const float br = bh * 0.5f;
+                    D2D1_RECT_F badge = D2D1::RectF(thumbRect.right - bm - bw, thumbRect.top + bm,
+                                                   thumbRect.right - bm, thumbRect.top + bm + bh);
+                    if (m_brushBadgeBg && m_brushBadgeText && m_textFormatBadge) {
+                        m_brushBadgeBg->SetColor(D2D1::ColorF(clr.r, clr.g, clr.b, 0.85f));
+                        pRT->FillRoundedRectangle(D2D1::RoundedRect(badge, br, br), m_brushBadgeBg.Get());
+                        pRT->DrawText(ext.c_str(), static_cast<UINT32>(ext.length()), m_textFormatBadge.Get(),
+                                     badge, m_brushBadgeText.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                    }
+                }
+            }
         }
 
         // File name label (single line, ellipsis when too long)
