@@ -743,6 +743,8 @@ public:
         if (!m_path.empty()) return HRESULT_FROM_WIN32(ERROR_ALREADY_INITIALIZED);
 
         // 真实路径：Explorer 提供的文件流，Stat 名称通常为真实全路径（用于角标扩展名）。
+        // 但在某些 Shell 上下文（如预览窗格、搜索结果）中，Stat 只返回纯文件名（不含路径），
+        // 此时需要额外回溯才能拿到完整物理路径。
         STATSTG stg = {};
         if (SUCCEEDED(pstream->Stat(&stg, STATFLAG_DEFAULT)) && stg.pwcsName) {
             m_realPath = stg.pwcsName;
@@ -756,6 +758,34 @@ public:
             m_path = m_realPath;
             DbgLog((std::wstring(L"  Direct realPath hit (no temp file): ") + m_path).c_str());
             return S_OK;
+        }
+
+        // [Fix] Stat 仅返回纯文件名（无盘符/路径分隔符）时，尝试从 IStream 对象本身
+        // 查询 IPersistFile 接口获取完整物理路径。Shell 创建的文件流通常内部持有
+        // 真实文件路径，通过 IPersistFile::GetCurFile 可直接拿到。
+        // 这避免了网络驱动器（如 Z: 映射到 \\192.168.x.x\share）上大文件被逐块
+        // 复制到本地 %TEMP% 的"复制文件"现象。
+        if (!m_realPath.empty() &&
+            m_realPath.find_first_of(L"\\/") == std::wstring::npos) {
+            // Stat 返回的是纯文件名（不含路径分隔符），尝试 QI 回溯完整路径
+            IPersistFile* pPF = nullptr;
+            if (SUCCEEDED(pstream->QueryInterface(IID_IPersistFile,
+                                                   reinterpret_cast<void**>(&pPF)))) {
+                LPWSTR pCurFile = nullptr;
+                if (SUCCEEDED(pPF->GetCurFile(&pCurFile)) && pCurFile) {
+                    std::wstring fullPath(pCurFile);
+                    CoTaskMemFree(pCurFile);
+                    if (GetFileAttributesW(fullPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+                        m_realPath = fullPath;
+                        m_path = fullPath;
+                        DbgLog((std::wstring(L"  Direct realPath hit (IPersistFile): ") + m_path).c_str());
+                        pPF->Release();
+                        return S_OK;
+                    }
+                    DbgLog((std::wstring(L"  IPersistFile path not found: ") + fullPath).c_str());
+                }
+                pPF->Release();
+            }
         }
 
         // 流式 spill（仅针对无法直接定位物理文件的纯内存流/虚拟流兜底）：
