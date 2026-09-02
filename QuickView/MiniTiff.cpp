@@ -22,6 +22,7 @@
 #include <cstring>
 #include <vector>
 #include <span>
+#include <atomic>
 #include <omp.h>
 #include <zlib.h>
 #include <algorithm>
@@ -1224,7 +1225,235 @@ static HRESULT LoadUncompressedPreview(const uint8_t* data, size_t size,
     return S_OK;
 }
 
-// Choose the uncompressed fast path (preview only) or the full decode.
+// ---------------------------------------------------------------------------
+// Compressed multi-strip sampled preview (thumbnail acceleration).
+// A large share of prepress TIFFs are LZW/PackBits/Deflate with many small
+// strips (e.g. 12-13 rows per strip) and 4-6 samples per pixel (CMYK+spot).
+// The full decode inflates EVERY strip, undoes the predictor on the whole
+// image and converts every pixel to BGRA before the caller downscales to
+// ~256px — seconds of CPU plus a w*h*4 intermediate for each file.
+// A thumbnail only needs ~1 source row per `step` rows, so:
+//   1. decompress ONLY the strips that contain sampled rows,
+//   2. undo the horizontal predictor on just those rows,
+//   3. box-average each sampled row horizontally; CMYK rows are gathered
+//      into one contiguous buffer and converted with a single lcms2 call.
+// I/O and decompression shrink roughly by the skipped-strips fraction, the
+// conversion by step, and the giant intermediate disappears entirely.
+// Returns S_OK if it produced the thumbnail; otherwise the caller falls
+// through to the normal LoadRegion decode (never regress to "no thumbnail").
+// ---------------------------------------------------------------------------
+static HRESULT LoadCompressedSampledPreview(const uint8_t* data, size_t size,
+                                            const QuickView::Codec::DecodeContext& ctx,
+                                            QuickView::Codec::DecodeResult& result,
+                                            const TiffImageDesc& desc,
+                                            uint32_t targetPx) {
+    const uint32_t w = desc.width, h = desc.height;
+    if (w == 0 || h == 0 || targetPx == 0) return E_FAIL;
+
+    uint32_t step = (std::max)(w, h) / targetPx;
+    if (step < 4) return E_FAIL; // <4x downscale: the win does not justify the path
+
+    const uint32_t outW = (w + step - 1) / step;
+    const uint32_t outH = (h + step - 1) / step;
+    if (outW == 0 || outH == 0) return E_FAIL;
+    // Require a real reduction, otherwise the full decode is equally fine.
+    if (static_cast<uint64_t>(w) * h < static_cast<uint64_t>(outW) * outH * 16)
+        return E_FAIL;
+
+    const uint32_t samples = desc.samples;
+    const uint32_t pixelStride = samples; // gated to bitsPerSample == 8
+    const uint64_t rowBytes = static_cast<uint64_t>(w) * pixelStride;
+    const uint32_t rowsPerStrip = (desc.rowsPerStrip == 0 || desc.rowsPerStrip > h)
+                                      ? h : desc.rowsPerStrip;
+    const uint64_t stripsCount = (h + rowsPerStrip - 1) / rowsPerStrip;
+    if (stripsCount < 8) return E_FAIL; // single/few-strip files: nothing to skip
+    if (desc.offsets.size() < stripsCount || desc.byteCounts.size() < stripsCount)
+        return E_FAIL;
+
+    // Source row sampled for each output row: vertical center of its band.
+    // Monotonically nondecreasing, so the output rows mapping to one strip
+    // form a contiguous range — build the per-strip work list in one pass.
+    struct StripJob { uint32_t strip; uint32_t oyBegin; uint32_t oyEnd; };
+    std::vector<StripJob> jobs;
+    jobs.reserve(outH);
+    {
+        uint32_t oy = 0;
+        for (uint64_t s = 0; s < stripsCount && oy < outH; ++s) {
+            const uint64_t stripStart = s * rowsPerStrip;
+            const uint32_t unitH = static_cast<uint32_t>(
+                (std::min<uint64_t>)(rowsPerStrip, h - stripStart));
+            const uint32_t begin = oy;
+            while (oy < outH) {
+                uint64_t sy = static_cast<uint64_t>(oy) * step + step / 2;
+                if (sy >= h) sy = h - 1;
+                if (sy < stripStart || sy >= stripStart + unitH) break;
+                ++oy;
+            }
+            if (oy > begin) jobs.push_back({static_cast<uint32_t>(s), begin, oy});
+        }
+        if (oy < outH) return E_FAIL; // mapping gap: fall back to full decode
+    }
+    // Nothing skipped (every strip is needed): still worth it when the
+    // conversion dominates, but bail out on tiny files where it is not.
+    if (jobs.size() >= stripsCount && static_cast<uint64_t>(w) * h < 4'000'000)
+        return E_FAIL;
+
+    int outStride = ((outW * 4) + 63) & ~63;
+    size_t total = static_cast<size_t>(outStride) * outH;
+    uint8_t* pixels = ctx.allocator(total);
+    if (!pixels) return E_OUTOFMEMORY;
+    std::memset(pixels, 0, total);
+
+    const uint16_t photometric = desc.photometric;
+
+    CmykIccXform cmykXform;
+    if (photometric == 5 && !desc.iccProfile.empty()) {
+        if (cmykXform.Build(desc.iccProfile.data(), desc.iccProfile.size()))
+            QvCmykDbg("QV: CMYK(sampled) decoded via embedded ICC (lcms2)\n");
+        else
+            QvCmykDbg("QV: CMYK(sampled) ICC present but build failed -> naive\n");
+    }
+    const bool cmykPremultiply = (desc.extraSamples != 1);
+    std::vector<uint8_t> cmykRow;
+    if (photometric == 5) cmykRow.resize(static_cast<size_t>(outW) * samples);
+
+    std::atomic<bool> decodeFailed{false};
+
+    // Parallel over independent strips; each writes disjoint output rows.
+    #pragma omp parallel for if(jobs.size() >= 4) schedule(dynamic)
+    for (int ji = 0; ji < static_cast<int>(jobs.size()); ++ji) {
+        if (decodeFailed.load(std::memory_order_relaxed)) continue;
+        const StripJob& job = jobs[ji];
+        const uint64_t stripStart = static_cast<uint64_t>(job.strip) * rowsPerStrip;
+        const uint32_t unitH = static_cast<uint32_t>(
+            (std::min<uint64_t>)(rowsPerStrip, h - stripStart));
+        const uint64_t offset = desc.offsets[job.strip];
+        const uint64_t byteCount = desc.byteCounts[job.strip];
+        if (offset + byteCount > size) {
+            decodeFailed.store(true, std::memory_order_relaxed);
+            continue;
+        }
+
+        std::vector<uint8_t> stripBuf(static_cast<size_t>(unitH) * rowBytes);
+        bool ok = false;
+        switch (desc.compression) {
+            case 32773:
+                ok = DecompressPackBits(data + offset, byteCount,
+                                        stripBuf.data(), stripBuf.size());
+                break;
+            case 5:
+                ok = DecompressLzw(data + offset, byteCount,
+                                   stripBuf.data(), stripBuf.size());
+                break;
+            case 8: case 32946:
+                ok = DecompressDeflate(data + offset, byteCount,
+                                       stripBuf.data(), stripBuf.size());
+                break;
+            default:
+                ok = false;
+                break;
+        }
+        if (!ok) {
+            decodeFailed.store(true, std::memory_order_relaxed);
+            continue;
+        }
+
+        for (uint32_t oy = job.oyBegin; oy < job.oyEnd; ++oy) {
+            uint64_t sy = static_cast<uint64_t>(oy) * step + step / 2;
+            if (sy >= h) sy = h - 1;
+            uint8_t* srcRow = stripBuf.data() +
+                              static_cast<size_t>(sy - stripStart) * rowBytes;
+
+            // Undo horizontal differencing (predictor 2) on this row only.
+            if (desc.predictor == 2) {
+                for (uint32_t x = 1; x < w; ++x)
+                    for (uint32_t c = 0; c < pixelStride; ++c)
+                        srcRow[x * pixelStride + c] +=
+                            srcRow[(x - 1) * pixelStride + c];
+            }
+
+            uint8_t* dstRow = pixels + static_cast<size_t>(oy) * outStride;
+
+            if (photometric == 5) {
+                // CMYK cannot be averaged before conversion: gather the center
+                // sample of each horizontal band, then convert the whole row.
+                for (uint32_t ox = 0; ox < outW; ++ox) {
+                    uint64_t sx = static_cast<uint64_t>(ox) * step + step / 2;
+                    if (sx >= w) sx = w - 1;
+                    memcpy(cmykRow.data() + static_cast<size_t>(ox) * samples,
+                           srcRow + static_cast<size_t>(sx) * pixelStride,
+                           samples);
+                }
+                ConvertCmykToBgra(cmykRow.data(), dstRow, static_cast<int>(outW),
+                                  samples, cmykPremultiply, cmykXform.xform);
+                continue;
+            }
+
+            for (uint32_t ox = 0; ox < outW; ++ox) {
+                const uint64_t x0 = static_cast<uint64_t>(ox) * step;
+                const uint64_t x1 = (std::min<uint64_t>)(x0 + step, w);
+                unsigned sum0 = 0, sum1 = 0, sum2 = 0, sum3 = 0;
+                for (uint64_t x = x0; x < x1; ++x) {
+                    const uint8_t* sp = srcRow + x * pixelStride;
+                    if (photometric == 2) {
+                        unsigned a = (samples >= 4) ? sp[3] : 255;
+                        if (samples >= 4 && desc.extraSamples != 1) {
+                            sum0 += sp[2] * a; sum1 += sp[1] * a; sum2 += sp[0] * a;
+                            sum3 += a;
+                        } else {
+                            sum0 += sp[2]; sum1 += sp[1]; sum2 += sp[0]; sum3 += a;
+                        }
+                    } else {
+                        unsigned v = sp[0];
+                        if (photometric == 0) v = 255 - v;
+                        unsigned a = (samples > 1) ? sp[1] : 255;
+                        if (samples > 1 && desc.extraSamples != 1) {
+                            sum0 += v * a; sum1 += v * a; sum2 += v * a; sum3 += a;
+                        } else {
+                            sum0 += v; sum1 += v; sum2 += v; sum3 += a;
+                        }
+                    }
+                }
+                const unsigned n = static_cast<unsigned>(x1 - x0);
+                int o = static_cast<int>(ox) * 4;
+                // Matches LoadRegion: when alpha is not flagged as straight
+                // (extraSamples != 1) the output stays premultiplied, so the
+                // average is taken over premultiplied components (v*a).
+                dstRow[o + 0] = static_cast<uint8_t>(sum0 / n);
+                dstRow[o + 1] = static_cast<uint8_t>(sum1 / n);
+                dstRow[o + 2] = static_cast<uint8_t>(sum2 / n);
+                dstRow[o + 3] = static_cast<uint8_t>(sum3 / n);
+            }
+        }
+    }
+
+    if (decodeFailed.load(std::memory_order_relaxed)) return E_FAIL;
+
+    result.pixels = pixels;
+    result.width = outW;
+    result.height = outH;
+    result.stride = outStride;
+    result.format = PixelFormat::BGRA8888;
+    result.success = true;
+
+    result.metadata.Width = w;
+    result.metadata.Height = h;
+    result.metadata.Format = L"TIFF";
+    if (photometric == 2)
+        result.metadata.hasAlpha = (samples >= 4) || (desc.extraSamples > 0);
+    else if (photometric == 0 || photometric == 1)
+        result.metadata.hasAlpha = (samples >= 2) || (desc.extraSamples > 0);
+    else if (photometric == 5)
+        result.metadata.hasAlpha = (samples >= 5) || (desc.extraSamples > 0);
+    result.metadata.ExifOrientation = desc.orientation;
+    result.metadata.LoaderName = L"MiniTIFF Sampled";
+    result.metadata.HasEmbeddedColorProfile = false;
+    result.metadata.colorInfo.dataSpace = QuickView::PixelDataSpace::EncodedSdr;
+
+    return S_OK;
+}
+
+// Choose a preview fast path (uncompressed or compressed sampled) or full decode.
 static HRESULT DecodePreviewOrFull(const uint8_t* data, size_t size,
                                    const QuickView::Codec::DecodeContext& ctx,
                                    QuickView::Codec::DecodeResult& result,
@@ -1237,6 +1466,17 @@ static HRESULT DecodePreviewOrFull(const uint8_t* data, size_t size,
         (desc.samples == 1 || desc.samples == 3 || desc.samples == 4
          || desc.samples == 5 || desc.samples == 6)) {
         HRESULT hr = LoadUncompressedPreview(data, size, ctx, result, desc, targetPx);
+        if (hr == S_OK) return hr;
+    }
+    // Compressed multi-strip files (LZW/PackBits/Deflate): decode only the
+    // strips that contain sampled rows instead of the whole image.
+    if (ctx.forcePreview && !desc.isTiled && desc.bitsPerSample == 8 &&
+        desc.planarConfig == 1 && desc.predictor <= 2 &&
+        (desc.compression == 5 || desc.compression == 32773 ||
+         desc.compression == 8 || desc.compression == 32946) &&
+        (desc.photometric == 0 || desc.photometric == 1 || desc.photometric == 2
+         || desc.photometric == 5)) {
+        HRESULT hr = LoadCompressedSampledPreview(data, size, ctx, result, desc, targetPx);
         if (hr == S_OK) return hr;
     }
     return LoadRegion(data, size, ctx, result, 0, 0, desc.width, desc.height);
