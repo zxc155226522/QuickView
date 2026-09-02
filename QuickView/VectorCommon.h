@@ -62,11 +62,11 @@ struct BBox {
     double maxDim() const { return std::max(width(), height()); }
 };
 
-// 按坐标系比例计算线宽 (下限 0.05，确保可见且细腻)
+// 按坐标系比例计算线宽 (下限 0.025，确保高分辨率与缩略图下均精细清晰)
 inline std::string CalcStrokeWidth(double maxDim) {
     if (maxDim <= 0) return "0.2";
-    double sw = maxDim * 0.00035; // 0.035% of max dimension
-    if (sw < 0.05) sw = 0.05;
+    double sw = maxDim * 0.00018; // 0.018% of max dimension
+    if (sw < 0.025) sw = 0.025;
     return FmtFloat(sw);
 }
 

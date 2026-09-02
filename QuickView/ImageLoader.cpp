@@ -4578,9 +4578,9 @@ static HRESULT RasterizeSvgThumbnail(const std::vector<uint8_t> &xmlData,
   if (scale < 1.0f) {
     // [CDR/CAD Fix] Reuse the shared stroke-upscaling helper so thin lines stay
     // visible when the SVG is downscaled to a small thumbnail.
-    // 1.3px ensures CAD blueprint lines don't get anti-aliased away into blank.
+    // 0.65px ensures CAD blueprint lines stay delicate and distinct without blurring or disappearing.
     std::string xmlStr(processedXml.begin(), processedXml.end());
-    QuickView::QvUpscaleSvgStrokeWidths(xmlStr, 1.3f, scale);
+    QuickView::QvUpscaleSvgStrokeWidths(xmlStr, 0.65f, scale);
     processedXml.assign(xmlStr.begin(), xmlStr.end());
   }
 
