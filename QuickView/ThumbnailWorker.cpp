@@ -277,7 +277,37 @@ static void StaleAndClose(PipeTask& t) {
   ServerLog(L"dropped stale req path=" + t.path);
 }
 
+// Reply FAIL(1) immediately for unsupported / AppleDouble shadow files without touching queues or workers.
+static void FailAndClose(PipeTask& t) {
+  uint32_t status = 1; // FAIL
+  HANDLE hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+  if (hEvent) {
+    PipeWriteAll(t.hPipe, &status, sizeof(status), 2000);
+    CloseHandle(hEvent);
+  }
+  FlushFileBuffers(t.hPipe);
+  DisconnectNamedPipe(t.hPipe);
+  CloseHandle(t.hPipe);
+}
+
+static bool IsValidImageFileForThumb(const std::wstring& path) {
+  size_t slash = path.find_last_of(L"\\/");
+  std::wstring filename = (slash != std::wstring::npos) ? path.substr(slash + 1) : path;
+  // Skip AppleDouble files (._filename or ._tf)
+  if (filename.starts_with(L"._") || filename.ends_with(L"._tf")) return false;
+
+  std::wstring_view ext = QuickView::ExtensionOf(path);
+  if (ext.empty() || !QuickView::IsSupportedExtension(ext)) return false;
+
+  return true;
+}
+
 static void Enqueue(PipeTask t) {
+  if (!IsValidImageFileForThumb(t.path)) {
+    FailAndClose(t);
+    return;
+  }
+
   t.fileSizeBytes = GetFileSizeFast(t.path);
   t.seq = g_nextSeq.fetch_add(1, std::memory_order_relaxed);
 

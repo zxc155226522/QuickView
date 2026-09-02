@@ -142,6 +142,17 @@ constexpr bool IsArchivePath(std::wstring_view path) {
     return IsArchiveExtension(ExtensionOf(path));
 }
 
+constexpr bool IsSupportedExtension(std::wstring_view ext) {
+    for (const auto& s : SUPPORTED_EXTENSIONS) {
+        if (ExtEqualsIgnoreCase(ext, s)) return true;
+    }
+    return false;
+}
+
+constexpr bool IsSupportedPath(std::wstring_view path) {
+    return IsSupportedExtension(ExtensionOf(path));
+}
+
 // ============================================================================
 // RAW+JPEG pairing policy
 // ============================================================================

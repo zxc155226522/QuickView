@@ -397,7 +397,7 @@ static HANDLE OpenServerPipe() {
 }
 
 static void LaunchServer(const std::wstring& exePath) {
-    std::wstring cmd = L"\"" + exePath + L"\" --thumbnail-server --idle 60";
+    std::wstring cmd = L"\"" + exePath + L"\" --thumbnail-server --idle 300";
     STARTUPINFOW si = {};
     si.cb = sizeof(si);
     si.dwFlags = STARTF_USESHOWWINDOW;
@@ -461,16 +461,19 @@ static PipeResult RequestThumbnailViaPipe(const std::wstring& exePath,
     bool launched = false;
     for (int attempt = 0; attempt < 2; ++attempt) {
         HANDLE hPipe = INVALID_HANDLE_VALUE;
-        for (int k = 0; k < 100 && hPipe == INVALID_HANDLE_VALUE; ++k) {
+        for (int k = 0; k < 200 && hPipe == INVALID_HANDLE_VALUE; ++k) {
             hPipe = OpenServerPipe();
             if (hPipe != INVALID_HANDLE_VALUE) break;
             DWORD err = GetLastError();
-            if (err == ERROR_FILE_NOT_FOUND && !launched) {
-                LaunchServer(exePath);
-                launched = true;
-                Sleep(50);
+            if (err == ERROR_FILE_NOT_FOUND) {
+                if (!launched) {
+                    LaunchServer(exePath);
+                    launched = true;
+                }
+                // Wait up to 500ms for the server to create the pipe
+                WaitNamedPipeW(kPipeName, 500);
             } else if (err == ERROR_PIPE_BUSY) {
-                // Wait until an instance becomes available
+                // Wait until a busy instance becomes available
                 WaitNamedPipeW(kPipeName, 2000);
             } else {
                 Sleep(20);
@@ -865,6 +868,16 @@ public:
 
         // 解码输入：m_path 即 IInitializeWithFile 传入的真实文件路径，worker 直接解码真文件。
         std::wstring inputPath = m_path;
+
+        // 快速跳过苹果 AppleDouble 影子文件（._ 开头或 ._tf 结尾），耗时 0 毫秒，不堵塞服务队列
+        {
+            size_t slash = inputPath.find_last_of(L"\\/");
+            std::wstring fn = (slash != std::wstring::npos) ? inputPath.substr(slash + 1) : inputPath;
+            if (fn.starts_with(L"._") || fn.ends_with(L"._tf")) {
+                DbgLog(L"  skip AppleDouble shadow file");
+                return E_FAIL;
+            }
+        }
 
         // [Disk cache] Hit first: a previously rendered thumbnail is returned
         // instantly without touching the pipe server at all. Key includes mtime
