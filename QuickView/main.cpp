@@ -935,6 +935,10 @@ D2D1_SIZE_F GetVisualImageSize();
 VisualState GetVisualState();
 static float ComputeBaseFitScaleForVisual(const VisualState& vs, float winW, float winH);
 
+static bool IsVectorOrDocumentResource(const ImageResource& res) {
+    return res.isSvg || res.isResvg || res.isMupdf || res.isPdfium;
+}
+
 void ApplyFullScreenZoomMode(HWND hwnd) {
     if (!GetPaneContext(PaneSlot::Primary).resource || (!g_isFullScreen && !IsZoomed(hwnd))) return;
 
@@ -1819,7 +1823,7 @@ void DrawResourceIntoViewport(ID2D1DeviceContext* ctx,
     if (orientedSize.width <= 0.0f || orientedSize.height <= 0.0f) return;
 
     float fitScale = std::min(vpW / orientedSize.width, vpH / orientedSize.height);
-    if (orientedSize.width < 200.0f && orientedSize.height < 200.0f && fitScale > 1.0f) {
+    if (!IsVectorOrDocumentResource(res) && orientedSize.width < 200.0f && orientedSize.height < 200.0f && fitScale > 1.0f) {
         fitScale = 1.0f;
     }
 
@@ -3396,6 +3400,14 @@ static float ComputeBaseFitScaleForVisual(const VisualState& vs, float winW, flo
     }
 
     float baseFit = std::min(winW / vs.VisualSize.width, winH / vs.VisualSize.height);
+
+    // [Vector Fix] 矢量图(SVG/DXF/DWG/PLT)与文档(PDF/AI)在任何倍率下均无损清晰，
+    // 且CAD图纸模型单位常为毫米/米(如297x210图框或50x30零件)，不受小图防模糊与锁窗限制，
+    // 始终完整自适应视口。
+    if (IsVectorOrDocumentResource(GetPaneContext(PaneSlot::Primary).resource)) {
+        return baseFit;
+    }
+
     if (g_runtime.LockWindowSize) {
         if (!g_config.UpscaleSmallImagesWhenLocked && baseFit > 1.0f) {
             baseFit = 1.0f;
@@ -3709,13 +3721,15 @@ static float GetCurrentTotalScale(HWND hwnd) {
     float scaleH = viewport.Height / imageHeight;
     float fitScale = (scaleW < scaleH) ? scaleW : scaleH;
 
-    if (g_runtime.LockWindowSize) {
-        if (!g_config.UpscaleSmallImagesWhenLocked && fitScale > 1.0f) {
-            fitScale = 1.0f;
-        }
-    } else {
-        if (imageWidth < 200.0f && imageHeight < 200.0f && fitScale > 1.0f) {
-            fitScale = 1.0f;
+    if (!IsVectorOrDocumentResource(GetPaneContext(PaneSlot::Primary).resource)) {
+        if (g_runtime.LockWindowSize) {
+            if (!g_config.UpscaleSmallImagesWhenLocked && fitScale > 1.0f) {
+                fitScale = 1.0f;
+            }
+        } else {
+            if (imageWidth < 200.0f && imageHeight < 200.0f && fitScale > 1.0f) {
+                fitScale = 1.0f;
+            }
         }
     }
 
@@ -3740,13 +3754,15 @@ static float ClampTotalScale(HWND hwnd, float newTotalScale) {
     float scaleH = viewport.Height / imageHeight;
     float fitScale = (scaleW < scaleH) ? scaleW : scaleH;
 
-    if (g_runtime.LockWindowSize) {
-        if (!g_config.UpscaleSmallImagesWhenLocked && fitScale > 1.0f) {
-            fitScale = 1.0f;
-        }
-    } else {
-        if (imageWidth < 200.0f && imageHeight < 200.0f && fitScale > 1.0f) {
-            fitScale = 1.0f;
+    if (!IsVectorOrDocumentResource(GetPaneContext(PaneSlot::Primary).resource)) {
+        if (g_runtime.LockWindowSize) {
+            if (!g_config.UpscaleSmallImagesWhenLocked && fitScale > 1.0f) {
+                fitScale = 1.0f;
+            }
+        } else {
+            if (imageWidth < 200.0f && imageHeight < 200.0f && fitScale > 1.0f) {
+                fitScale = 1.0f;
+            }
         }
     }
 
@@ -5256,13 +5272,15 @@ int GetCurrentZoomPercent() {
     // Calculate BaseFit (same as WM_MOUSEWHEEL and SyncDCompState)
     const ImageViewportLayout viewport = ComputeImageViewportLayout(winW, winH);
     float fitScale = std::min(viewport.Width / effSize.width, viewport.Height / effSize.height);
-    if (g_runtime.LockWindowSize) {
-        if (!g_config.UpscaleSmallImagesWhenLocked && fitScale > 1.0f) {
-            fitScale = 1.0f;
-        }
-    } else {
-        if (effSize.width < 200.0f && effSize.height < 200.0f && fitScale > 1.0f) {
-            fitScale = 1.0f;
+    if (!IsVectorOrDocumentResource(GetPaneContext(PaneSlot::Primary).resource)) {
+        if (g_runtime.LockWindowSize) {
+            if (!g_config.UpscaleSmallImagesWhenLocked && fitScale > 1.0f) {
+                fitScale = 1.0f;
+            }
+        } else {
+            if (effSize.width < 200.0f && effSize.height < 200.0f && fitScale > 1.0f) {
+                fitScale = 1.0f;
+            }
         }
     }
     
@@ -7216,10 +7234,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
                 float winW = (float)rc.right;
                 float winH = (float)rc.bottom;
                 const ImageViewportLayout viewport = ComputeImageViewportLayout(winW, winH);
-                float baseFit = std::min(viewport.Width / vs.VisualSize.width, viewport.Height / vs.VisualSize.height);
-                if (vs.VisualSize.width < 200.0f && vs.VisualSize.height < 200.0f) {
-                    if (baseFit > 1.0f) baseFit = 1.0f;
-                }
+                float baseFit = ComputeBaseFitScaleForVisual(vs, viewport.Width, viewport.Height);
 
                 s_resizeInitialAbsoluteScale = baseFit * GetPaneContext(PaneSlot::Primary).view.Zoom;
                 s_maintainAbsoluteScale = (abs(GetPaneContext(PaneSlot::Primary).view.Zoom - 1.0f) > 0.001f);
@@ -14975,10 +14990,7 @@ void PerformSmartZoom(HWND hwnd, float newTotalScale, const POINT* centerPt, [[m
          float startPanY = GetPaneContext(PaneSlot::Primary).view.PanY;
          
          const ImageViewportLayout finalViewport = ComputeImageViewportLayout((float)finalWinW, (float)finalWinH);
-         float baseFit_next = std::min(finalViewport.Width / imgW, finalViewport.Height / imgH);
-         if (imgW < 200.0f && imgH < 200.0f) {
-             if (baseFit_next > 1.0f) baseFit_next = 1.0f;
-         }
+         float baseFit_next = ComputeBaseFitScaleForVisual(vs, finalViewport.Width, finalViewport.Height);
          
          float targetZoomState = newTotalScale / baseFit_next;
 
@@ -15037,17 +15049,7 @@ void PerformSmartZoom(HWND hwnd, float newTotalScale, const POINT* centerPt, [[m
          float winW = (float)rcNew.right;
          float winH = (float)rcNew.bottom;
          const ImageViewportLayout viewport = ComputeImageViewportLayout(winW, winH);
-         
-         float fitScale = std::min(viewport.Width / imgW, viewport.Height / imgH);
-         if (g_runtime.LockWindowSize) {
-             if (!g_config.UpscaleSmallImagesWhenLocked && fitScale > 1.0f) {
-                 fitScale = 1.0f;
-             }
-         } else {
-             if (imgW < 200.0f && imgH < 200.0f && fitScale > 1.0f) {
-                 fitScale = 1.0f;
-             }
-         }
+         float fitScale = ComputeBaseFitScaleForVisual(vs, viewport.Width, viewport.Height);
          
          float oldZoom = (AppContext::GetInstance().SmoothWindowZoom.active) ? AppContext::GetInstance().SmoothWindowZoom.targetZoom : GetPaneContext(PaneSlot::Primary).view.Zoom;
          float newZoom = newTotalScale / fitScale;
