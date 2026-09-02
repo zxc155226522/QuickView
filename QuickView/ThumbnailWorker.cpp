@@ -157,12 +157,12 @@ static bool PipeWriteAll(HANDLE hPipe, const void* buf, DWORD len, DWORD ms) {
 }
 
 // ---------------------------------------------------------------------------
-// Persistent server: dual-channel worker pool (parallel + serial).
+// Persistent server: unified worker pool with small-file-first priority queue.
 // ---------------------------------------------------------------------------
 
 struct ServerConfig {
-  int threads = 4;
-  uint64_t smallFileBytes = 5ULL * 1024 * 1024; // 5 MB default
+  int threads = 8;
+  uint64_t smallFileBytes = 50ULL * 1024 * 1024; // 50 MB threshold for large-file downsampling
 };
 
 // Pipe I/O timeout for the server side writing the response back to the
@@ -174,46 +174,35 @@ struct PipeTask {
   HANDLE hPipe = INVALID_HANDLE_VALUE; // owned by this task once enqueued
   std::wstring path;
   uint32_t size = 0;
+  uint64_t fileSizeBytes = 0;
+  uint64_t seq = 0; // Insertion sequence to maintain stable FIFO for same-size files
+
+  // Min-heap comparator: smallest file size first.
+  // When file sizes match, older requests (smaller seq) are prioritized.
+  bool operator>(const PipeTask& other) const {
+    if (fileSizeBytes != other.fileSizeBytes) {
+      return fileSizeBytes > other.fileSizeBytes;
+    }
+    return seq > other.seq;
+  }
 };
 
 static ServerConfig g_cfg;
 static std::atomic<bool> g_shutdown{false};
 
-// Hot-reloadable small-file threshold (atomic so the accept thread can update
-// it while worker threads read it without locking).
+// Threshold for large-file thumbnail downsampling protection.
 static std::atomic<uint64_t> g_smallFileBytes{50ULL * 1024 * 1024};
 // Named event letting the settings UI gracefully stop a running server so it
 // respawns with updated settings (e.g. thread count).
 static const wchar_t* kStopEventName = L"Local\\QuickViewThumbStop";
 static HANDLE g_hStopEvent = nullptr;
 
-// Parallel channel (small, non-CDR/CMX): N worker threads.
-static std::queue<PipeTask> g_parallelQ;
-static std::mutex g_parallelMtx;
-static std::condition_variable g_parallelCv;
-static const size_t kParallelCap = 128;
-
-// Large-file (non-CDR/CMX) dedicated channel: a pool of workers. CDR/CMX are
-// no longer isolated here -- they now share the parallel pool (IsSmallAndParallelSafe
-// returns true for them regardless of size), so this channel only handles
-// large non-CDR/CMX files.
-static std::queue<PipeTask> g_largeQ;
-static std::mutex g_largeMtx;
-static std::condition_variable g_largeCv;
-
-// Capacity of each slow channel. High enough that a folder with dozens of
-// CDR/large files queues instead of being dropped stale (the real cause of
-// ">16 CDR at once" failures). Overflow beyond this is rare and handled by the
-// bounded one-shot fallback in the provider.
-static const size_t kSlowCap = 128;
-
-// Number of large-file (non-CDR/CMX) worker threads. The large channel was
-// single-threaded only to bound resource use, not for correctness: each
-// worker owns its own CImageLoader and MuPDF now uses a thread-local
-// fz_context, so there is no shared mutable state to race on. A small pool
-// stops one slow large file (e.g. a 5s .ai) from serializing every other
-// large file behind it.
-static const int kLargeThreads = 4;
+// Unified priority task queue (Min-Heap by file size)
+static std::vector<PipeTask> g_taskHeap;
+static std::mutex g_taskMtx;
+static std::condition_variable g_taskCv;
+static const size_t kTaskCap = 256;
+static std::atomic<uint64_t> g_nextSeq{0};
 
 // Decode-target cap for large-file thumbnails: render at a smaller size to cut
 // decode cost / timeout risk (the on-screen thumbnail is tiny anyway).
@@ -262,28 +251,14 @@ static void ReloadThreshold() {
   }
 }
 
-static uint64_t GetFileSizeSafe(const std::wstring& path) {
-  HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
-                         OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-  if (h == INVALID_HANDLE_VALUE) return 0;
-  LARGE_INTEGER sz = {};
-  BOOL ok = GetFileSizeEx(h, &sz);
-  CloseHandle(h);
-  return ok ? static_cast<uint64_t>(sz.QuadPart) : 0;
-}
-
-// Parallel channel accepts: (1) CDR/CMX/TIF/TIFF -- always, regardless of size, because
-// they fetch internal thumbnails / use strided downsample and each worker owns its own
-// CImageLoader instance, so race-free; (2) every other format below the small
-// file threshold. Large non-CDR/CMX/TIF files fall through to the large channel.
-static bool IsSmallAndParallelSafe(const std::wstring& path) {
-  std::wstring_view ext = QuickView::ExtensionOf(path);
-  if (QuickView::ExtEqualsIgnoreCase(ext, L".cdr") ||
-      QuickView::ExtEqualsIgnoreCase(ext, L".cmx") ||
-      QuickView::ExtEqualsIgnoreCase(ext, L".tif") ||
-      QuickView::ExtEqualsIgnoreCase(ext, L".tiff")) return true;
-  if (GetFileSizeSafe(path) >= g_smallFileBytes.load()) return false;
-  return true;
+// Fast zero-handle file size check using NTFS/FAT directory metadata.
+// Eliminates CreateFileW/CloseHandle handle storms that cause disk stalls during bulk folder load.
+static uint64_t GetFileSizeFast(const std::wstring& path) {
+  WIN32_FILE_ATTRIBUTE_DATA data = {};
+  if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &data)) {
+    return (static_cast<uint64_t>(data.nFileSizeHigh) << 32) | static_cast<uint64_t>(data.nFileSizeLow);
+  }
+  return 0;
 }
 
 // Reply STALE(3) to a dropped request so the provider returns immediately
@@ -303,35 +278,40 @@ static void StaleAndClose(PipeTask& t) {
 }
 
 static void Enqueue(PipeTask t) {
-  if (IsSmallAndParallelSafe(t.path)) {
-    std::unique_lock<std::mutex> lk(g_parallelMtx);
-    while (g_parallelQ.size() >= kParallelCap) {
-      PipeTask old = std::move(g_parallelQ.front());
-      g_parallelQ.pop();
+  t.fileSizeBytes = GetFileSizeFast(t.path);
+  t.seq = g_nextSeq.fetch_add(1, std::memory_order_relaxed);
+
+  std::unique_lock<std::mutex> lk(g_taskMtx);
+  if (g_taskHeap.size() >= kTaskCap) {
+    // Drop the largest file currently in the queue to free space for smaller/fresher tasks.
+    auto maxIt = std::max_element(g_taskHeap.begin(), g_taskHeap.end(),
+                                  [](const PipeTask& a, const PipeTask& b) {
+                                    return a.fileSizeBytes < b.fileSizeBytes;
+                                  });
+    if (maxIt != g_taskHeap.end() && maxIt->fileSizeBytes > t.fileSizeBytes) {
+      PipeTask dropped = std::move(*maxIt);
+      g_taskHeap.erase(maxIt);
+      std::make_heap(g_taskHeap.begin(), g_taskHeap.end(), std::greater<PipeTask>());
       lk.unlock();
-      StaleAndClose(old);
+      StaleAndClose(dropped);
       lk.lock();
-    }
-    g_parallelQ.push(std::move(t));
-    g_parallelCv.notify_one();
-  } else {
-    std::unique_lock<std::mutex> lk(g_largeMtx);
-    while (g_largeQ.size() >= kSlowCap) {
-      PipeTask old = std::move(g_largeQ.front());
-      g_largeQ.pop();
+    } else {
+      // New task is larger than everything in the queue, drop new task directly
       lk.unlock();
-      StaleAndClose(old);
-      lk.lock();
+      StaleAndClose(t);
+      return;
     }
-    g_largeQ.push(std::move(t));
-    g_largeCv.notify_one();
   }
+
+  g_taskHeap.push_back(std::move(t));
+  std::push_heap(g_taskHeap.begin(), g_taskHeap.end(), std::greater<PipeTask>());
+  g_taskCv.notify_one();
 }
 
 // Render one request and write the response on its pipe. Each worker owns its
 // own CImageLoader instance, so there is no shared per-instance mutable state
 // across threads. The only process-global mutable state (g_cdrPageCache) is
-// reached by CDR/CMX, but every parallel worker runs with
+// reached by CDR/CMX, but every worker runs with
 // m_bPopulateCdrCache=false, so it is never touched -- hence race-free.
 static void RenderAndRespond(PipeTask& t, CImageLoader& loader, bool degrade) {
   auto t0 = std::chrono::steady_clock::now();
@@ -379,13 +359,13 @@ static void RenderAndRespond(PipeTask& t, CImageLoader& loader, bool degrade) {
   CloseHandle(t.hPipe);
 }
 
-static void ParallelWorker() {
+static void WorkerThread() {
   CoInitializeEx(nullptr, COINIT_MULTITHREADED);
   {
     // [Fix] loader (and its m_wicFactory ComPtr) is scoped so it is destroyed
     // BEFORE CoUninitialize: releasing a COM object on a torn-down apartment AVs.
     CImageLoader loader;
-    // CDR/CMX now share this parallel pool; disable the shared page-cache so
+    // CDR/CMX share this pool; disable the shared page-cache so
     // they never race on g_cdrPageCache (ImageLoader.cpp:62). No-op for other
     // formats.
     loader.m_bPopulateCdrCache = false;
@@ -399,50 +379,19 @@ static void ParallelWorker() {
       }
     }
     while (true) {
-    PipeTask t;
-    {
-      std::unique_lock<std::mutex> lk(g_parallelMtx);
-      g_parallelCv.wait(lk, [] { return g_shutdown.load() || !g_parallelQ.empty(); });
-      if (g_shutdown.load() && g_parallelQ.empty()) break;
-      if (g_parallelQ.empty()) continue;
-      t = std::move(g_parallelQ.front());
-      g_parallelQ.pop();
+      PipeTask t;
+      {
+        std::unique_lock<std::mutex> lk(g_taskMtx);
+        g_taskCv.wait(lk, [] { return g_shutdown.load() || !g_taskHeap.empty(); });
+        if (g_shutdown.load() && g_taskHeap.empty()) break;
+        if (g_taskHeap.empty()) continue;
+        std::pop_heap(g_taskHeap.begin(), g_taskHeap.end(), std::greater<PipeTask>());
+        t = std::move(g_taskHeap.back());
+        g_taskHeap.pop_back();
+      }
+      const bool degrade = (t.fileSizeBytes >= g_smallFileBytes.load());
+      RenderAndRespond(t, loader, degrade);
     }
-    RenderAndRespond(t, loader, false);
-  }
-  }  // loader destroyed here, before CoUninitialize
-  CoUninitialize();
-}
-
-static void LargeWorker() {
-  CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-  {
-    // [Fix] loader (and its m_wicFactory ComPtr) is scoped so it is destroyed
-    // BEFORE CoUninitialize: releasing a COM object on a torn-down apartment AVs.
-    CImageLoader loader;
-  {
-    IWICImagingFactory* wf = nullptr;
-    if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr,
-                                   CLSCTX_INPROC_SERVER, IID_IWICImagingFactory,
-                                   reinterpret_cast<void**>(&wf)))) {
-      loader.Initialize(wf);
-      wf->Release();
-    }
-  }
-  while (true) {
-    PipeTask t;
-    {
-      std::unique_lock<std::mutex> lk(g_largeMtx);
-      g_largeCv.wait(lk, [] { return g_shutdown.load() || !g_largeQ.empty(); });
-      if (g_shutdown.load() && g_largeQ.empty()) break;
-      if (g_largeQ.empty()) continue;
-      t = std::move(g_largeQ.front());
-      g_largeQ.pop();
-    }
-    // Large files render at a reduced target size (see kLargeThumbMax) to
-    // avoid decode timeouts on very big images.
-    RenderAndRespond(t, loader, true);
-  }
   }  // loader destroyed here, before CoUninitialize
   CoUninitialize();
 }
@@ -562,14 +511,12 @@ int QuickView::RunThumbnailServer(int argc, LPWSTR* argv) {
             L" smallMB=" + std::to_wstring(g_cfg.smallFileBytes / (1024 * 1024)) +
             L" idle=" + std::to_wstring(idleSec) + L"s");
 
-  // Worker pool: N parallel threads (incl. CDR/CMX) + kLargeThreads large-file
-  // threads. Each owns its own CImageLoader instance so there is no shared
+  // Worker pool: unified N threads processing the min-heap priority queue.
+  // Each owns its own CImageLoader instance so there is no shared
   // per-instance mutable state.
   std::vector<std::thread> workers;
   for (int i = 0; i < g_cfg.threads; ++i)
-    workers.emplace_back(ParallelWorker);
-  for (int i = 0; i < kLargeThreads; ++i)
-    workers.emplace_back(LargeWorker);
+    workers.emplace_back(WorkerThread);
 
   OVERLAPPED ol = {};
   ol.hEvent = hEvent;
@@ -661,8 +608,7 @@ int QuickView::RunThumbnailServer(int argc, LPWSTR* argv) {
 
   // Shutdown: stop accepting, let queued/in-flight tasks drain, then join.
   g_shutdown = true;
-  g_parallelCv.notify_all();
-  g_largeCv.notify_all();
+  g_taskCv.notify_all();
   for (auto& t : workers) {
     if (t.joinable()) t.join();
   }

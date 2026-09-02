@@ -3,8 +3,8 @@
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-$ProjectPath = "E:/项目/看图软件"
-$JunctionPath = "E:/qv_build_tmp"
+$ProjectPath = $PSScriptRoot
+$JunctionPath = "E:\qv_build_tmp"
 $LLVM_BIN = "C:/Program Files\LLVM\bin"
 $VS_CMAKE = "C:/Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin"
 $outDir = Join-Path $ProjectPath "out\build\Release-LTO"
@@ -43,5 +43,5 @@ try {
     Write-Host "BUILD_OK"
 } finally {
     if (Test-Path $JunctionPath) { Remove-Item $JunctionPath -Recurse -Force -ErrorAction SilentlyContinue }
-    Write-Host "junction 已清理"
+    Write-Host "junction cleared"
 }
