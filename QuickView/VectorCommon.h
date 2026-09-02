@@ -243,15 +243,12 @@ inline std::string AssembleSvg(const BBox& bbox, std::string bodyStr) {
     // [Perf] 单遍扫描替换 __SW__，避免 std::string::replace 反复移动尾部数据
     std::string strokeW = CalcStrokeWidth(bbox.maxDim());
     {
-        const char* needle = "\" stroke-width=\"__SW__\"";
-        const size_t needleLen = 22; // strlen(needle)
+        const std::string needle = "\" stroke-width=\"__SW__\"";
         const std::string replacement = "\" stroke-width=\"" + strokeW + "\"";
+        const size_t needleLen = needle.size();
         const size_t replLen = replacement.size();
-        // 估算: 原 body 大小 + 替换差值 × 预估占位符数量
-        size_t estPlaceholders = bodyStr.size() / 200; // 粗略估计
-        size_t estCapacity = bodyStr.size() + estPlaceholders * (replLen - needleLen);
         std::string out;
-        out.reserve(std::max(estCapacity, bodyStr.size() + 256));
+        out.reserve(bodyStr.size() + (bodyStr.size() / 200) * (replLen - needleLen) + 256);
         size_t pos = 0;
         while (pos < bodyStr.size()) {
             size_t found = bodyStr.find(needle, pos);
