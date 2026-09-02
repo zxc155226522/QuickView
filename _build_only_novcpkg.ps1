@@ -1,4 +1,4 @@
-# 跳过 cmake --preset(避免重跑 vcpkg),仅增量 cmake --build
+﻿# 跳过 cmake --preset(避免重跑 vcpkg),仅增量 cmake --build
 # 不使用 cmd /c(被 PowerShell 工具安全策略禁用),改用原生 New-Item Junction
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -41,6 +41,17 @@ try {
     }
     if (-not $ok) { Write-Host "BUILD_FAILED" -ForegroundColor Red; exit 1 }
     Write-Host "BUILD_OK"
+
+    # Copy PDFium DLL if needed
+    $pdfiumDll = Join-Path $ProjectPath "third_party\pdfium\bin\pdfium.dll"
+    if (Test-Path $pdfiumDll) {
+        Copy-Item $pdfiumDll -Destination $outDir -Force
+    }
+
+    # Start QuickView
+    $exePath = Join-Path $outDir "QuickView.exe"
+    Write-Host ("Starting QuickView: " + $exePath) -ForegroundColor Green
+    Start-Process $exePath
 } finally {
     if (Test-Path $JunctionPath) { Remove-Item $JunctionPath -Recurse -Force -ErrorAction SilentlyContinue }
     Write-Host "junction cleared"

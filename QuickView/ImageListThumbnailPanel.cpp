@@ -16,7 +16,10 @@ extern std::unique_ptr<CImageLoader> g_imageLoader;
 ImageListThumbnailPanel::~ImageListThumbnailPanel() {
     m_thumbRunning = false;
     m_thumbCV.notify_all();
-    if (m_thumbThread.joinable()) m_thumbThread.join();
+    for (auto& t : m_thumbThreads) {
+        if (t.joinable()) t.join();
+    }
+    m_thumbThreads.clear();
     for (auto& pair : m_imageThumbCache) { if (pair.second) pair.second->Release(); }
     m_imageThumbCache.clear();
     DiscardDeviceResources();
@@ -24,9 +27,12 @@ ImageListThumbnailPanel::~ImageListThumbnailPanel() {
 
 void ImageListThumbnailPanel::InitializeEx(HWND hwnd) {
     Initialize(hwnd);
-    // Start background thumbnail worker thread
+    // Start background thumbnail worker thread pool
     m_thumbRunning = true;
-    m_thumbThread = std::thread(&ImageListThumbnailPanel::ThumbWorkerLoop, this);
+    m_thumbThreads.reserve(kThumbWorkerThreads);
+    for (int i = 0; i < kThumbWorkerThreads; ++i) {
+        m_thumbThreads.emplace_back(&ImageListThumbnailPanel::ThumbWorkerLoop, this);
+    }
 }
 
 void ImageListThumbnailPanel::ShowImageThumbnails(FileNavigator* nav, int currentIndex, uint32_t totalFiles) {
@@ -386,6 +392,17 @@ void ImageListThumbnailPanel::EnqueueThumb(uint32_t idx) {
 
 void ImageListThumbnailPanel::ThumbWorkerLoop() {
     HRESULT coInit = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    CImageLoader loader;
+    loader.m_bPopulateCdrCache = false;
+    {
+        IWICImagingFactory* wf = nullptr;
+        if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr,
+                                       CLSCTX_INPROC_SERVER, IID_IWICImagingFactory,
+                                       reinterpret_cast<void**>(&wf)))) {
+            loader.Initialize(wf);
+            wf->Release();
+        }
+    }
 
     while (m_thumbRunning) {
         uint32_t idx;
@@ -403,7 +420,7 @@ void ImageListThumbnailPanel::ThumbWorkerLoop() {
 
         if (idx < m_imagePaths.size()) {
             CImageLoader::ThumbData thumbData;
-            HRESULT hr = g_imageLoader->LoadThumbnail(
+            HRESULT hr = loader.LoadThumbnail(
                 m_imagePaths[idx].c_str(), kThumbnailTargetWidth, &thumbData, true, false);
             if (SUCCEEDED(hr) && thumbData.isValid && !thumbData.pixels.empty()) {
                 result.pixels = std::move(thumbData.pixels);

@@ -70,6 +70,7 @@ void ClearCdrPageCache() { g_cdrPageCache.clear(); }
 
 // Forward declaration
 static bool ReadFileToVector(LPCWSTR filePath, std::vector<uint8_t> &buffer);
+inline bool ReadFilePrefixToVector(LPCWSTR filePath, std::vector<uint8_t> &buffer, size_t maxBytes = 4 * 1024 * 1024);
 static std::string_view GetSvgRootTag(std::string_view xml);
 static std::string GetSvgRootAttrVal(const std::string &xml, const char *attr);
 static bool TryParseSvgLengthToDip(const std::string &raw, float *out);
@@ -1951,6 +1952,35 @@ bool ReadFileToVector(LPCWSTR filePath, std::vector<uint8_t> &buffer) {
   BOOL result = ReadFile(hFile, buffer.data(), fileSize, &bytesRead, nullptr);
   CloseHandle(hFile);
   return result && bytesRead == fileSize;
+}
+
+// Fast bounded reader: reads at most maxBytes of a file (for header/preview sniffing without downloading 100MB+ over SMB)
+inline bool ReadFilePrefixToVector(LPCWSTR filePath, std::vector<uint8_t> &buffer, size_t maxBytes) {
+  HANDLE hFile = CreateFileW(filePath, GENERIC_READ, FILE_SHARE_READ, nullptr,
+                             OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (hFile == INVALID_HANDLE_VALUE)
+    return false;
+
+  LARGE_INTEGER fileSize = {};
+  if (!GetFileSizeEx(hFile, &fileSize) || fileSize.QuadPart <= 0) {
+    CloseHandle(hFile);
+    return false;
+  }
+
+  size_t toRead = static_cast<size_t>(fileSize.QuadPart);
+  if (maxBytes > 0 && toRead > maxBytes) {
+    toRead = maxBytes;
+  }
+
+  buffer.resize(toRead);
+  DWORD bytesRead = 0;
+  BOOL result = ReadFile(hFile, buffer.data(), static_cast<DWORD>(toRead), &bytesRead, nullptr);
+  CloseHandle(hFile);
+  if (result && bytesRead > 0) {
+    buffer.resize(bytesRead);
+    return true;
+  }
+  return false;
 }
 
 // [CMS/PMR] PMR-aware file reader
@@ -5038,36 +5068,44 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
         isHeic = (e == L".heic" || e == L".heif" || e == L".hif");
     }
         
-        // [STE Level 1] PSD: Use PreviewExtractor
+        // [STE Level 1] PSD: Use PreviewExtractor (Fast bounded prefix to prevent 100MB+ network pull)
         if (isPsd) {
             std::vector<uint8_t> buf;
-            if (!ReadFileToVector(filePath, buf)) {
-                return E_ABORT;
-            }
-            
-            PreviewExtractor::ExtractedData exData;
-            if (PreviewExtractor::ExtractFromPSD(buf.data(), buf.size(), exData) && exData.IsValid()) {
-                if (SUCCEEDED(LoadThumbJPEGFromMemory(exData.pData, exData.size, targetSize, pData))) {
-                    pData->fileSize = buf.size();
-                    return S_OK;
+            // 4MB covers header + color mode + thumbnail resource in 99.9% of PSDs
+            if (ReadFilePrefixToVector(filePath, buf, 4 * 1024 * 1024)) {
+                PreviewExtractor::ExtractedData exData;
+                if (PreviewExtractor::ExtractFromPSD(buf.data(), buf.size(), exData) && exData.IsValid()) {
+                    if (SUCCEEDED(LoadThumbJPEGFromMemory(exData.pData, exData.size, targetSize, pData))) {
+                        pData->fileSize = fsize > 0 ? fsize : buf.size();
+                        return S_OK;
+                    }
                 }
             }
-            
+            // If not found in 4MB, try 16MB for very large metadata blocks
+            if (fsize > 4 * 1024 * 1024 && ReadFilePrefixToVector(filePath, buf, 16 * 1024 * 1024)) {
+                PreviewExtractor::ExtractedData exData;
+                if (PreviewExtractor::ExtractFromPSD(buf.data(), buf.size(), exData) && exData.IsValid()) {
+                    if (SUCCEEDED(LoadThumbJPEGFromMemory(exData.pData, exData.size, targetSize, pData))) {
+                        pData->fileSize = fsize;
+                        return S_OK;
+                    }
+                }
+            }
             return E_ABORT;
         }
         
-        // HEIC: Allow Exif extraction attempt (small files only in Scout mode)
+        // HEIC: Allow Exif extraction attempt (small prefix only)
         if (isHeic) {
             if (!allowSlow && fsize > 5 * 1024 * 1024) {
                 return E_ABORT;
             }
             
             std::vector<uint8_t> buf;
-            if (ReadFileToVector(filePath, buf)) {
+            if (ReadFilePrefixToVector(filePath, buf, 2 * 1024 * 1024)) {
                 PreviewExtractor::ExtractedData exData;
                 if (PreviewExtractor::ExtractFromHEIC(buf.data(), buf.size(), exData) && exData.IsValid()) {
                     if (SUCCEEDED(LoadThumbJPEGFromMemory(exData.pData, exData.size, targetSize, pData))) {
-                        pData->fileSize = buf.size();
+                        pData->fileSize = fsize > 0 ? fsize : buf.size();
                         return S_OK;
                     }
                 }
@@ -6179,6 +6217,71 @@ HRESULT CImageLoader::LoadToMemory(LPCWSTR filePath, IWICBitmap **ppBitmap,
       return S_OK;
     }
   } else if (detectedFmt == L"PSD") {
+    // 1. Prefer native PsdComposite::Load via Zero-Copy MappedFile (handles 8-bit & 16-bit RGB/Gray PSD/PSB cleanly)
+    QuickView::MappedFile mappedFile(filePath);
+    if (mappedFile.IsValid() && mappedFile.size() >= 26) {
+      DecodeContext decodeCtx;
+      decodeCtx.allocator.pfn = [](void *, size_t s) -> uint8_t * {
+        return new (std::nothrow) uint8_t[s];
+      };
+      decodeCtx.freeFunc.pfn = [](void *, uint8_t *p) { delete[] p; };
+      decodeCtx.checkCancel = checkCancel;
+      decodeCtx.targetWidth = targetWidth;
+      decodeCtx.targetHeight = targetHeight;
+
+      DecodeResult decodeRes;
+      HRESULT hr = QuickView::Codec::PsdComposite::Load(
+          mappedFile.data(), mappedFile.size(), decodeCtx, decodeRes);
+      if (SUCCEEDED(hr) && decodeRes.success && decodeRes.pixels) {
+        const UINT cb = static_cast<UINT>(decodeRes.stride * decodeRes.height);
+        hr = CreateWICBitmapFromMemory(
+            decodeRes.width, decodeRes.height, GUID_WICPixelFormat32bppPBGRA,
+            decodeRes.stride, cb, decodeRes.pixels, ppBitmap);
+        decodeCtx.freeFunc(decodeRes.pixels);
+        if (SUCCEEDED(hr)) {
+          if (pLoaderName)
+            *pLoaderName = decodeRes.metadata.LoaderName.empty()
+                               ? L"PSD Composite"
+                               : decodeRes.metadata.LoaderName;
+          return S_OK;
+        }
+      } else if (decodeRes.pixels) {
+        decodeCtx.freeFunc(decodeRes.pixels);
+      }
+
+      // 2. Fallback to embedded JPEG preview if full composite decode fails
+      PreviewExtractor::ExtractedData exData;
+      if (PreviewExtractor::ExtractFromPSD(mappedFile.data(), mappedFile.size(),
+                                           exData) &&
+          exData.IsValid() && exData.size <= static_cast<size_t>(MAXDWORD)) {
+        ComPtr<IWICStream> stream;
+        hr = m_wicFactory->CreateStream(&stream);
+        if (SUCCEEDED(hr)) {
+          hr = stream->InitializeFromMemory(const_cast<BYTE *>(exData.pData),
+                                            static_cast<DWORD>(exData.size));
+          if (SUCCEEDED(hr)) {
+            ComPtr<IWICBitmapDecoder> decoder;
+            hr = m_wicFactory->CreateDecoderFromStream(
+                stream.Get(), nullptr, WICDecodeMetadataCacheOnDemand, &decoder);
+            if (SUCCEEDED(hr)) {
+              ComPtr<IWICBitmapFrameDecode> frame;
+              hr = decoder->GetFrame(0, &frame);
+              if (SUCCEEDED(hr)) {
+                hr = m_wicFactory->CreateBitmapFromSource(
+                    frame.Get(), WICBitmapCacheOnDemand, ppBitmap);
+                if (SUCCEEDED(hr)) {
+                  if (pLoaderName)
+                    *pLoaderName = L"PSD Preview (Embedded JPEG)";
+                  return S_OK;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // 3. Last fallback: Stb Image (legacy/small PSDs)
     HRESULT hr = LoadStbImage(filePath, ppBitmap);
     if (SUCCEEDED(hr)) {
       if (pLoaderName)

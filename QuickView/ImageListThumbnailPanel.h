@@ -73,7 +73,7 @@ private:
         bool valid = false;
     };
 
-    std::thread m_thumbThread;
+    std::vector<std::thread> m_thumbThreads;
     std::mutex m_thumbQueueMutex;
     std::condition_variable m_thumbCV;
     std::queue<uint32_t> m_thumbQueue;
@@ -85,7 +85,8 @@ private:
     void EnqueueThumb(uint32_t idx);
     void ThumbWorkerLoop();
 
-    static constexpr size_t kMaxCacheSize = 50;
+    static constexpr int kThumbWorkerThreads = 4;
+    static constexpr size_t kMaxCacheSize = 80;
 
     // Image mode state
     bool m_isImageMode = false;
