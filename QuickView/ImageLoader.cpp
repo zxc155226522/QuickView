@@ -6216,7 +6216,7 @@ HRESULT CImageLoader::LoadToMemory(LPCWSTR filePath, IWICBitmap **ppBitmap,
         *pLoaderName = L"Wuffs WBMP";
       return S_OK;
     }
-  } else if (detectedFmt == L"PSD") {
+  } else if (detectedFmt == L"PSD" || detectedFmt == L"PSB" || path.ends_with(L".psd") || path.ends_with(L".psb")) {
     // 1. Prefer native PsdComposite::Load via Zero-Copy MappedFile (handles 8-bit & 16-bit RGB/Gray PSD/PSB cleanly)
     QuickView::MappedFile mappedFile(filePath);
     if (mappedFile.IsValid() && mappedFile.size() >= 26) {
