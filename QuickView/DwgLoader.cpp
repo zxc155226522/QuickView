@@ -533,13 +533,54 @@ std::vector<std::pair<double, double>> FlattenSpline(
 }
 
 // ---------------------------------------------------------------------------
+// 极速 SVG 文本写入辅助器 (零动态内存重分配，直接追加至 std::string)
+// ---------------------------------------------------------------------------
+struct SvgWriter {
+    std::string* sink = nullptr;
+    explicit SvgWriter(std::string* s) : sink(s) {}
+
+    SvgWriter& operator<<(const char* s) {
+        if (s && *s) sink->append(s);
+        return *this;
+    }
+    SvgWriter& operator<<(const std::string& s) {
+        sink->append(s);
+        return *this;
+    }
+    SvgWriter& operator<<(char c) {
+        sink->push_back(c);
+        return *this;
+    }
+    SvgWriter& operator<<(int v) {
+        char b[16];
+        int n = snprintf(b, sizeof(b), "%d", v);
+        if (n > 0) sink->append(b, (size_t)n);
+        return *this;
+    }
+    SvgWriter& operator<<(unsigned int v) {
+        char b[16];
+        int n = snprintf(b, sizeof(b), "%u", v);
+        if (n > 0) sink->append(b, (size_t)n);
+        return *this;
+    }
+    SvgWriter& operator<<(double v) {
+        AppendFloat(*sink, v);
+        return *this;
+    }
+};
+
+// ---------------------------------------------------------------------------
 // DwgRenderer — Dwg_Data 遍历与 SVG 生成
 // ---------------------------------------------------------------------------
 class DwgRenderer {
 public:
     explicit DwgRenderer(Dwg_Data& dwg, bool utf16Text,
                          SimplePredicate cancel = {})
-        : m_dwg(dwg), m_utf16(utf16Text), m_cancel(cancel) {}
+        : m_dwg(dwg), m_utf16(utf16Text), m_cancel(cancel) {
+        m_body.reserve(65536);
+        m_fills.reserve(16384);
+        m_defs.reserve(4096);
+    }
 
     // 预构建所有块定义缓存 (并行前串行调用)
     void PreloadBlockDefs() {
@@ -590,17 +631,17 @@ public:
 
     // 合并另一个 renderer 的输出 (并行后拼接用)
     void MergeFrom(DwgRenderer& other) {
-        m_defs << other.m_defs.str();
-        m_fills << other.m_fills.str();
-        m_body << other.m_body.str();
+        m_defs.append(other.m_defs);
+        m_fills.append(other.m_fills);
+        m_body.append(other.m_body);
         if (other.m_bbox.valid) m_bbox.add(other.m_bbox.minX, other.m_bbox.minY);
         if (other.m_bbox.valid) m_bbox.add(other.m_bbox.maxX, other.m_bbox.maxY);
     }
 
     BBox& GetBBox() { return m_bbox; }
-    std::ostringstream& Defs() { return m_defs; }
-    std::ostringstream& Fills() { return m_fills; }
-    std::ostringstream& Body() { return m_body; }
+    SvgWriter Defs() { return SvgWriter(&m_defs); }
+    SvgWriter Fills() { return SvgWriter(m_fillsCur); }
+    SvgWriter Body() { return SvgWriter(m_out); }
     int NextClipId() { return m_clipId++; }
 
     std::string Render() {
@@ -624,11 +665,10 @@ public:
         if (!m_bbox.valid) return {};
 
         std::string body;
-        body.reserve(m_defs.str().size() + m_fills.str().size() +
-                     m_body.str().size() + 32);
-        body += m_defs.str();
-        body += m_fills.str();
-        body += m_body.str();
+        body.reserve(m_defs.size() + m_fills.size() + m_body.size() + 32);
+        body += m_defs;
+        body += m_fills;
+        body += m_body;
         return AssembleSvg(m_bbox, std::move(body));
     }
 
@@ -654,15 +694,14 @@ private:
             }
             if (!m_bbox.valid) return {};
             std::string body;
-            body.reserve(m_defs.str().size() + m_fills.str().size() +
-                         m_body.str().size() + 32);
-            body += m_defs.str();
-            body += m_fills.str();
-            body += m_body.str();
+            body.reserve(m_defs.size() + m_fills.size() + m_body.size() + 32);
+            body += m_defs;
+            body += m_fills;
+            body += m_body;
             return AssembleSvg(m_bbox, std::move(body));
         }
 
-        // 创建分片 renderer (ostringstream 不可拷贝/移动, 用 unique_ptr)
+        // 创建分片 renderer
         struct ShardResult {
             std::unique_ptr<DwgRenderer> renderer;
             size_t begin, end;
@@ -675,6 +714,8 @@ private:
         for (unsigned s = 0; s < numShards; s++) {
             size_t cnt = perShard + (s < remainder ? 1 : 0);
             auto r = std::make_unique<DwgRenderer>(m_dwg, m_utf16, m_cancel);
+            r->m_body.reserve(cnt * 128);
+            r->m_fills.reserve(cnt * 32);
             // 拷贝预构建的缓存到分片
             r->m_layers = m_layers;
             r->m_blocks = m_blocks;
@@ -707,9 +748,9 @@ private:
 
         // 按序合并
         for (auto& s : shards) {
-            m_defs << s.renderer->m_defs.str();
-            m_fills << s.renderer->m_fills.str();
-            m_body << s.renderer->m_body.str();
+            m_defs.append(s.renderer->m_defs);
+            m_fills.append(s.renderer->m_fills);
+            m_body.append(s.renderer->m_body);
             if (s.renderer->m_bbox.valid) {
                 m_bbox.add(s.renderer->m_bbox.minX, s.renderer->m_bbox.minY);
                 m_bbox.add(s.renderer->m_bbox.maxX, s.renderer->m_bbox.maxY);
@@ -719,11 +760,10 @@ private:
         if (!m_bbox.valid) return {};
 
         std::string body;
-        body.reserve(m_defs.str().size() + m_fills.str().size() +
-                     m_body.str().size() + 32);
-        body += m_defs.str();
-        body += m_fills.str();
-        body += m_body.str();
+        body.reserve(m_defs.size() + m_fills.size() + m_body.size() + 32);
+        body += m_defs;
+        body += m_fills;
+        body += m_body;
         return AssembleSvg(m_bbox, std::move(body));
     }
 
@@ -732,14 +772,14 @@ private:
     bool m_utf16;
     BBox m_bbox;
     SimplePredicate m_cancel;   // 取消谓词 (可选)
-    std::ostringstream m_body;   // 线框层 (上层)
-    std::ostringstream m_fills;  // 填充层 (下层, 主空间)
-    std::ostringstream m_defs;   // clipPath 定义
-    int m_clipId = 0;            // clipPath 自增 id
+    std::string m_body;   // 线框层 (上层)
+    std::string m_fills;  // 填充层 (下层, 主空间)
+    std::string m_defs;   // clipPath 定义
+    int m_clipId = 0;     // clipPath 自增 id
 
     // --- 当前渲染目标 (渲染块定义时整体切换) ---
-    std::ostringstream* m_out = &m_body;
-    std::ostringstream* m_fillsCur = &m_fills;
+    std::string* m_out = &m_body;
+    std::string* m_fillsCur = &m_fills;
     BBox* m_bboxCur = &m_bbox;
 
     // --- 图层表 (key = LAYER 对象 index) ---
@@ -774,14 +814,14 @@ private:
 
     // --- 当前渲染目标 (渲染块定义时切换) ---
 
-    std::ostringstream& out() { return *m_out; }
-    std::ostringstream& fills() { return *m_fillsCur; }
+    SvgWriter out() { return SvgWriter(m_out); }
+    SvgWriter fills() { return SvgWriter(m_fillsCur); }
     void BboxAdd(double x, double y) { m_bboxCur->add(x, y); }
 
     // 写折线顶点序列 (模型坐标, Y 轴翻转)。first 表示尚未落任何点, 用引用传入
     // 以便多段边界续接同一条 path。容差足够小时相邻点会落到同一个 %.3f 输出值
     // 上, 这类重合点只放大路径不改外形, 直接跳过。
-    void EmitFlatPoints(std::ostringstream& sink, BBox* bbox,
+    void EmitFlatPoints(std::string& sink, BBox* bbox,
                         const std::vector<std::pair<double, double>>& pts,
                         bool& first) {
         long long lastIx = 0, lastIy = 0;
@@ -790,8 +830,8 @@ private:
             long long iy = std::llround(p.second * 1000.0);
             if (!first && ix == lastIx && iy == lastIy) continue;
             if (bbox) bbox->add(p.first, p.second);
-            sink << (first ? "M " : " L ") << FmtFloat(p.first) << " "
-                 << FmtFloat(-p.second);
+            sink.append(first ? "M " : " L ");
+            AppendCoord(sink, p.first, -p.second);
             first = false;
             lastIx = ix;
             lastIy = iy;
@@ -933,11 +973,13 @@ private:
             return def; // 递归环, 放弃
         }
 
-        std::ostringstream blockOut;
-        std::ostringstream blockFills;
+        std::string blockOut;
+        std::string blockFills;
+        blockOut.reserve(4096);
+        blockFills.reserve(1024);
         BBox blockBbox;
-        std::ostringstream* prevOut = m_out;
-        std::ostringstream* prevFills = m_fillsCur;
+        std::string* prevOut = m_out;
+        std::string* prevFills = m_fillsCur;
         BBox* prevBbox = m_bboxCur;
         m_out = &blockOut;
         m_fillsCur = &blockFills;
@@ -956,8 +998,9 @@ private:
         m_blockActive.erase(key);
 
         // 填充在下, 线框在上
-        def.svg = blockFills.str();
-        def.svg += blockOut.str();
+        def.svg.reserve(blockFills.size() + blockOut.size());
+        def.svg = std::move(blockFills);
+        def.svg += blockOut;
         def.bbox = blockBbox;
         def.valid = blockBbox.valid;
         return def;
@@ -1133,12 +1176,16 @@ private:
                           const std::vector<double>& ys,
                           const std::vector<double>& bulges,
                           bool closed, const std::string& color) {
-        if (xs.empty()) return;
-        out() << "<path d=\"";
         size_t n = xs.size();
+        if (n < 2) return;
         size_t segCount = closed ? n : n - 1;
         BboxAdd(xs[0], ys[0]);
-        out() << "M " << FmtFloat(xs[0]) << " " << FmtFloat(-ys[0]);
+        out() << "<path d=\"M ";
+        AppendCoord(*m_out, xs[0], -ys[0]);
+
+        long long lastIx = std::llround(xs[0] * 1000.0);
+        long long lastIy = std::llround(-ys[0] * 1000.0);
+
         for (size_t i = 1; i <= segCount; i++) {
             double x = xs[i % n], y = ys[i % n];
             double bulge = (i - 1 < bulges.size()) ? bulges[i - 1] : 0.0;
@@ -1153,13 +1200,22 @@ private:
                     int largeArc = (theta > kPi) ? 1 : 0;
                     // 正bulge=逆时针(Y朝上) → Y翻转后顺时针 → sweep=1
                     int sweep = (bulge > 0) ? 1 : 0;
-                    out() << " A " << FmtFloat(r) << " " << FmtFloat(r)
-                          << " 0 " << largeArc << " " << sweep
-                          << " " << FmtFloat(x) << " " << FmtFloat(-y);
+                    out() << " A " << r << " " << r << " 0 " << largeArc << " " << sweep << " ";
+                    AppendCoord(*m_out, x, -y);
+                    lastIx = std::llround(x * 1000.0);
+                    lastIy = std::llround(-y * 1000.0);
                     continue;
                 }
             }
-            out() << " L " << FmtFloat(x) << " " << FmtFloat(-y);
+            long long ix = std::llround(x * 1000.0);
+            long long iy = std::llround(-y * 1000.0);
+            if (ix == lastIx && iy == lastIy && (i < segCount || !closed)) {
+                continue; // 毫米级重合冗余点直接跳过
+            }
+            out() << " L ";
+            AppendCoord(*m_out, x, -y);
+            lastIx = ix;
+            lastIy = iy;
         }
         if (closed) out() << " Z";
         out() << "\" stroke=\"" << color
@@ -1276,7 +1332,7 @@ private:
                 if (pts.size() >= 2) {
                     out() << "<path d=\"";
                     bool first = true;
-                    EmitFlatPoints(out(), m_bboxCur, pts, first);
+                    EmitFlatPoints(*m_out, m_bboxCur, pts, first);
                     out() << "\" stroke=\"" << color
                           << "\" stroke-width=\"__SW__\" fill=\"none\"/>\n";
                     return;
@@ -1488,13 +1544,16 @@ private:
         double py[4] = {s->corner1.y, s->corner2.y, s->corner4.y, s->corner3.y};
         for (int i = 0; i < 4; i++) BboxAdd(px[i], py[i]);
         std::string color = ResolveColor(ent);
-        std::ostringstream& target = filled ? fills() : *m_out;
-        target << "<polygon points=\""
-               << FmtFloat(px[0]) << "," << FmtFloat(-py[0]) << " "
-               << FmtFloat(px[1]) << "," << FmtFloat(-py[1]) << " "
-               << FmtFloat(px[2]) << "," << FmtFloat(-py[2]) << " "
-               << FmtFloat(px[3]) << "," << FmtFloat(-py[3])
-               << "\" fill=\"" << color << "\"";
+        SvgWriter target = filled ? fills() : out();
+        target << "<polygon points=\"";
+        AppendCoord(*target.sink, px[0], -py[0]);
+        target << " ";
+        AppendCoord(*target.sink, px[1], -py[1]);
+        target << " ";
+        AppendCoord(*target.sink, px[2], -py[2]);
+        target << " ";
+        AppendCoord(*target.sink, px[3], -py[3]);
+        target << "\" fill=\"" << color << "\"";
         if (filled)
             target << " stroke=\"none\"/>\n";
         else
@@ -1566,7 +1625,8 @@ private:
 
         std::string color = ResolveColor(ent);
         BBox hatchBbox;
-        std::ostringstream pathSS;
+        std::string pathD;
+        pathD.reserve(1024);
 
         for (BITCODE_BL p = 0; p < h->num_paths; p++) {
             const Dwg_HATCH_Path& path = h->paths[p];
@@ -1580,18 +1640,16 @@ private:
                     double x = pp.point.x, y = pp.point.y;
                     hatchBbox.add(x, y);
                     if (firstPoint) {
-                        pathSS << "M " << FmtFloat(x) << " " << FmtFloat(-y)
-                               << " ";
+                        pathD.append("M ");
+                        AppendCoord(pathD, x, -y);
+                        pathD.push_back(' ');
                         firstPoint = false;
                     } else {
-                        double bulge =
-                            path.bulges_present ? pp.bulge : 0.0;
-                        if (std::abs(bulge) > 1e-6 && i > 0) {
-                            const Dwg_HATCH_PolylinePath& prev =
-                                path.polyline_paths[i - 1];
-                            double dx = x - prev.point.x,
-                                   dy = y - prev.point.y;
-                            double dist = std::hypot(dx, dy);
+                        double prevX = path.polyline_paths[i - 1].point.x;
+                        double prevY = path.polyline_paths[i - 1].point.y;
+                        double bulge = path.polyline_paths[i - 1].bulge;
+                        if (std::abs(bulge) > 1e-6) {
+                            double dist = std::hypot(x - prevX, y - prevY);
                             if (dist > 1e-6) {
                                 double theta =
                                     4.0 * std::atan(std::abs(bulge));
@@ -1599,16 +1657,19 @@ private:
                                     dist / (2.0 * std::sin(theta / 2.0));
                                 int largeArc = (theta > kPi) ? 1 : 0;
                                 int sweep = (bulge > 0) ? 1 : 0;
-                                pathSS << "A " << FmtFloat(r) << " "
-                                       << FmtFloat(r) << " 0 " << largeArc
-                                       << " " << sweep << " "
-                                       << FmtFloat(x) << " " << FmtFloat(-y)
-                                       << " ";
+                                pathD.append("A ");
+                                AppendCoord(pathD, r, r);
+                                pathD.append(" 0 ");
+                                pathD.append(largeArc ? "1 " : "0 ");
+                                pathD.append(sweep ? "1 " : "0 ");
+                                AppendCoord(pathD, x, -y);
+                                pathD.push_back(' ');
                                 continue;
                             }
                         }
-                        pathSS << "L " << FmtFloat(x) << " " << FmtFloat(-y)
-                               << " ";
+                        pathD.append("L ");
+                        AppendCoord(pathD, x, -y);
+                        pathD.push_back(' ');
                     }
                 }
             } else if (path.segs) {
@@ -1624,12 +1685,14 @@ private:
                             hatchBbox.add(x1, y1);
                             hatchBbox.add(x2, y2);
                             if (firstPoint) {
-                                pathSS << "M " << FmtFloat(x1) << " "
-                                       << FmtFloat(-y1) << " ";
+                                pathD.append("M ");
+                                AppendCoord(pathD, x1, -y1);
+                                pathD.push_back(' ');
                                 firstPoint = false;
                             }
-                            pathSS << "L " << FmtFloat(x2) << " "
-                                   << FmtFloat(-y2) << " ";
+                            pathD.append("L ");
+                            AppendCoord(pathD, x2, -y2);
+                            pathD.push_back(' ');
                             break;
                         }
                         case 2: { // 圆弧
@@ -1646,8 +1709,9 @@ private:
                             hatchBbox.add(cx - r, cy - r);
                             hatchBbox.add(cx + r, cy + r);
                             if (firstPoint) {
-                                pathSS << "M " << FmtFloat(x1) << " "
-                                       << FmtFloat(-y1) << " ";
+                                pathD.append("M ");
+                                AppendCoord(pathD, x1, -y1);
+                                pathD.push_back(' ');
                                 firstPoint = false;
                             }
                             double arcAngle = ea - sa;
@@ -1655,10 +1719,13 @@ private:
                             int largeArc = (arcAngle > kPi) ? 1 : 0;
                             // CCW(Y朝上)翻转后顺时针→sweep=1; CW则0
                             int sweep = seg.is_ccw ? 1 : 0;
-                            pathSS << "A " << FmtFloat(r) << " " << FmtFloat(r)
-                                   << " 0 " << largeArc << " " << sweep << " "
-                                   << FmtFloat(x2) << " " << FmtFloat(-y2)
-                                   << " ";
+                            pathD.append("A ");
+                            AppendCoord(pathD, r, r);
+                            pathD.append(" 0 ");
+                            pathD.append(largeArc ? "1 " : "0 ");
+                            pathD.append(sweep ? "1 " : "0 ");
+                            AppendCoord(pathD, x2, -y2);
+                            pathD.push_back(' ');
                             break;
                         }
                         case 3: { // 椭圆弧 (center + 主轴向量 + 比率)
@@ -1680,12 +1747,14 @@ private:
                                 double py = cy + ex * sinR + ey * cosR;
                                 hatchBbox.add(px, py);
                                 if (firstPoint) {
-                                    pathSS << "M " << FmtFloat(px) << " "
-                                           << FmtFloat(-py) << " ";
+                                    pathD.append("M ");
+                                    AppendCoord(pathD, px, -py);
+                                    pathD.push_back(' ');
                                     firstPoint = false;
                                 } else {
-                                    pathSS << "L " << FmtFloat(px) << " "
-                                           << FmtFloat(-py) << " ";
+                                    pathD.append("L ");
+                                    AppendCoord(pathD, px, -py);
+                                    pathD.push_back(' ');
                                 }
                             }
                             break;
@@ -1711,7 +1780,7 @@ private:
                                 }
                                 std::vector<std::pair<double, double>> pts =
                                     FlattenSpline(degree, knots, cxv, cyv, wv);
-                                EmitFlatPoints(pathSS, &hatchBbox, pts,
+                                EmitFlatPoints(pathD, &hatchBbox, pts,
                                                firstPoint);
                             } else if (seg.num_fitpts >= 2 && seg.fitpts) {
                                 for (BITCODE_BL k = 0; k < seg.num_fitpts;
@@ -1720,12 +1789,14 @@ private:
                                            py = seg.fitpts[k].y;
                                     hatchBbox.add(px, py);
                                     if (firstPoint) {
-                                        pathSS << "M " << FmtFloat(px) << " "
-                                               << FmtFloat(-py) << " ";
+                                        pathD.append("M ");
+                                        AppendCoord(pathD, px, -py);
+                                        pathD.push_back(' ');
                                         firstPoint = false;
                                     } else {
-                                        pathSS << "L " << FmtFloat(px) << " "
-                                               << FmtFloat(-py) << " ";
+                                        pathD.append("L ");
+                                        AppendCoord(pathD, px, -py);
+                                        pathD.push_back(' ');
                                     }
                                 }
                             }
@@ -1737,10 +1808,9 @@ private:
                 }
             }
             if (!firstPoint && !(path.flag & 0x20)) // is_open 不闭合
-                pathSS << "Z ";
+                pathD.append("Z ");
         }
 
-        std::string pathD = pathSS.str();
         if (pathD.length() < 3) return;
 
         // bbox 汇总
@@ -1757,8 +1827,16 @@ private:
             // 图案填充 → clipPath 裁剪的填充定义线 (底层)
             if (h->num_deflines > 0 && h->deflines && hatchBbox.valid) {
                 int clipId = ++m_clipId;
-                m_defs << "<clipPath id=\"h" << clipId << "\"><path d=\""
-                       << pathD << "\"/></clipPath>\n";
+                m_defs.append("<clipPath id=\"h");
+                {
+                    char b[16];
+                    int n = snprintf(b, sizeof(b), "%d", clipId);
+                    if (n > 0) m_defs.append(b, (size_t)n);
+                }
+                m_defs.append("\"><path d=\"");
+                m_defs.append(pathD);
+                m_defs.append("\"/></clipPath>\n");
+
                 fills() << "<g clip-path=\"url(#h" << clipId
                         << ")\" stroke=\"" << color
                         << "\" stroke-width=\"__SW__\">\n";
@@ -1788,20 +1866,24 @@ private:
                         }
                         int kMin = (int)std::floor(minProj / stepLen) - 1;
                         int kMax = (int)std::ceil(maxProj / stepLen) + 1;
-                        for (int k = kMin; k <= kMax; k++) {
+                        int totalLines = kMax - kMin + 1;
+                        int stride = 1;
+                        if (totalLines > 2000) {
+                            stride = (totalLines + 1999) / 2000;
+                        }
+                        for (int k = kMin; k <= kMax; k += stride) {
                             double lx = bx + k * sxv, ly = by + k * syv;
-                            fills() << "<line x1=\""
-                                    << FmtFloat(lx - dx * big) << "\" y1=\""
-                                    << FmtFloat(-(ly - dy * big))
-                                    << "\" x2=\"" << FmtFloat(lx + dx * big)
+                            fills() << "<line x1=\"" << (lx - dx * big) << "\" y1=\""
+                                    << -(ly - dy * big)
+                                    << "\" x2=\"" << (lx + dx * big)
                                     << "\" y2=\""
-                                    << FmtFloat(-(ly + dy * big)) << "\"/>\n";
+                                    << -(ly + dy * big) << "\"/>\n";
                         }
                     } else {
-                        fills() << "<line x1=\"" << FmtFloat(bx - dx * big)
-                                << "\" y1=\"" << FmtFloat(-(by - dy * big))
-                                << "\" x2=\"" << FmtFloat(bx + dx * big)
-                                << "\" y2=\"" << FmtFloat(-(by + dy * big))
+                        fills() << "<line x1=\"" << (bx - dx * big)
+                                << "\" y1=\"" << -(by - dy * big)
+                                << "\" x2=\"" << (bx + dx * big)
+                                << "\" y2=\"" << -(by + dy * big)
                                 << "\"/>\n";
                     }
                 }
@@ -1887,6 +1969,156 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size,
 std::string LoadDWGtoSVG(const uint8_t* data, size_t size,
                          SimplePredicate checkCancel) {
     return LoadCadToSVG(data, size, true, checkCancel);
+}
+
+static const uint8_t* MemSearch(const uint8_t* haystack, size_t hlen,
+                                 const char* needle, size_t nlen) {
+    if (!haystack || !needle || nlen == 0 || hlen < nlen) return nullptr;
+    const uint8_t first = (const uint8_t)needle[0];
+    const uint8_t* p = haystack;
+    const uint8_t* end = haystack + hlen - nlen + 1;
+    while ((p = (const uint8_t*)memchr(p, first, (size_t)(end - p))) != nullptr) {
+        if (memcmp(p, needle, nlen) == 0) return p;
+        p++;
+    }
+    return nullptr;
+}
+
+// ============================================================================
+// DWG 内嵌预览图 (Preview / Thumbnail) 极速提取器
+// ============================================================================
+// AutoCAD 在保存 DWG 时 (若开启了 RASTERPREVIEW)，会在文件头记录内嵌位图 (BMP/PNG)。
+// 成功提取时可在几毫秒内呈现画面，无需等待整个复杂矢量模型空间完全解析。
+bool ExtractDwgEmbeddedPreview(const uint8_t* data, size_t size,
+                               std::vector<uint8_t>& outImageData,
+                               bool* outIsPng) {
+    if (outIsPng) *outIsPng = false;
+    outImageData.clear();
+    if (!data || size < 128) return false;
+
+    // 1. 验证 DWG 魔数 (AC10xx)
+    if (data[0] != 'A' || data[1] != 'C' || data[2] != '1' || data[3] != '0') {
+        return false;
+    }
+
+    // 2. 检查 0x0D 处的 image_seeker 指针 (适用 R13 - R2000+)
+    uint32_t seeker = 0;
+    memcpy(&seeker, data + 13, 4);
+
+    auto tryExtractDIB = [&](size_t dibOffset, size_t maxLen) -> bool {
+        if (dibOffset + 40 > size) return false;
+        const uint8_t* dib = data + dibOffset;
+        uint32_t biSize = 0;
+        memcpy(&biSize, dib, 4);
+        if (biSize != 40) return false; // 标准 BITMAPINFOHEADER
+
+        int32_t biWidth = 0, biHeight = 0;
+        uint16_t biPlanes = 0, biBitCount = 0;
+        uint32_t biCompression = 0, biSizeImage = 0;
+        memcpy(&biWidth, dib + 4, 4);
+        memcpy(&biHeight, dib + 8, 4);
+        memcpy(&biPlanes, dib + 12, 2);
+        memcpy(&biBitCount, dib + 14, 2);
+        memcpy(&biCompression, dib + 16, 4);
+        memcpy(&biSizeImage, dib + 20, 4);
+
+        if (biWidth <= 0 || biWidth > 8192) return false;
+        if (std::abs(biHeight) == 0 || std::abs(biHeight) > 8192) return false;
+        if (biPlanes != 1) return false;
+        if (biBitCount != 1 && biBitCount != 4 && biBitCount != 8 &&
+            biBitCount != 16 && biBitCount != 24 && biBitCount != 32) return false;
+
+        uint32_t paletteBytes = 0;
+        if (biBitCount <= 8) {
+            paletteBytes = (1u << biBitCount) * 4;
+        } else if (biCompression == 3 /* BI_BITFIELDS */) {
+            paletteBytes = 12;
+        }
+
+        uint32_t rowStride = ((uint32_t)biWidth * biBitCount + 31) / 32 * 4;
+        uint32_t calcImageBytes = rowStride * (uint32_t)std::abs(biHeight);
+        uint32_t imageBytes = (biSizeImage >= calcImageBytes) ? biSizeImage : calcImageBytes;
+        uint32_t totalDibBytes = 40 + paletteBytes + imageBytes;
+
+        if (dibOffset + totalDibBytes > size && totalDibBytes > (uint32_t)maxLen) {
+            return false;
+        }
+
+        // 构造标准 14 字节 BITMAPFILEHEADER 拼接为完整 BMP
+        uint32_t totalBmpSize = 14 + totalDibBytes;
+        outImageData.resize(totalBmpSize);
+
+        uint8_t* dst = outImageData.data();
+        dst[0] = 'B';
+        dst[1] = 'M';
+        uint32_t offBits = 14 + 40 + paletteBytes;
+        memcpy(dst + 2, &totalBmpSize, 4);
+        uint32_t reserved = 0;
+        memcpy(dst + 6, &reserved, 4);
+        memcpy(dst + 10, &offBits, 4);
+        memcpy(dst + 14, dib, totalDibBytes);
+
+        return true;
+    };
+
+    // 如果 seeker 指向文件内部合理位置
+    if (seeker > 0 && seeker + 40 < size) {
+        // 先检查 seeker 位置是否直接是 PNG
+        if (seeker + 8 < size && memcmp(data + seeker, "\x89PNG\r\n\x1a\n", 8) == 0) {
+            // 提取 PNG
+            const uint8_t* p = data + seeker;
+            size_t remain = size - seeker;
+            const uint8_t* iend = MemSearch(p, remain, "IEND", 4);
+            if (iend && iend + 8 <= data + size) {
+                size_t pngLen = (iend + 8) - p;
+                outImageData.assign(p, p + pngLen);
+                if (outIsPng) *outIsPng = true;
+                return true;
+            }
+        }
+
+        // 检查 seeker 位置是否是 DIB
+        if (tryExtractDIB(seeker, size - seeker)) {
+            return true;
+        }
+
+        // 某些版本在 seeker 处包含 1 字节类型 + 4 字节偏移 + 4 字节长度 (DWG_IMAGE_DATA 结构)
+        if (seeker + 16 < size) {
+            uint8_t imgType = data[seeker];
+            uint32_t imgOffset = 0, imgLen = 0;
+            memcpy(&imgOffset, data + seeker + 1, 4);
+            memcpy(&imgLen, data + seeker + 5, 4);
+            if (imgOffset > 0 && imgOffset + 40 <= size) {
+                if (imgType == 1 && tryExtractDIB(imgOffset, imgLen)) {
+                    return true;
+                }
+                if (imgType == 3 && imgOffset + 8 <= size &&
+                    memcmp(data + imgOffset, "\x89PNG\r\n\x1a\n", 8) == 0) {
+                    outImageData.assign(data + imgOffset, data + imgOffset + std::min((size_t)imgLen, size - imgOffset));
+                    if (outIsPng) *outIsPng = true;
+                    return true;
+                }
+            }
+        }
+    }
+
+    // 3. 兜底扫描: 前 256KB 探测标准 PNG 头
+    const size_t probeMax = std::min(size, (size_t)262144);
+    for (size_t i = 0; i + 8 < probeMax; i += 4) {
+        if (memcmp(data + i, "\x89PNG\r\n\x1a\n", 8) == 0) {
+            const uint8_t* p = data + i;
+            size_t remain = size - i;
+            const uint8_t* iend = MemSearch(p, std::min(remain, (size_t)1048576), "IEND", 4);
+            if (iend && iend + 8 <= data + size) {
+                size_t pngLen = (iend + 8) - p;
+                outImageData.assign(p, p + pngLen);
+                if (outIsPng) *outIsPng = true;
+                return true;
+            }
+        }
+    }
+
+    return false;
 }
 
 } // namespace QuickView

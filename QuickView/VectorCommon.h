@@ -14,17 +14,34 @@
 
 namespace QuickView {
 
+// 浮点数极速无分配就地格式化 (最多 3 位小数, 去尾零, 直接追加至目标字符串)
+inline void AppendFloat(std::string& out, double v) {
+    char buf[32];
+    int len = snprintf(buf, sizeof(buf), "%.3f", v);
+    if (len <= 0) return;
+    char* dot = (char*)memchr(buf, '.', (size_t)len);
+    if (dot) {
+        char* end = buf + len - 1;
+        while (end > dot && *end == '0') end--;
+        if (end == dot) end--;
+        len = (int)(end - buf + 1);
+    }
+    out.append(buf, (size_t)len);
+}
+
+// 快速追加一对 (x, y) 坐标: "x y"
+inline void AppendCoord(std::string& out, double x, double y) {
+    AppendFloat(out, x);
+    out.push_back(' ');
+    AppendFloat(out, y);
+}
+
 // 浮点数格式化 (最多 3 位小数, 去尾零)
 inline std::string FmtFloat(double v) {
-    char buf[32];
-    snprintf(buf, sizeof(buf), "%.3f", v);
-    char* dot = strchr(buf, '.');
-    if (dot) {
-        char* end = buf + strlen(buf) - 1;
-        while (end > dot && *end == '0') *end-- = '\0';
-        if (*end == '.') *end = '\0';
-    }
-    return buf;
+    std::string s;
+    s.reserve(16);
+    AppendFloat(s, v);
+    return s;
 }
 
 // 简易 BBox 跟踪器
@@ -94,15 +111,22 @@ inline const char* ACIStandard(int aci) {
     return kTable[aci];
 }
 
-inline std::string ACIToHex(int aci) {
+inline void AppendRgbHex(std::string& out, unsigned rgb) {
+    char buf[10];
+    snprintf(buf, sizeof(buf), "#%06X", rgb & 0xFFFFFFu);
+    out.append(buf, 7);
+}
+
+inline void AppendACIToHex(std::string& out, int aci) {
     if (aci < 0) aci = -aci;
-    if (aci == 256 || aci == 0) return "#000000";
-    if (aci >= 1 && aci <= 9) return ACIStandard(aci);
+    if (aci == 256 || aci == 0) { out.append("#000000", 7); return; }
+    if (aci >= 1 && aci <= 9) { out.append(ACIStandard(aci), 7); return; }
     if (aci >= 250 && aci <= 255) {
         int g = 60 + (aci - 250) * 30;
-        char buf[8];
+        char buf[10];
         snprintf(buf, sizeof(buf), "#%02X%02X%02X", g, g, g);
-        return buf;
+        out.append(buf, 7);
+        return;
     }
     // 10-249: 简易 HSV→RGB 近似
     double h = ((aci - 10) % 24) * 15.0;
@@ -117,10 +141,17 @@ inline std::string ACIToHex(int aci) {
     else if (h < 240) { r=0; g=x; b=c; }
     else if (h < 300) { r=x; g=0; b=c; }
     else              { r=c; g=0; b=x; }
-    char buf[8];
+    char buf[10];
     snprintf(buf, sizeof(buf), "#%02X%02X%02X",
              (int)((r+m)*255), (int)((g+m)*255), (int)((b+m)*255));
-    return buf;
+    out.append(buf, 7);
+}
+
+inline std::string ACIToHex(int aci) {
+    std::string out;
+    out.reserve(8);
+    AppendACIToHex(out, aci);
+    return out;
 }
 
 // --- De Boor 算法 (用于样条曲线采样) ---

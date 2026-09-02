@@ -12356,6 +12356,20 @@ HRESULT CImageLoader::LoadDWG(LPCWSTR filePath,
   if (checkCancel && checkCancel())
     return E_ABORT;
 
+  // 探测是否含有 DWG 内嵌预览图 (RASTERPREVIEW / Preview BMP/PNG)
+  std::vector<uint8_t> embeddedImg;
+  bool isPng = false;
+  QuickView::RawImageFrame embeddedFrame;
+  bool hasEmbedded = QuickView::ExtractDwgEmbeddedPreview(fileData.data(), fileData.size(), embeddedImg, &isPng);
+  if (hasEmbedded && !embeddedImg.empty()) {
+    // 预解码内嵌图备用
+    if (FAILED(LoadToFrameFromMemory(embeddedImg.data(), embeddedImg.size(),
+                                     &embeddedFrame, nullptr, 0, 0,
+                                     pLoaderName, pMetadata))) {
+      hasEmbedded = false;
+    }
+  }
+
   const auto cadParseStart = std::chrono::steady_clock::now();
   bool cadFromCache = false;
   std::string svgContent = LoadCadSvgShared(
@@ -12379,6 +12393,18 @@ HRESULT CImageLoader::LoadDWG(LPCWSTR filePath,
     OutputDebugStringA(cadDiag);
   }
   if (svgContent.empty()) {
+    // 如果矢量解析失败/超时但提取到了内嵌位图，回退至内嵌预览图
+    if (hasEmbedded && embeddedFrame.pixels) {
+      *outFrame = std::move(embeddedFrame);
+      if (pLoaderName)
+        *pLoaderName = L"DWG Preview (Embedded)";
+      if (pMetadata) {
+        pMetadata->LoaderName = L"DWG Preview (Embedded)";
+        pMetadata->Format = L"DWG";
+        pMetadata->FormatDetails = L"Raster Preview (AutoCAD)";
+      }
+      return S_OK;
+    }
     if (pMetadata)
       pMetadata->Format = L"DWG (Parse Failed / Timed Out)";
     return E_FAIL;

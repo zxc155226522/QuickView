@@ -37,4 +37,10 @@ std::string LoadDXFtoSVG(const uint8_t* data, size_t size,
 std::string LoadDWGtoSVG(const uint8_t* data, size_t size,
                          SimplePredicate checkCancel);
 
+/// 从 DWG 二进制文件中快速提取内嵌预览图 (BMP / PNG 数据)
+/// 命中 AutoCAD 内嵌预览时耗时仅数毫秒，返回 true 并填充 outImageData。
+bool ExtractDwgEmbeddedPreview(const uint8_t* data, size_t size,
+                               std::vector<uint8_t>& outImageData,
+                               bool* outIsPng = nullptr);
+
 } // namespace QuickView
