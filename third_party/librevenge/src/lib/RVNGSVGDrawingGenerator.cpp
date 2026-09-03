@@ -917,7 +917,7 @@ void RVNGSVGDrawingGenerator::drawGraphicObject(const RVNGPropertyList &propList
 		return;
 	if (!propList["office:binary-data"])
 		return;
-	m_pImpl->m_outputSink << "<" << m_pImpl->getNamespaceAndDelim() << "image preserveAspectRatio=\"none\" ";
+	m_pImpl->m_outputSink << "<" << m_pImpl->getNamespaceAndDelim() << "image ";
 	if (propList["svg:x"] && propList["svg:y"] && propList["svg:width"] && propList["svg:height"])
 	{
 		double x=getInchValue(*propList["svg:x"]);

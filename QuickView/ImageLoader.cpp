@@ -11852,27 +11852,8 @@ std::vector<CdrPageData> ProcessCdrSvgPages(
 
     // [BMP→PNG] CDR/CMX 在主查看器中走 resvg 渲染（不是 MuPDF）。
     // resvg 不支持 BMP data URI（不靠文件头检测格式），必须真正解码 BMP→重编码 PNG。
-    // 关键防线：libcdr 生成的 32bpp DIB 里 alpha 字节常为 0，WIC 解码 32bpp BI_RGB 时会强制为不透明(alpha=255)，
-    // 规避了位图背景全黑或透明丢失问题。无论 fastMode 还是完整模式，都必须经过此真编码转码。
+    // 无论 fastMode 还是完整模式，都需要真编码以支持 resvg 渲染。
     ConvertBmpDataUrisToPng(svgContent);
-
-    // [Image preserveAspectRatio] CorelDRAW 的渐变填充常被存成微小位图条带（如 170x1 像素），
-    // 并在 SVG 中作为非等比拉伸的 <image> 渲染。SVG 默认 preserveAspectRatio="xMidYMid meet"
-    // 会将其压缩成细线甚至完全不可见。此处确保所有 <image> 标签均具备 preserveAspectRatio="none"。
-    {
-      size_t imgPos = 0;
-      while ((imgPos = svgContent.find("<image", imgPos)) != std::string::npos) {
-        size_t tagEnd = svgContent.find('>', imgPos);
-        if (tagEnd == std::string::npos) break;
-        std::string_view tag(svgContent.data() + imgPos, tagEnd - imgPos);
-        if (tag.find("preserveAspectRatio") == std::string_view::npos) {
-          svgContent.insert(imgPos + 6, " preserveAspectRatio=\"none\"");
-          imgPos += 6 + 28;
-        } else {
-          imgPos = tagEnd + 1;
-        }
-      }
-    }
 
 if (fastMode) {
 // 快速模式：BMP前缀重写 + style inlining + 尺寸解析，跳过裁白边/页面矩形/viewBox 扩展。
