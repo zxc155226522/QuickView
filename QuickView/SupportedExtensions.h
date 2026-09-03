@@ -131,6 +131,17 @@ constexpr bool IsHeifPath(std::wstring_view path) {
     return IsHeifExtension(ExtensionOf(path));
 }
 
+// Vector graphics (SVG/CDR/CMX/PLT) render with transparent background so
+// contrast background cards or checkerboards can be drawn beneath them.
+constexpr bool WantsTransparentBackground(std::wstring_view pathOrExt) {
+    std::wstring_view ext = pathOrExt.starts_with(L'.') ? pathOrExt : ExtensionOf(pathOrExt);
+    return ExtEqualsIgnoreCase(ext, L".svg") ||
+           ExtEqualsIgnoreCase(ext, L".svgz") ||
+           ExtEqualsIgnoreCase(ext, L".cdr") ||
+           ExtEqualsIgnoreCase(ext, L".cmx") ||
+           ExtEqualsIgnoreCase(ext, L".plt");
+}
+
 constexpr bool IsArchiveExtension(std::wstring_view ext) {
     for (const auto& a : ARCHIVE_EXTENSIONS) {
         if (ExtEqualsIgnoreCase(ext, a)) return true;

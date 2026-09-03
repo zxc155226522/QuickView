@@ -291,6 +291,10 @@ public:
 
     // [v3.2] Debug: Record the actual Loader used
     std::wstring loaderName;
+
+    // [Adaptive Background] Contrast background assistance for transparent images
+    bool hasTransparency = false;
+    uint32_t adaptiveBgColor = 0; // 0xAARRGGBB, e.g. 0xFF242528 (dark) or 0xFFF5F5F7 (light)
   };
 
   // --- NEW: PMR-backed Decoded Image (Zero-Copy) ---
@@ -578,6 +582,9 @@ public:
   // Raster formats (PDF/AI etc.) are always opaque regardless of this flag.
   HRESULT LoadThumbnail(LPCWSTR filePath, int targetSize, ThumbData *pData,
                         bool allowSlow = true, bool transparentBg = false);
+
+  // [Adaptive Background] Compute transparency and high-contrast background recommendation
+  static void AnalyzeThumbAdaptiveBackground(ThumbData *pData);
 
   // [JXL Global Runner] Global thread pool singleton to avoid creation overhead for each decode
   static void *GetJxlRunner();

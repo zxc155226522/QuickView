@@ -4654,6 +4654,76 @@ static HRESULT RasterizeSvgThumbnail(const std::vector<uint8_t> &xmlData,
   return S_OK;
 }
 
+void CImageLoader::AnalyzeThumbAdaptiveBackground(ThumbData *pData) {
+  if (!pData || !pData->isValid || pData->pixels.empty() || pData->width <= 0 ||
+      pData->height <= 0) {
+    return;
+  }
+  const int w = pData->width;
+  const int h = pData->height;
+  const int stride = pData->stride;
+  const uint8_t *raw = pData->pixels.data();
+
+  // 采样步长：最多采样 64x64 个像素，耗时通常 < 0.02ms
+  const int stepX = (std::max)(1, w / 64);
+  const int stepY = (std::max)(1, h / 64);
+
+  uint64_t transparentCount = 0;
+  uint64_t opaqueCount = 0;
+  uint64_t totalSampled = 0;
+  double totalLum = 0.0;
+
+  for (int y = 0; y < h; y += stepY) {
+    const uint8_t *row = raw + static_cast<size_t>(y) * stride;
+    for (int x = 0; x < w; x += stepX) {
+      totalSampled++;
+      const uint8_t *px = row + x * 4;
+      const uint8_t b = px[0];
+      const uint8_t g = px[1];
+      const uint8_t r = px[2];
+      const uint8_t a = px[3];
+
+      if (a < 210) {
+        transparentCount++;
+      }
+      if (a >= 25) {
+        // 主体可见像素：根据真实颜色还原感知明度
+        // 像素通常为 PBGRA（预乘 Alpha），还原原始非预乘亮度
+        double pr = static_cast<double>(r);
+        double pg = static_cast<double>(g);
+        double pb = static_cast<double>(b);
+        if (a < 255) {
+          const double scale = 255.0 / static_cast<double>(a);
+          pr = (std::min)(255.0, pr * scale);
+          pg = (std::min)(255.0, pg * scale);
+          pb = (std::min)(255.0, pb * scale);
+        }
+        const double lum = 0.299 * pr + 0.587 * pg + 0.114 * pb;
+        totalLum += lum;
+        opaqueCount++;
+      }
+    }
+  }
+
+  // 判定规则：透明像素占比 >= 3% 且存在可见主体
+  const bool isTransparent = (totalSampled > 0 &&
+                              static_cast<double>(transparentCount) / totalSampled >= 0.03 &&
+                              opaqueCount > 0);
+  pData->hasTransparency = isTransparent;
+  if (isTransparent) {
+    const double avgLum = totalLum / opaqueCount;
+    if (avgLum >= 128.0) {
+      // 主体偏亮/白色（例如白色文字、白胶烫画） -> 铺设深炭灰背景（#242528）
+      pData->adaptiveBgColor = 0xFF242528;
+    } else {
+      // 主体偏暗/黑色（例如黑色文字、黑线稿、黑墨烫画） -> 铺设亮白微灰背景（#F5F5F7）
+      pData->adaptiveBgColor = 0xFFF5F5F7;
+    }
+  } else {
+    pData->adaptiveBgColor = 0;
+  }
+}
+
 HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
                                     ThumbData *pData, bool allowSlow,
                                     bool transparentBg) {
@@ -4661,6 +4731,13 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
     return E_INVALIDARG;
   pData->isValid = false;
   pData->pixels.clear();
+  pData->hasTransparency = false;
+  pData->adaptiveBgColor = 0;
+
+  auto finishSuccess = [&](HRESULT hrResult = S_OK) -> HRESULT {
+    AnalyzeThumbAdaptiveBackground(pData);
+    return hrResult;
+  };
 
   const ImageHeaderInfo headerInfo = PeekHeader(filePath);
   const uint64_t fallbackFileSize = static_cast<uint64_t>(headerInfo.fileSize);
@@ -4677,7 +4754,7 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
     HRESULT shellHr = LoadShellThumbnail(filePath, targetSize, pData,
                                          /*cacheOnly=*/true);
     if (SUCCEEDED(shellHr) && pData->isValid) {
-      return S_OK;
+      return finishSuccess();
     }
     // 缓存未命中或失败，清空状态后走自建生成路径
     pData->isValid = false;
@@ -4727,20 +4804,20 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
 
   if (format == L"RAW" &&
       tryEmbeddedPreview(L"RAW Preview", PreviewExtractor::ExtractFromRAW)) {
-    return S_OK;
+    return finishSuccess();
   }
   if (format == L"TIFF" &&
       tryEmbeddedPreview(L"TIFF Preview", PreviewExtractor::ExtractFromTIFF)) {
-    return S_OK;
+    return finishSuccess();
   }
   if ((format == L"HEIC" || pathLower.ends_with(L".heic") ||
        pathLower.ends_with(L".heif") || pathLower.ends_with(L".hif")) &&
       tryEmbeddedPreview(L"HEIC Preview", PreviewExtractor::ExtractFromHEIC)) {
-    return S_OK;
+    return finishSuccess();
   }
   if ((format == L"PSD" || pathLower.ends_with(L".psb")) &&
       tryEmbeddedPreview(L"PSD Preview", PreviewExtractor::ExtractFromPSD)) {
-    return S_OK;
+    return finishSuccess();
   }
 
   if ((format == L"AVIF" || format == L"HEIC" ||
@@ -4760,7 +4837,7 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
       pData->fileSize =
           meta.FileSize > 0 ? meta.FileSize : static_cast<uint64_t>(mappedSize);
       pData->loaderName = format == L"HEIC" ? L"libavif/HEIF" : L"libavif";
-      return S_OK;
+      return finishSuccess();
     }
   }
 
@@ -4791,7 +4868,7 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
       }
       PopulateThumbOriginalInfo(headerInfo, static_cast<uint64_t>(mappedSize),
                                 pData);
-      return S_OK;
+      return finishSuccess();
     }
     if (allowSlow) {
       pData->isValid = false;
@@ -4801,7 +4878,7 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
       if (SUCCEEDED(hr) && pData->isValid) {
         PopulateThumbOriginalInfo(headerInfo, static_cast<uint64_t>(mappedSize),
                                   pData);
-        return S_OK;
+        return finishSuccess();
       }
     }
     return E_FAIL;
@@ -4832,7 +4909,7 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
     }
     if (SUCCEEDED(hr) && pData->isValid) {
       PopulateThumbOriginalInfo(headerInfo, fallbackFileSize, pData);
-      return S_OK;
+      return finishSuccess();
     }
   }
 
@@ -4852,7 +4929,7 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
       pData->isBlurry = false;
       PopulateThumbOriginalInfo(headerInfo, static_cast<uint64_t>(mappedSize),
                                 pData);
-      return S_OK;
+      return finishSuccess();
     }
     // Fall through to vector rasterization path below.
   }
@@ -4873,7 +4950,7 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
       pData->isBlurry = false;
       PopulateThumbOriginalInfo(headerInfo, static_cast<uint64_t>(mappedSize),
                                 pData);
-      return S_OK;
+      return finishSuccess();
     }
     // Fall through to vector rasterization path below.
   }
@@ -4911,7 +4988,7 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
     if (SUCCEEDED(hr) && pData->isValid) {
       DownscaleThumbDataIfNeeded(pData, targetSize);
       PopulateThumbOriginalInfo(headerInfo, fallbackFileSize, pData);
-      return S_OK;
+      return finishSuccess();
     }
   }
 
@@ -4963,7 +5040,7 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
     }
     DownscaleThumbDataIfNeeded(pData, targetSize);
     PopulateThumbOriginalInfo(headerInfo, fallbackFileSize, pData);
-    return S_OK;
+    return finishSuccess();
   }
 
   if (hr == E_ABORT)
@@ -4984,7 +5061,7 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
       PopulateThumbOriginalInfo(headerInfo, fallbackFileSize, pData);
       pData->isBlurry = (pData->origWidth > pData->width ||
                          pData->origHeight > pData->height);
-      return S_OK;
+      return finishSuccess();
     }
   }
   return E_FAIL;

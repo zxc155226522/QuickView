@@ -22,6 +22,7 @@ ImageListThumbnailPanel::~ImageListThumbnailPanel() {
     m_thumbThreads.clear();
     for (auto& pair : m_imageThumbCache) { if (pair.second) pair.second->Release(); }
     m_imageThumbCache.clear();
+    m_imageThumbBg.clear();
     DiscardDeviceResources();
 }
 
@@ -64,6 +65,7 @@ void ImageListThumbnailPanel::ShowImageThumbnails(FileNavigator* nav, int curren
     // Clear cache
     for (auto& pair : m_imageThumbCache) { if (pair.second) pair.second->Release(); }
     m_imageThumbCache.clear();
+    m_imageThumbBg.clear();
     // Clear async queue
     {
         std::lock_guard<std::mutex> lock(m_thumbQueueMutex);
@@ -93,6 +95,7 @@ void ImageListThumbnailPanel::OnDocumentClosed() {
     m_imagePaths.clear();
     for (auto& pair : m_imageThumbCache) { if (pair.second) pair.second->Release(); }
     m_imageThumbCache.clear();
+    m_imageThumbBg.clear();
     m_scrollY = 0.0f;
     m_targetScrollY = 0.0f;
     m_scrollX = 0.0f;
@@ -226,6 +229,23 @@ void ImageListThumbnailPanel::DrawItems(ID2D1RenderTarget* pRT) {
             // Letterbox inside the square cell — aspect preserved, no distortion
             const D2D1_SIZE_F bs = pBitmap->GetSize();
             const D2D1_RECT_F drawRect = FitRectInside(thumbRect, bs.width, bs.height);
+
+            // [Adaptive Contrast Background]
+            // If the thumbnail has transparent regions, fill an adaptive contrast card beneath it
+            // (Dark charcoal for light/white graphics, bright white-gray for dark/black graphics)
+            auto bgIt = m_imageThumbBg.find(pageIndex);
+            if (bgIt != m_imageThumbBg.end() && bgIt->second.hasTransparency && m_brushThumbnailBg) {
+                const uint32_t bg = bgIt->second.adaptiveBgColor;
+                const float r = static_cast<float>((bg >> 16) & 0xFF) / 255.0f;
+                const float g = static_cast<float>((bg >> 8) & 0xFF) / 255.0f;
+                const float b = static_cast<float>(bg & 0xFF) / 255.0f;
+                const D2D1_COLOR_F oldColor = m_brushThumbnailBg->GetColor();
+                m_brushThumbnailBg->SetColor(D2D1::ColorF(r, g, b, 1.0f));
+                D2D1_ROUNDED_RECT card = D2D1::RoundedRect(drawRect, 3.0f * g_uiScale, 3.0f * g_uiScale);
+                pRT->FillRoundedRectangle(card, m_brushThumbnailBg.Get());
+                m_brushThumbnailBg->SetColor(oldColor);
+            }
+
             pRT->DrawBitmap(pBitmap, drawRect, 1.0f,
                            D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
         } else {
@@ -305,6 +325,7 @@ void ImageListThumbnailPanel::OnUpdateThumbnailRequests() {
                 int dist = std::abs(static_cast<int>(it->first) - center);
                 if (dist > 30) {
                     if (it->second) it->second->Release();
+                    m_imageThumbBg.erase(it->first);
                     it = m_imageThumbCache.erase(it);
                 } else {
                     ++it;
@@ -333,6 +354,7 @@ void ImageListThumbnailPanel::OnUpdateThumbnailRequests() {
             int dist = std::abs(static_cast<int>(it->first) - center);
             if (dist > 30) {
                 if (it->second) it->second->Release();
+                m_imageThumbBg.erase(it->first);
                 it = m_imageThumbCache.erase(it);
             } else {
                 ++it;
@@ -365,9 +387,11 @@ void ImageListThumbnailPanel::ProcessAsyncResults(ID2D1RenderTarget* pRT) {
                 it->second->Release();
             }
             m_imageThumbCache[r.pageIndex] = bmp.Detach();
+            m_imageThumbBg[r.pageIndex] = { r.hasTransparency, r.adaptiveBgColor };
             m_needsRepaint = true;
         } else {
             m_imageThumbCache[r.pageIndex] = nullptr;
+            m_imageThumbBg.erase(r.pageIndex);
         }
     }
 }
@@ -419,15 +443,18 @@ void ImageListThumbnailPanel::ThumbWorkerLoop() {
         result.pageIndex = idx;
 
         if (idx < m_imagePaths.size()) {
+            const bool wantTrans = QuickView::WantsTransparentBackground(m_imagePaths[idx]);
             CImageLoader::ThumbData thumbData;
             HRESULT hr = loader.LoadThumbnail(
-                m_imagePaths[idx].c_str(), kThumbnailTargetWidth, &thumbData, true, false);
+                m_imagePaths[idx].c_str(), kThumbnailTargetWidth, &thumbData, true, wantTrans);
             if (SUCCEEDED(hr) && thumbData.isValid && !thumbData.pixels.empty()) {
                 result.pixels = std::move(thumbData.pixels);
                 result.width = thumbData.width;
                 result.height = thumbData.height;
                 result.stride = thumbData.stride;
                 result.valid = true;
+                result.hasTransparency = thumbData.hasTransparency;
+                result.adaptiveBgColor = thumbData.adaptiveBgColor;
             }
         }
 

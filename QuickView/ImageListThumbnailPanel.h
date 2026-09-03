@@ -71,6 +71,13 @@ private:
         int height = 0;
         int stride = 0;
         bool valid = false;
+        bool hasTransparency = false;
+        uint32_t adaptiveBgColor = 0;
+    };
+
+    struct ThumbBgInfo {
+        bool hasTransparency = false;
+        uint32_t adaptiveBgColor = 0;
     };
 
     std::vector<std::thread> m_thumbThreads;
@@ -95,4 +102,5 @@ private:
     uint32_t m_totalImages = 0;
     std::vector<std::wstring> m_imagePaths;
     std::map<uint32_t, ID2D1Bitmap*> m_imageThumbCache;
+    std::map<uint32_t, ThumbBgInfo> m_imageThumbBg;
 };
