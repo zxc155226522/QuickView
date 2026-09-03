@@ -288,7 +288,16 @@ static Status ParseTiffIFD(const uint8_t* data, size_t size, TiffImageDesc& desc
                 tileByteCountsType = type;
                 break;
             case 338: // ExtraSamples
-                desc.extraSamples = static_cast<uint16_t>(getTagValue(entryOff, type, count));
+                if (count == 1) {
+                    desc.extraSamples = static_cast<uint16_t>(getTagValue(entryOff, type, count));
+                } else if (count > 1) {
+                    size_t elemSize = (type == 3 ? 2 : (type == 4 ? 4 : 1));
+                    size_t totalBytes = count * elemSize;
+                    size_t off = (totalBytes <= 4) ? (entryOff + 8) : read32(entryOff + 8);
+                    if (off + elemSize <= size) {
+                        desc.extraSamples = (type == 3) ? read16(off) : (type == 4 ? static_cast<uint16_t>(read32(off)) : data[off]);
+                    }
+                }
                 break;
             case 34675: // ICCProfile
                 if (type == 7 || type == 1) {
@@ -659,9 +668,10 @@ HRESULT LoadRegion(const uint8_t* data, size_t size,
 int localXStart = intersectX - tileX;
 int outXStart = intersectX - cropX;
 int runWidth = intersectEndX - intersectX;
-bool cmykPremultiply = (desc.extraSamples != 1);
+bool cmykHasAlpha = (desc.samples >= 5) && (desc.extraSamples == 1 || desc.extraSamples == 2);
+bool cmykPremultiply = (desc.extraSamples == 1);
 if (bytesPerSample == 1) {
-ConvertCmykToBgra(srcRow + localXStart * pixelStride, dstRow + outXStart * 4, runWidth, samples, cmykPremultiply, cmykXform.xform);
+ConvertCmykToBgra(srcRow + localXStart * pixelStride, dstRow + outXStart * 4, runWidth, samples, cmykHasAlpha, cmykPremultiply, cmykXform.xform);
 } else {
 for (int dx = 0; dx < runWidth; ++dx) {
 uint8_t c = srcRow[(localXStart + dx) * pixelStride + 0 * bytesPerSample + highByteOffset];
@@ -847,9 +857,10 @@ dstRow[(outXStart + dx) * 4 + 3] = a;
                             decodeFailed = true;
                         }
 } else if (photometric == 5) {
-bool cmykPremultiply = (desc.extraSamples != 1);
+bool cmykHasAlpha = (desc.samples >= 5) && (desc.extraSamples == 1 || desc.extraSamples == 2);
+bool cmykPremultiply = (desc.extraSamples == 1);
 if (bytesPerSample == 1) {
-ConvertCmykToBgra(srcRow + cropX * pixelStride, dstRow, cropW, samples, cmykPremultiply, cmykXform.xform);
+ConvertCmykToBgra(srcRow + cropX * pixelStride, dstRow, cropW, samples, cmykHasAlpha, cmykPremultiply, cmykXform.xform);
 } else {
 for (int dx = 0; dx < cropW; ++dx) {
 uint8_t c = srcRow[(cropX + dx) * pixelStride + 0 * bytesPerSample + highByteOffset];
@@ -898,8 +909,8 @@ dstRow[dx * 4 + 3] = a;
       result.metadata.hasAlpha = (desc.samples >= 4) || (desc.extraSamples > 0);
     else if (photometric == 0 || photometric == 1) // Grayscale needs 1; 2+ means alpha
       result.metadata.hasAlpha = (desc.samples >= 2) || (desc.extraSamples > 0);
-    else if (photometric == 5) // CMYK image artwork is fully opaque; extra channels are spot plates (white ink/glue)
-      result.metadata.hasAlpha = false;
+    else if (photometric == 5)
+      result.metadata.hasAlpha = (desc.samples >= 5) && (desc.extraSamples == 1 || desc.extraSamples == 2);
     
     wchar_t details[128];
     const wchar_t* compStr = L"";
@@ -1185,9 +1196,10 @@ static HRESULT LoadUncompressedPreview(const uint8_t* data, size_t size,
                         // CMYK 不能简单平均后再转 RGB（非线性），退回单点采样。
                         // 仅在网格中心点(gx==kGrid/2, gy==kGrid/2)做一次转换。
                         if (gx == kGrid / 2 && gy == kGrid / 2) {
-                            bool cmykPremultiply = (desc.extraSamples != 1);
+                            bool cmykHasAlpha = (desc.samples >= 5) && (desc.extraSamples == 1 || desc.extraSamples == 2);
+                            bool cmykPremultiply = (desc.extraSamples == 1);
                             ConvertCmykToBgra(sp, dstRow + static_cast<int>(ox) * 4, 1,
-                                              samples, cmykPremultiply, cmykXform.xform);
+                                              samples, cmykHasAlpha, cmykPremultiply, cmykXform.xform);
                         }
                         continue;
                     } else {                                   // Grayscale
@@ -1244,7 +1256,7 @@ static HRESULT LoadUncompressedPreview(const uint8_t* data, size_t size,
     else if (photometric == 0 || photometric == 1)
         result.metadata.hasAlpha = (samples >= 2) || (desc.extraSamples > 0);
     else if (photometric == 5)
-        result.metadata.hasAlpha = false;
+        result.metadata.hasAlpha = (desc.samples >= 5) && (desc.extraSamples == 1 || desc.extraSamples == 2);
     result.metadata.ExifOrientation = desc.orientation;
     result.metadata.LoaderName = L"MiniTIFF";
     result.metadata.HasEmbeddedColorProfile = false;
@@ -1344,7 +1356,8 @@ static HRESULT LoadCompressedSampledPreview(const uint8_t* data, size_t size,
         else
             QvCmykDbg("QV: CMYK(sampled) ICC build failed -> naive fallback\n");
     }
-    const bool cmykPremultiply = (desc.extraSamples != 1);
+    const bool cmykHasAlpha = (desc.samples >= 5) && (desc.extraSamples == 1 || desc.extraSamples == 2);
+    const bool cmykPremultiply = (desc.extraSamples == 1);
 
     std::atomic<bool> decodeFailed{false};
 
@@ -1418,7 +1431,7 @@ static HRESULT LoadCompressedSampledPreview(const uint8_t* data, size_t size,
                            samples);
                 }
                 ConvertCmykToBgra(cmykRow.data(), dstRow, static_cast<int>(outW),
-                                  samples, cmykPremultiply, cmykXform.xform);
+                                  samples, cmykHasAlpha, cmykPremultiply, cmykXform.xform);
                 continue;
             }
 
@@ -1501,7 +1514,7 @@ static HRESULT LoadCompressedSampledPreview(const uint8_t* data, size_t size,
     else if (photometric == 0 || photometric == 1)
         result.metadata.hasAlpha = (samples >= 2) || (desc.extraSamples > 0);
     else if (photometric == 5)
-        result.metadata.hasAlpha = false;
+        result.metadata.hasAlpha = (desc.samples >= 5) && (desc.extraSamples == 1 || desc.extraSamples == 2);
     result.metadata.ExifOrientation = desc.orientation;
     result.metadata.LoaderName = L"MiniTIFF Sampled";
     result.metadata.HasEmbeddedColorProfile = false;

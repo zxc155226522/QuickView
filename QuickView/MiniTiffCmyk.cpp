@@ -103,8 +103,7 @@ CmykIccXform::~CmykIccXform() {
     if (hIn)   cmsCloseProfile(hIn);
 }
 
-void ConvertCmykToBgra(const uint8_t* src, uint8_t* dst, int width, int samples, bool premultiply, cmsHTRANSFORM xform) {
-    (void)premultiply;
+void ConvertCmykToBgra(const uint8_t* src, uint8_t* dst, int width, int samples, bool hasAlpha, bool premultiply, cmsHTRANSFORM xform) {
     if (xform != nullptr) {
         // Accurate CMYK -> sRGB via ICC profile (either embedded or Adobe standard fallback).
         // lcms expects tightly packed 4-channel CMYK input (TYPE_CMYK_8).
@@ -114,10 +113,8 @@ void ConvertCmykToBgra(const uint8_t* src, uint8_t* dst, int width, int samples,
             return;
         }
 
-        // samples > 4 (e.g. CMYK + Spot channels such as white ink / glue in heat transfer files):
-        // In prepress, extra channels are spot plates or white ink layers, NOT visible image alpha.
-        // Extract the 4 primary CMYK channels, transform to sRGB, and force opaque alpha (255)
-        // so pattern colors are preserved accurately without being blacked out by spot channels.
+        // samples > 4 (e.g. CMYK + Alpha or CMYK + Spot channels):
+        // 1. Convert the first 4 CMYK channels to RGB via ICC
         std::vector<uint8_t> cmyk(static_cast<size_t>(width) * 4);
         for (int x = 0; x < width; ++x) {
             cmyk[x * 4 + 0] = src[x * samples + 0];
@@ -126,8 +123,32 @@ void ConvertCmykToBgra(const uint8_t* src, uint8_t* dst, int width, int samples,
             cmyk[x * 4 + 3] = src[x * samples + 3];
         }
         cmsDoTransform(xform, cmyk.data(), dst, width);
-        for (int x = 0; x < width; ++x) {
-            dst[x * 4 + 3] = 255; // CMYK image content is fully opaque
+
+        if (hasAlpha) {
+            // Channel 4 is an authentic transparent background mask (ExtraSamples == 1 or 2)
+            for (int x = 0; x < width; ++x) {
+                uint8_t a = src[x * samples + 4];
+                if (a == 0) {
+                    // In fully transparent areas, set clean white RGB with alpha 0.
+                    // This prevents black background/borders when alpha is dropped or blended.
+                    dst[x * 4 + 0] = 255;
+                    dst[x * 4 + 1] = 255;
+                    dst[x * 4 + 2] = 255;
+                    dst[x * 4 + 3] = 0;
+                } else {
+                    if (premultiply && a < 255) {
+                        dst[x * 4 + 0] = static_cast<uint8_t>((dst[x * 4 + 0] * a + 127) / 255);
+                        dst[x * 4 + 1] = static_cast<uint8_t>((dst[x * 4 + 1] * a + 127) / 255);
+                        dst[x * 4 + 2] = static_cast<uint8_t>((dst[x * 4 + 2] * a + 127) / 255);
+                    }
+                    dst[x * 4 + 3] = a;
+                }
+            }
+        } else {
+            // Unspecified spot plate (e.g. white ink, glue): fully opaque artwork
+            for (int x = 0; x < width; ++x) {
+                dst[x * 4 + 3] = 255;
+            }
         }
         return;
     }
@@ -149,10 +170,30 @@ void ConvertCmykToBgra(const uint8_t* src, uint8_t* dst, int width, int samples,
         uint8_t g = static_cast<uint8_t>((gTemp + 128 + (gTemp >> 8)) >> 8);
         uint8_t b = static_cast<uint8_t>((bTemp + 128 + (bTemp >> 8)) >> 8);
 
-        dst[x * 4 + 0] = b;
-        dst[x * 4 + 1] = g;
-        dst[x * 4 + 2] = r;
-        dst[x * 4 + 3] = 255; // CMYK print content is fully opaque
+        if (hasAlpha && samples >= 5) {
+            uint8_t a = src[x * samples + 4];
+            if (a == 0) {
+                dst[x * 4 + 0] = 255;
+                dst[x * 4 + 1] = 255;
+                dst[x * 4 + 2] = 255;
+                dst[x * 4 + 3] = 0;
+            } else {
+                if (premultiply && a < 255) {
+                    r = static_cast<uint8_t>((r * a + 127) / 255);
+                    g = static_cast<uint8_t>((g * a + 127) / 255);
+                    b = static_cast<uint8_t>((b * a + 127) / 255);
+                }
+                dst[x * 4 + 0] = b;
+                dst[x * 4 + 1] = g;
+                dst[x * 4 + 2] = r;
+                dst[x * 4 + 3] = a;
+            }
+        } else {
+            dst[x * 4 + 0] = b;
+            dst[x * 4 + 1] = g;
+            dst[x * 4 + 2] = r;
+            dst[x * 4 + 3] = 255;
+        }
     }
 }
 

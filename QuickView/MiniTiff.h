@@ -63,7 +63,7 @@ struct CmykIccXform {
 // Internal helper for Phase 3 CMYK to BGRA conversion.
 // When xform != nullptr (embedded CMYK ICC available), converts via lcms2
 // (CMYK -> sRGB, accurate). Otherwise falls back to the naive formula.
-void ConvertCmykToBgra(const uint8_t* src, uint8_t* dst, int width, int samples, bool premultiply, cmsHTRANSFORM xform = nullptr);
+void ConvertCmykToBgra(const uint8_t* src, uint8_t* dst, int width, int samples, bool hasAlpha, bool premultiply, cmsHTRANSFORM xform = nullptr);
 
 // Internal helper for Phase 1 LZW decompression
 bool DecompressLzw(const uint8_t* src, size_t srcLen, uint8_t* dst, size_t dstLen);
