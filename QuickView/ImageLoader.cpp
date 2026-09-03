@@ -11775,6 +11775,24 @@ static void ConvertBmpDataUrisToPng(std::string &svg) {
         pos = dataEnd; continue;
       }
 
+      // [Alpha Check] libcdr 生成的 32bpp DIB/BMP 中，Alpha 字节（第 4 字节）经常全为 0x00
+      // （因为 Windows GDI / 旧版 CorelDRAW 32 位位图默认未启用 Alpha 掩码，默认全 0）。
+      // 若原数据 Alpha 全为 0，WIC 转为 32bppBGRA 会保留全 0 Alpha，导致编码成 PNG 后
+      // 在 SVG 渲染器（如 resvg）中完全透明消失。
+      // 因此：若检测到整张位图的所有像素 Alpha 均为 0，则全部强制修复为 255（不透明）。
+      bool allZeroAlpha = true;
+      for (size_t p = 3; p < bgra.size(); p += 4) {
+        if (bgra[p] != 0) {
+          allZeroAlpha = false;
+          break;
+        }
+      }
+      if (allZeroAlpha) {
+        for (size_t p = 3; p < bgra.size(); p += 4) {
+          bgra[p] = 255;
+        }
+      }
+
       // ---- WIC 编码 BGRA → PNG（到内存流） ----
       ComPtr<IWICBitmapEncoder> enc;
       if (FAILED(wicFactory->CreateEncoder(GUID_ContainerFormatPng, nullptr, &enc))) {
@@ -11852,8 +11870,27 @@ std::vector<CdrPageData> ProcessCdrSvgPages(
 
     // [BMP→PNG] CDR/CMX 在主查看器中走 resvg 渲染（不是 MuPDF）。
     // resvg 不支持 BMP data URI（不靠文件头检测格式），必须真正解码 BMP→重编码 PNG。
-    // 无论 fastMode 还是完整模式，都需要真编码以支持 resvg 渲染。
+    // 关键防线：libcdr 生成的 32bpp DIB 里 alpha 字节常为 0，ConvertBmpDataUrisToPng
+    // 已内置全 0 alpha 自动修正为 255（不透明），规避了位图背景全黑或透明丢失问题。
     ConvertBmpDataUrisToPng(svgContent);
+
+    // [Image preserveAspectRatio] CorelDRAW 的渐变填充常被存成微小位图条带（如 170x1 像素），
+    // 并在 SVG 中作为非等比拉伸的 <image> 渲染。SVG 默认 preserveAspectRatio="xMidYMid meet"
+    // 会将其压缩成细线甚至完全不可见。此处确保所有 <image> 标签均具备 preserveAspectRatio="none"。
+    {
+      size_t imgPos = 0;
+      while ((imgPos = svgContent.find("<image", imgPos)) != std::string::npos) {
+        size_t tagEnd = svgContent.find('>', imgPos);
+        if (tagEnd == std::string::npos) break;
+        std::string_view tag(svgContent.data() + imgPos, tagEnd - imgPos);
+        if (tag.find("preserveAspectRatio") == std::string_view::npos) {
+          svgContent.insert(imgPos + 6, " preserveAspectRatio=\"none\"");
+          imgPos += 6 + 28;
+        } else {
+          imgPos = tagEnd + 1;
+        }
+      }
+    }
 
 if (fastMode) {
 // 快速模式：BMP前缀重写 + style inlining + 尺寸解析，跳过裁白边/页面矩形/viewBox 扩展。
