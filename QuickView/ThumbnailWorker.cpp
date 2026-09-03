@@ -338,6 +338,62 @@ static void Enqueue(PipeTask t) {
   g_taskCv.notify_one();
 }
 
+// [Adaptive Contrast Background for Shell Thumbnail]
+// When an image has transparent regions, Explorer draws its own background
+// (typically solid white on light themes), causing white graphics/text to disappear completely.
+// If transparency is detected, blend the pixels with the high-contrast adaptive background
+// and set Alpha to 255 so Explorer thumbnails always show the graphic clearly.
+static void ApplyAdaptiveBackgroundToThumb(CImageLoader::ThumbData& thumb) {
+  if (!thumb.isValid || thumb.pixels.empty() || thumb.width <= 0 || thumb.height <= 0) {
+    return;
+  }
+  if (!thumb.hasTransparency || thumb.adaptiveBgColor == 0) {
+    return;
+  }
+
+  const uint32_t bg = thumb.adaptiveBgColor;
+  const uint8_t bgR = static_cast<uint8_t>((bg >> 16) & 0xFF);
+  const uint8_t bgG = static_cast<uint8_t>((bg >> 8) & 0xFF);
+  const uint8_t bgB = static_cast<uint8_t>(bg & 0xFF);
+
+  const int w = thumb.width;
+  const int h = thumb.height;
+  const int stride = thumb.stride;
+  uint8_t* raw = thumb.pixels.data();
+
+  for (int y = 0; y < h; ++y) {
+    uint8_t* row = raw + static_cast<size_t>(y) * stride;
+    for (int x = 0; x < w; ++x) {
+      uint8_t* px = row + x * 4;
+      const uint8_t b = px[0];
+      const uint8_t g = px[1];
+      const uint8_t r = px[2];
+      const uint8_t a = px[3];
+
+      if (a == 255) {
+        continue;
+      }
+      if (a == 0) {
+        px[0] = bgB;
+        px[1] = bgG;
+        px[2] = bgR;
+        px[3] = 255;
+      } else {
+        // Semi-transparent pixel blending (Premultiplied BGRA):
+        // out_c = src_c + bg_c * (255 - a) / 255
+        const uint32_t invA = 255 - a;
+        const uint32_t outB = static_cast<uint32_t>(b) + (static_cast<uint32_t>(bgB) * invA + 127) / 255;
+        const uint32_t outG = static_cast<uint32_t>(g) + (static_cast<uint32_t>(bgG) * invA + 127) / 255;
+        const uint32_t outR = static_cast<uint32_t>(r) + (static_cast<uint32_t>(bgR) * invA + 127) / 255;
+        px[0] = static_cast<uint8_t>((std::min)(255u, outB));
+        px[1] = static_cast<uint8_t>((std::min)(255u, outG));
+        px[2] = static_cast<uint8_t>((std::min)(255u, outR));
+        px[3] = 255;
+      }
+    }
+  }
+}
+
 // Render one request and write the response on its pipe. Each worker owns its
 // own CImageLoader instance, so there is no shared per-instance mutable state
 // across threads. The only process-global mutable state (g_cdrPageCache) is
@@ -359,6 +415,12 @@ static void RenderAndRespond(PipeTask& t, CImageLoader& loader, bool degrade) {
   }
   auto t1 = std::chrono::steady_clock::now();
   double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+
+  if (SUCCEEDED(hr) && thumb.isValid && !thumb.pixels.empty()) {
+    if (thumb.hasTransparency && thumb.adaptiveBgColor != 0) {
+      ApplyAdaptiveBackgroundToThumb(thumb);
+    }
+  }
 
   std::vector<BYTE> bmp;
   bool ok = SUCCEEDED(hr) && thumb.isValid && !thumb.pixels.empty() &&
@@ -467,6 +529,9 @@ int QuickView::RunThumbnailWorker(int argc, LPWSTR* argv) {
     // Write BMP data to stdout (pipe) instead of a temp file.
     // Format: 4-byte status (0=OK, 1=FAIL) + 4-byte bmpLen + bmp data.
     if (SUCCEEDED(hr) && thumb.isValid && !thumb.pixels.empty()) {
+      if (thumb.hasTransparency && thumb.adaptiveBgColor != 0) {
+        ApplyAdaptiveBackgroundToThumb(thumb);
+      }
       std::vector<BYTE> bmp;
       if (BuildBmp32Memory(thumb.pixels.data(), thumb.width, thumb.height,
                            thumb.stride, bmp)) {
