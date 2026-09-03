@@ -104,6 +104,7 @@ CmykIccXform::~CmykIccXform() {
 }
 
 void ConvertCmykToBgra(const uint8_t* src, uint8_t* dst, int width, int samples, bool hasAlpha, bool premultiply, cmsHTRANSFORM xform) {
+    (void)premultiply;
     if (xform != nullptr) {
         // Accurate CMYK -> sRGB via ICC profile (either embedded or Adobe standard fallback).
         // lcms expects tightly packed 4-channel CMYK input (TYPE_CMYK_8).
@@ -125,23 +126,24 @@ void ConvertCmykToBgra(const uint8_t* src, uint8_t* dst, int width, int samples,
         cmsDoTransform(xform, cmyk.data(), dst, width);
 
         if (hasAlpha) {
-            // Channel 4 is an authentic transparent background mask (ExtraSamples == 1 or 2)
+            // Channel 4 is an authentic transparent background mask (ExtraSamples == 1 or 2).
+            // Follow strict Direct2D D2D1_ALPHA_MODE_PREMULTIPLIED standard:
+            // When a == 0 (fully transparent), RGB MUST be 0.
+            // If RGB were non-zero (e.g. 255), D2D additive blend would display a solid white background!
             for (int x = 0; x < width; ++x) {
                 uint8_t a = src[x * samples + 4];
                 if (a == 0) {
-                    // In fully transparent areas, set clean white RGB with alpha 0.
-                    // This prevents black background/borders when alpha is dropped or blended.
-                    dst[x * 4 + 0] = 255;
-                    dst[x * 4 + 1] = 255;
-                    dst[x * 4 + 2] = 255;
+                    dst[x * 4 + 0] = 0;
+                    dst[x * 4 + 1] = 0;
+                    dst[x * 4 + 2] = 0;
                     dst[x * 4 + 3] = 0;
-                } else {
-                    if (premultiply && a < 255) {
-                        dst[x * 4 + 0] = static_cast<uint8_t>((dst[x * 4 + 0] * a + 127) / 255);
-                        dst[x * 4 + 1] = static_cast<uint8_t>((dst[x * 4 + 1] * a + 127) / 255);
-                        dst[x * 4 + 2] = static_cast<uint8_t>((dst[x * 4 + 2] * a + 127) / 255);
-                    }
+                } else if (a < 255) {
+                    dst[x * 4 + 0] = static_cast<uint8_t>((dst[x * 4 + 0] * a + 127) / 255);
+                    dst[x * 4 + 1] = static_cast<uint8_t>((dst[x * 4 + 1] * a + 127) / 255);
+                    dst[x * 4 + 2] = static_cast<uint8_t>((dst[x * 4 + 2] * a + 127) / 255);
                     dst[x * 4 + 3] = a;
+                } else {
+                    dst[x * 4 + 3] = 255;
                 }
             }
         } else {
@@ -173,20 +175,23 @@ void ConvertCmykToBgra(const uint8_t* src, uint8_t* dst, int width, int samples,
         if (hasAlpha && samples >= 5) {
             uint8_t a = src[x * samples + 4];
             if (a == 0) {
-                dst[x * 4 + 0] = 255;
-                dst[x * 4 + 1] = 255;
-                dst[x * 4 + 2] = 255;
+                dst[x * 4 + 0] = 0;
+                dst[x * 4 + 1] = 0;
+                dst[x * 4 + 2] = 0;
                 dst[x * 4 + 3] = 0;
-            } else {
-                if (premultiply && a < 255) {
-                    r = static_cast<uint8_t>((r * a + 127) / 255);
-                    g = static_cast<uint8_t>((g * a + 127) / 255);
-                    b = static_cast<uint8_t>((b * a + 127) / 255);
-                }
+            } else if (a < 255) {
+                r = static_cast<uint8_t>((r * a + 127) / 255);
+                g = static_cast<uint8_t>((g * a + 127) / 255);
+                b = static_cast<uint8_t>((b * a + 127) / 255);
                 dst[x * 4 + 0] = b;
                 dst[x * 4 + 1] = g;
                 dst[x * 4 + 2] = r;
                 dst[x * 4 + 3] = a;
+            } else {
+                dst[x * 4 + 0] = b;
+                dst[x * 4 + 1] = g;
+                dst[x * 4 + 2] = r;
+                dst[x * 4 + 3] = 255;
             }
         } else {
             dst[x * 4 + 0] = b;
