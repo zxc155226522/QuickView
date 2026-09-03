@@ -3422,6 +3422,12 @@ HRESULT CImageLoader::LoadThumbJPEGFromMemory(const uint8_t *pBuf, size_t size,
   if (tj3DecompressHeader(tj, pBuf, size) < 0) {
     return E_FAIL;
   }
+  int cs = tj3Get(tj, TJPARAM_COLORSPACE);
+  if (cs == TJCS_CMYK || cs == TJCS_YCCK) {
+    // Embedded CMYK/YCCK JPEG thumbnails cannot be directly converted to BGRA without
+    // proper ICC color management. Fall back to the unified MiniTIFF color pipeline.
+    return E_FAIL;
+  }
   width = tj3Get(tj, TJPARAM_JPEGWIDTH);
   height = tj3Get(tj, TJPARAM_JPEGHEIGHT);
   pData->origWidth = width;

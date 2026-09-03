@@ -471,15 +471,17 @@ HRESULT LoadRegion(const uint8_t* data, size_t size,
     uint16_t photometric = desc.photometric;
 
     // CMYK ICC transform: if an embedded CMYK profile is present, decode via
-    // lcms2 for accurate color. Built once per region decode; stays nullptr otherwise.
+    // lcms2 for accurate color. If no embedded ICC exists, Build() automatically
+    // falls back to the Adobe standard CMYK profile (Japan Color / SWOP).
     CmykIccXform cmykXform;
-    if (photometric == 5 && !desc.iccProfile.empty()) {
-        if (cmykXform.Build(desc.iccProfile.data(), desc.iccProfile.size()))
-            QvCmykDbg("QV: CMYK decoded via embedded ICC (lcms2)\n");
+    if (photometric == 5) {
+        const uint8_t* profData = desc.iccProfile.empty() ? nullptr : desc.iccProfile.data();
+        size_t profLen = desc.iccProfile.empty() ? 0 : desc.iccProfile.size();
+        if (cmykXform.Build(profData, profLen))
+            QvCmykDbg(profData ? "QV: CMYK decoded via embedded ICC (lcms2)\n"
+                               : "QV: CMYK decoded via Adobe standard ICC (lcms2)\n");
         else
-            QvCmykDbg("QV: CMYK ICC present but build failed -> naive\n");
-    } else if (photometric == 5) {
-        QvCmykDbg("QV: CMYK without embedded ICC -> naive\n");
+            QvCmykDbg("QV: CMYK ICC build failed -> naive fallback\n");
     }
 
     bool decodeFailed = false;
@@ -896,8 +898,8 @@ dstRow[dx * 4 + 3] = a;
       result.metadata.hasAlpha = (desc.samples >= 4) || (desc.extraSamples > 0);
     else if (photometric == 0 || photometric == 1) // Grayscale needs 1; 2+ means alpha
       result.metadata.hasAlpha = (desc.samples >= 2) || (desc.extraSamples > 0);
-    else if (photometric == 5) // CMYK needs 4; 5+ means alpha
-      result.metadata.hasAlpha = (desc.samples >= 5) || (desc.extraSamples > 0);
+    else if (photometric == 5) // CMYK image artwork is fully opaque; extra channels are spot plates (white ink/glue)
+      result.metadata.hasAlpha = false;
     
     wchar_t details[128];
     const wchar_t* compStr = L"";
@@ -1132,14 +1134,16 @@ static HRESULT LoadUncompressedPreview(const uint8_t* data, size_t size,
     const uint16_t photometric = desc.photometric;
 
     // CMYK ICC transform for the preview fast path (same rationale as LoadRegion).
+    // If no embedded ICC exists, Build() automatically falls back to Adobe standard CMYK ICC.
     CmykIccXform cmykXform;
-    if (photometric == 5 && !desc.iccProfile.empty()) {
-        if (cmykXform.Build(desc.iccProfile.data(), desc.iccProfile.size()))
-            QvCmykDbg("QV: CMYK(preview) decoded via embedded ICC (lcms2)\n");
+    if (photometric == 5) {
+        const uint8_t* profData = desc.iccProfile.empty() ? nullptr : desc.iccProfile.data();
+        size_t profLen = desc.iccProfile.empty() ? 0 : desc.iccProfile.size();
+        if (cmykXform.Build(profData, profLen))
+            QvCmykDbg(profData ? "QV: CMYK(preview) decoded via embedded ICC (lcms2)\n"
+                               : "QV: CMYK(preview) decoded via Adobe standard ICC (lcms2)\n");
         else
-            QvCmykDbg("QV: CMYK(preview) ICC present but build failed -> naive\n");
-    } else if (photometric == 5) {
-        QvCmykDbg("QV: CMYK(preview) without embedded ICC -> naive\n");
+            QvCmykDbg("QV: CMYK(preview) ICC build failed -> naive fallback\n");
     }
 
     // 4×4 网格超采样（Box 滤波抗锯齿）：对每个输出像素，
@@ -1239,6 +1243,8 @@ static HRESULT LoadUncompressedPreview(const uint8_t* data, size_t size,
         result.metadata.hasAlpha = (samples >= 4) || (desc.extraSamples > 0);
     else if (photometric == 0 || photometric == 1)
         result.metadata.hasAlpha = (samples >= 2) || (desc.extraSamples > 0);
+    else if (photometric == 5)
+        result.metadata.hasAlpha = false;
     result.metadata.ExifOrientation = desc.orientation;
     result.metadata.LoaderName = L"MiniTIFF";
     result.metadata.HasEmbeddedColorProfile = false;
@@ -1329,11 +1335,14 @@ static HRESULT LoadCompressedSampledPreview(const uint8_t* data, size_t size,
     const uint16_t photometric = desc.photometric;
 
     CmykIccXform cmykXform;
-    if (photometric == 5 && !desc.iccProfile.empty()) {
-        if (cmykXform.Build(desc.iccProfile.data(), desc.iccProfile.size()))
-            QvCmykDbg("QV: CMYK(sampled) decoded via embedded ICC (lcms2)\n");
+    if (photometric == 5) {
+        const uint8_t* profData = desc.iccProfile.empty() ? nullptr : desc.iccProfile.data();
+        size_t profLen = desc.iccProfile.empty() ? 0 : desc.iccProfile.size();
+        if (cmykXform.Build(profData, profLen))
+            QvCmykDbg(profData ? "QV: CMYK(sampled) decoded via embedded ICC (lcms2)\n"
+                               : "QV: CMYK(sampled) decoded via Adobe standard ICC (lcms2)\n");
         else
-            QvCmykDbg("QV: CMYK(sampled) ICC present but build failed -> naive\n");
+            QvCmykDbg("QV: CMYK(sampled) ICC build failed -> naive fallback\n");
     }
     const bool cmykPremultiply = (desc.extraSamples != 1);
 
@@ -1492,7 +1501,7 @@ static HRESULT LoadCompressedSampledPreview(const uint8_t* data, size_t size,
     else if (photometric == 0 || photometric == 1)
         result.metadata.hasAlpha = (samples >= 2) || (desc.extraSamples > 0);
     else if (photometric == 5)
-        result.metadata.hasAlpha = (samples >= 5) || (desc.extraSamples > 0);
+        result.metadata.hasAlpha = false;
     result.metadata.ExifOrientation = desc.orientation;
     result.metadata.LoaderName = L"MiniTIFF Sampled";
     result.metadata.HasEmbeddedColorProfile = false;
@@ -1544,8 +1553,17 @@ HRESULT Load(const uint8_t* data, size_t size,
         if (pick) {
             TiffImageDesc desc;
             Status st = ParseTiffIFD(data, size, desc, pick->off);
-            if (st == Status::Ok && CapabilityGate(desc) == Status::Ok)
+            if (st == Status::Ok && CapabilityGate(desc) == Status::Ok) {
+                // If a sub-IFD (thumbnail/reduced image) has no ICC profile of its own,
+                // inherit the primary IFD0's ICC profile so colors match the main image.
+                if (desc.iccProfile.empty() && !ifds.empty() && pick->off != ifds[0].off) {
+                    TiffImageDesc primaryDesc;
+                    if (ParseTiffIFD(data, size, primaryDesc, ifds[0].off) == Status::Ok) {
+                        desc.iccProfile = primaryDesc.iccProfile;
+                    }
+                }
                 return DecodePreviewOrFull(data, size, ctx, result, desc, targetPx);
+            }
             // Chosen IFD unsupported (exotic bit depth): fall through to the
             // primary IFD below so we never regress to "no thumbnail".
         }
