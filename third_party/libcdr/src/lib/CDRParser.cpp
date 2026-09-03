@@ -1421,10 +1421,10 @@ void libcdr::CDRParser::readFild(librevenge::RVNGInputStream *input, unsigned le
   if (!_redirectX6Chunk(&input, length))
     throw GenericException();
   unsigned fillId = readU32(input);
-  if (m_version >= 1600)
+  if (m_version >= 2000)
   {
-    // [Fix] CDR X6+ (version >= 1600) adds a 32-byte extended header before
-    // the fillType, compared to 8 bytes in version 1300-1599.
+    // [Fix] CDR 2018+ (version >= 2000, e.g. v2510) adds a 32-byte extended header
+    // before the fillType, compared to 8 bytes in version 1300-1999 (X4-X8).
     // The header contains: type(4) + guidLen(4) + GUID(16) + subVersion(4) +
     // dataLen(4) = 32 bytes. After this, the fill data follows the same
     // layout as version 1300 (fillType + color/gradient/pattern data).
