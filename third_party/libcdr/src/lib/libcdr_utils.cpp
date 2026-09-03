@@ -105,21 +105,22 @@ static unsigned int charsetToCodePage(unsigned short charset)
 {
   switch (charset)
   {
-  case 0x02: return 0;           // SYMBOL - handled separately
-  case 0x80: return 932;         // SHIFTJIS
-  case 0x81: return 949;         // HANGUL
-  case 0x86: return 936;         // GB2312
-  case 0x88: return 950;         // CHINESEBIG5
-  case 0xa1: return 1253;        // GREEK
-  case 0xa2: return 1254;        // TURKISH
-  case 0xa3: return 1258;        // VIETNAMESE
-  case 0xb1: return 1255;        // HEBREW
-  case 0xb2: return 1256;        // ARABIC
-  case 0xba: return 1257;        // BALTIC
-  case 0xcc: return 1251;        // RUSSIAN
-  case 0xde: return 874;         // THAI
-  case 0xee: return 1250;        // CENTRAL EUROPE
-  default:  return 1252;        // default: windows-1252
+  case 0x00: return CP_ACP;       // ANSI: use system active code page (CP936 on Chinese Windows)
+  case 0x02: return 0;            // SYMBOL - handled separately
+  case 0x80: return 932;          // SHIFTJIS
+  case 0x81: return 949;          // HANGUL
+  case 0x86: return 936;          // GB2312
+  case 0x88: return 950;          // CHINESEBIG5
+  case 0xa1: return 1253;         // GREEK
+  case 0xa2: return 1254;         // TURKISH
+  case 0xa3: return 1258;         // VIETNAMESE
+  case 0xb1: return 1255;         // HEBREW
+  case 0xb2: return 1256;         // ARABIC
+  case 0xba: return 1257;         // BALTIC
+  case 0xcc: return 1251;         // RUSSIAN
+  case 0xde: return 874;          // THAI
+  case 0xee: return 1250;         // CENTRAL EUROPE
+  default:  return CP_ACP;        // fallback to system ANSI code page instead of hardcoded 1252
   }
 }
 

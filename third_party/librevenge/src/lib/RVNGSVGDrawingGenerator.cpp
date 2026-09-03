@@ -220,6 +220,12 @@ struct RVNGSVGDrawingGeneratorPrivate
 	std::map<RVNGString, std::string> m_masterNameToContentMap;
 	//! the actual opened table
 	std::shared_ptr<Table> m_table;
+	double m_currentTextX;
+	double m_currentTextY;
+	double m_currentTextHeight;
+	bool m_inTextObject;
+	int m_paragraphCount;
+	bool m_isFirstSpanInParagraph;
 };
 
 RVNGSVGDrawingGeneratorPrivate::RVNGSVGDrawingGeneratorPrivate(RVNGStringVector &vec, const RVNGString &nmSpace) :
@@ -237,7 +243,13 @@ RVNGSVGDrawingGeneratorPrivate::RVNGSVGDrawingGeneratorPrivate(RVNGStringVector 
 	m_outputSink(),
 	m_vec(vec),
 	m_masterName(), m_masterNameToContentMap(),
-	m_table()
+	m_table(),
+	m_currentTextX(0.0),
+	m_currentTextY(0.0),
+	m_currentTextHeight(0.0),
+	m_inTextObject(false),
+	m_paragraphCount(0),
+	m_isFirstSpanInParagraph(true)
 {
 	if (!m_nmSpace.empty())
 		m_nmSpaceAndDelim = m_nmSpace+":";
@@ -965,7 +977,6 @@ void RVNGSVGDrawingGenerator::startTextObject(const RVNGPropertyList &propList)
 	double x = 0.0;
 	double y = 0.0;
 	double height = 0.0;
-	m_pImpl->m_outputSink << "<" << m_pImpl->getNamespaceAndDelim() << "text ";
 	if (propList["svg:x"] && propList["svg:y"])
 	{
 		x = getInchValue(*propList["svg:x"]);
@@ -987,24 +998,34 @@ void RVNGSVGDrawingGenerator::startTextObject(const RVNGPropertyList &propList)
 		ymiddle += height / 2.0;
 	}
 
+	double textBaseY = y;
 	if (propList["draw:textarea-vertical-align"])
 	{
 		if (propList["draw:textarea-vertical-align"]->getStr() == "middle")
-			y = ymiddle;
-		if (propList["draw:textarea-vertical-align"]->getStr() == "bottom")
+			textBaseY = ymiddle;
+		else if (propList["draw:textarea-vertical-align"]->getStr() == "bottom")
 		{
-			y += height;
+			textBaseY = y + height;
 			if (propList["fo:padding-bottom"])
-				y -= propList["fo:padding-bottom"]->getDouble();
+				textBaseY -= propList["fo:padding-bottom"]->getDouble();
 		}
 	}
-	else
-		y += height;
+	// Default: top-aligned. textBaseY = y with dominant-baseline="text-before-edge"
+	// so the first line of text flows cleanly downwards from the top of the box.
 
 	if (propList["fo:padding-left"])
 		x += propList["fo:padding-left"]->getDouble();
 
-	m_pImpl->m_outputSink << "x=\"" << doubleToString(72*x) << "\" y=\"" << doubleToString(72*y) << "\"";
+	m_pImpl->m_currentTextX = 72 * x;
+	m_pImpl->m_currentTextY = 72 * textBaseY;
+	m_pImpl->m_currentTextHeight = 72 * height;
+	m_pImpl->m_inTextObject = true;
+	m_pImpl->m_paragraphCount = 0;
+	m_pImpl->m_isFirstSpanInParagraph = true;
+
+	m_pImpl->m_outputSink << "<" << m_pImpl->getNamespaceAndDelim() << "text ";
+	m_pImpl->m_outputSink << "x=\"" << doubleToString(72*x) << "\" y=\"" << doubleToString(72*textBaseY) << "\" ";
+	m_pImpl->m_outputSink << "dominant-baseline=\"text-before-edge\" ";
 
 	// rotation is around the center of the object's bounding box
 	if (propList["librevenge:rotate"] && (propList["librevenge:rotate"]->getDouble()<0||propList["librevenge:rotate"]->getDouble()>0))
@@ -1014,7 +1035,7 @@ void RVNGSVGDrawingGenerator::startTextObject(const RVNGPropertyList &propList)
 			angle -= 360.0;
 		while (angle < -180.0)
 			angle += 360.0;
-		m_pImpl->m_outputSink << " transform=\"rotate(" << doubleToString(angle) << ", " << doubleToString(72*xmiddle) << ", " << doubleToString(72*ymiddle) << ")\" ";
+		m_pImpl->m_outputSink << "transform=\"rotate(" << doubleToString(angle) << ", " << doubleToString(72*xmiddle) << ", " << doubleToString(72*ymiddle) << ")\" ";
 	}
 	m_pImpl->m_outputSink << ">\n";
 
@@ -1022,6 +1043,9 @@ void RVNGSVGDrawingGenerator::startTextObject(const RVNGPropertyList &propList)
 
 void RVNGSVGDrawingGenerator::endTextObject()
 {
+	m_pImpl->m_inTextObject = false;
+	m_pImpl->m_paragraphCount = 0;
+	m_pImpl->m_isFirstSpanInParagraph = true;
 	m_pImpl->m_outputSink << "</" << m_pImpl->getNamespaceAndDelim() << "text>\n";
 }
 
@@ -1035,7 +1059,14 @@ void RVNGSVGDrawingGenerator::openListElement(const RVNGPropertyList & /*propLis
 void RVNGSVGDrawingGenerator::closeListElement() {}
 
 void RVNGSVGDrawingGenerator::defineParagraphStyle(const RVNGPropertyList & /*propList*/) {}
-void RVNGSVGDrawingGenerator::openParagraph(const RVNGPropertyList & /*propList*/) {}
+void RVNGSVGDrawingGenerator::openParagraph(const RVNGPropertyList & /*propList*/)
+{
+	if (m_pImpl->m_inTextObject)
+	{
+		m_pImpl->m_paragraphCount++;
+		m_pImpl->m_isFirstSpanInParagraph = true;
+	}
+}
 void RVNGSVGDrawingGenerator::closeParagraph() {}
 
 void RVNGSVGDrawingGenerator::defineCharacterStyle(const RVNGPropertyList &propList)
@@ -1056,6 +1087,18 @@ void RVNGSVGDrawingGenerator::openSpan(const RVNGPropertyList &propList)
 		pList=m_pImpl->m_idSpanMap.find(propList["librevenge:span-id"]->getInt())->second;
 
 	m_pImpl->m_outputSink << "<" << m_pImpl->getNamespaceAndDelim() << "tspan ";
+
+	// If this is the start of a subsequent paragraph (line 2, 3...), add x and dy to wrap to next line!
+	if (m_pImpl->m_inTextObject && m_pImpl->m_isFirstSpanInParagraph && m_pImpl->m_paragraphCount > 1)
+	{
+		double fontSize = 12.0;
+		if (pList["fo:font-size"])
+			fontSize = pList["fo:font-size"]->getDouble();
+		m_pImpl->m_outputSink << "x=\"" << doubleToString(m_pImpl->m_currentTextX) << "\" ";
+		m_pImpl->m_outputSink << "dy=\"" << doubleToString(fontSize * 1.2) << "\" ";
+	}
+	m_pImpl->m_isFirstSpanInParagraph = false;
+
 	if (pList["style:font-name"])
 		m_pImpl->m_outputSink << "font-family=\"" << pList["style:font-name"]->getStr().cstr() << "\" ";
 	if (pList["fo:font-style"])
