@@ -4421,7 +4421,7 @@ void SaveConfig() {
     WriteConfigInt(L"View", L"CanvasCustomB", g_config.CanvasCustomB, iniPath.c_str());
     WriteConfigBool(L"View", L"CanvasShowGrid", g_config.CanvasShowGrid, iniPath.c_str());
     WriteConfigInt(L"View", L"SwatchColorIndex", g_config.SwatchColorIndex, iniPath.c_str());
-    for (int i = 3; i < 9; ++i) {
+    for (int i = 3; i < AppConfig::MAX_SWATCH_COLORS; ++i) {
         wchar_t keyR[32], keyG[32], keyB[32], keyA[32];
         swprintf_s(keyR, L"Swatch%dR", i);
         swprintf_s(keyG, L"Swatch%dG", i);
@@ -4432,7 +4432,7 @@ void SaveConfig() {
         WriteConfigInt(L"View", keyB, g_config.SwatchColors[i][2], iniPath.c_str());
         WriteConfigInt(L"View", keyA, g_config.SwatchColors[i][3], iniPath.c_str());
     }
-    for (int i = 3; i < 9; ++i) {
+    for (int i = 3; i < AppConfig::MAX_SWATCH_COLORS; ++i) {
         wchar_t keyCB[32];
         swprintf_s(keyCB, L"Swatch%dChecker", i);
         WriteConfigBool(L"View", keyCB, g_config.SwatchIsCheckerboard[i], iniPath.c_str());
@@ -4733,9 +4733,10 @@ void LoadConfig() {
     g_config.CanvasCustomG = GetPrivateProfileIntW(L"View", L"CanvasCustomG", 51, iniPath.c_str());
     g_config.CanvasCustomB = GetPrivateProfileIntW(L"View", L"CanvasCustomB", 51, iniPath.c_str());
     g_config.CanvasShowGrid = GetPrivateProfileIntW(L"View", L"CanvasShowGrid", 0, iniPath.c_str()) != 0;
-    g_config.SwatchColorIndex = GetPrivateProfileIntW(L"View", L"SwatchColorIndex", 0, iniPath.c_str());
-    if (g_config.SwatchColorIndex < 0 || g_config.SwatchColorIndex >= AppConfig::MAX_SWATCH_COLORS) g_config.SwatchColorIndex = 0;
-    for (int i = 3; i < 9; ++i) {
+    // 默认自适应黑白灰背景 (SwatchColorIndex = 9)
+    g_config.SwatchColorIndex = GetPrivateProfileIntW(L"View", L"SwatchColorIndex", 9, iniPath.c_str());
+    if (g_config.SwatchColorIndex < 0 || g_config.SwatchColorIndex >= AppConfig::MAX_SWATCH_COLORS) g_config.SwatchColorIndex = 9;
+    for (int i = 3; i < AppConfig::MAX_SWATCH_COLORS; ++i) {
         wchar_t keyR[32], keyG[32], keyB[32], keyA[32];
         swprintf_s(keyR, L"Swatch%dR", i);
         swprintf_s(keyG, L"Swatch%dG", i);
@@ -4745,12 +4746,12 @@ void LoadConfig() {
         g_config.SwatchColors[i][1] = GetPrivateProfileIntW(L"View", keyG, g_config.SwatchColors[i][1], iniPath.c_str());
         g_config.SwatchColors[i][2] = GetPrivateProfileIntW(L"View", keyB, g_config.SwatchColors[i][2], iniPath.c_str());
         g_config.SwatchColors[i][3] = GetPrivateProfileIntW(L"View", keyA, g_config.SwatchColors[i][3], iniPath.c_str());
-}
-for (int i = 3; i < 9; ++i) {
-    wchar_t keyCB[32];
-    swprintf_s(keyCB, L"Swatch%dChecker", i);
-    g_config.SwatchIsCheckerboard[i] = GetPrivateProfileIntW(L"View", keyCB, 0, iniPath.c_str()) != 0;
-}
+    }
+    for (int i = 3; i < AppConfig::MAX_SWATCH_COLORS; ++i) {
+        wchar_t keyCB[32];
+        swprintf_s(keyCB, L"Swatch%dChecker", i);
+        g_config.SwatchIsCheckerboard[i] = GetPrivateProfileIntW(L"View", keyCB, 0, iniPath.c_str()) != 0;
+    }
 g_config.AlwaysOnTop = GetPrivateProfileIntW(L"View", L"AlwaysOnTop", 0, iniPath.c_str()) != 0;
     g_config.OpenFullScreenMode = GetPrivateProfileIntW(L"View", L"OpenFullScreenMode", 0, iniPath.c_str());
     g_config.FullScreenZoomMode = GetPrivateProfileIntW(L"View", L"FullScreenZoomMode", 0, iniPath.c_str());

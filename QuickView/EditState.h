@@ -539,7 +539,7 @@ struct AppConfig {
     float GlassCustomTintG = 0.5f;
     float GlassCustomTintB = 0.5f;
 
-    int CanvasColor = 2;                // 0=Black, 1=White, 2=Grid, 3=Custom, 4=Effects
+    int CanvasColor = 5;                // 0=Black, 1=White, 2=Grid, 3=Custom, 4=Effects, 5=Swatch (Default: Swatch Adaptive)
     int CanvasEffectStyle = 0;          // 0=Mica, 1=Mica Alt, 2=Acrylic
     int CanvasCustomR = 51;             // Custom color RGB (0-255)
     int CanvasCustomG = 51;
@@ -559,7 +559,7 @@ struct AppConfig {
         {38,  102, 64,  255},   // 8: Green
         {36,  37,  40,  255},   // 9: Adaptive Black/White/Gray (Auto)
     };
-    int SwatchColorIndex = 0; // Default to white checkerboard
+    int SwatchColorIndex = 9; // Default to Adaptive Auto (9)
     bool SwatchIsCheckerboard[10] = {true, true, true, false, false, false, false, false, false, false}; // 0-2 built-in checkerboards
     bool AlwaysOnTop = false;
     int OpenFullScreenMode = 0;         // 0=Off, 1=Large Only, 2=All
