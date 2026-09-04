@@ -41,9 +41,9 @@ std::wstring ThumbDiskCache::CacheDir() {
     // "QuickView" directory explicitly first, otherwise the two-level path
     // fails with ERROR_PATH_NOT_FOUND and the cache silently stays disabled.
     std::wstring base = std::wstring(ad) + L"\\QuickView";
-    std::wstring dir  = base + L"\\ThumbCache\\v3";
-    // [Cache Versioning] v3 = thumbnails with square card adaptive background
-    // (smart light/dark backing & 1:1 square canvas). Purge v2 and legacy directories.
+    std::wstring dir  = base + L"\\ThumbCache\\v4";
+    // [Cache Versioning] v4 = thumbnails with margin padding on square card adaptive background
+    // (smart light/dark backing & 1:1 square canvas with呼吸感边距). Purge v3, v2 and legacy directories.
     auto purgeDir = [](const std::wstring& p) {
         WIN32_FIND_DATAW lfd = {};
         HANDLE lh = FindFirstFileW((p + L"\\*.bmp").c_str(), &lfd);
@@ -56,13 +56,14 @@ std::wstring ThumbDiskCache::CacheDir() {
             RemoveDirectoryW(p.c_str());
         }
     };
+    purgeDir(base + L"\\ThumbCache\\v3");
     purgeDir(base + L"\\ThumbCache\\v2");
     purgeDir(base + L"\\ThumbCache");
     if (!CreateDirectoryW(base.c_str(), nullptr)) {
         DWORD err = GetLastError();
         if (err != ERROR_ALREADY_EXISTS) return L""; // unwritable -> disabled
     }
-    // Create intermediate "ThumbCache" level, then versioned "v3".
+    // Create intermediate "ThumbCache" level, then versioned "v4".
     std::wstring verMid = base + L"\\ThumbCache";
     if (!CreateDirectoryW(verMid.c_str(), nullptr)) {
         DWORD err = GetLastError();

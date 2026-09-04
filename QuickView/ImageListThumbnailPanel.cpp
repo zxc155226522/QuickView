@@ -226,10 +226,6 @@ void ImageListThumbnailPanel::DrawItems(ID2D1RenderTarget* pRT) {
         }
 
         if (pBitmap) {
-            // Letterbox inside the square cell — aspect preserved, no distortion
-            const D2D1_SIZE_F bs = pBitmap->GetSize();
-            const D2D1_RECT_F drawRect = FitRectInside(thumbRect, bs.width, bs.height);
-
             // [Adaptive Contrast Background on Square Card]
             // 铺设规整正方形微圆角卡片底板，根据图像主体明暗智能自动切换黑/白/灰衬底
             auto bgIt = m_imageThumbBg.find(pageIndex);
@@ -247,6 +243,15 @@ void ImageListThumbnailPanel::DrawItems(ID2D1RenderTarget* pRT) {
                 pRT->FillRoundedRectangle(card, m_brushThumbnailBg.Get());
                 m_brushThumbnailBg->SetColor(oldColor);
             }
+
+            // Letterbox inside the square cell — aspect preserved, no distortion
+            // 内部留出适度内边距（pad），使图像精致居中于卡片底板内部，消除贴边感
+            const float pad = 2.5f * g_uiScale;
+            const D2D1_RECT_F innerThumbRect = D2D1::RectF(
+                thumbRect.left + pad, thumbRect.top + pad,
+                thumbRect.right - pad, thumbRect.bottom - pad);
+            const D2D1_SIZE_F bs = pBitmap->GetSize();
+            const D2D1_RECT_F drawRect = FitRectInside(innerThumbRect, bs.width, bs.height);
 
             pRT->DrawBitmap(pBitmap, drawRect, 1.0f,
                            D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);

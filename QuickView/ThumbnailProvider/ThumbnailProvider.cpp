@@ -723,7 +723,10 @@ namespace {
                 g.Clear(Gdiplus::Color(0, 0, 0, 0));
             }
 
-            const float scale = (std::min)((float)W / (float)sw, (float)W / (float)sh);
+            // TIF正方形卡片预留约4.5%内边距，使主体图案居中且四周有呼吸感，不贴紧边缘
+            const float margin = isTif ? ((float)W * 0.045f) : 0.0f;
+            const float avail = (float)W - margin * 2.0f;
+            const float scale = (std::min)(avail / (float)sw, avail / (float)sh);
             const float dw = sw * scale, dh = sh * scale;
             const float dx = (W - dw) * 0.5f, dy = (W - dh) * 0.5f;
 
