@@ -161,6 +161,7 @@ static void DbgLog(const wchar_t* msg) {
 // marks `detached`, so the worker keeps rendering and self-cleans on completion
 // (the persistent server caches the result for next time). The CS serializes the
 // `detached` flag so there is no data race between caller and worker.
+enum class PipeResult { Ok, Stale, Error, ServerFail };
 struct WatchdogState {
     std::wstring exePath;
     std::wstring inputPath;
@@ -176,9 +177,8 @@ struct WatchdogState {
 };
 
 // [Watchdog] Forward declarations so WatchdogWorker (above) can call the pipe
-// helpers defined later in this file. The enum is hoisted here from its
-// original location so PipeResult::Ok is visible at the call site.
-enum class PipeResult { Ok, Stale, Error, ServerFail };
+// helpers defined later in this file. PipeResult is defined above WatchdogState
+// (the state struct stores it); the helpers are declared here.
 static HBITMAP BmpBytesToHBITMAP(const BYTE* data, size_t len);
 static PipeResult RequestThumbnailViaPipe(const std::wstring& exePath,
                                           const std::wstring& inputPath, UINT size,
