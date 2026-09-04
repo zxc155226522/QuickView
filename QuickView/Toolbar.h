@@ -276,8 +276,8 @@ private:
     bool m_isDraggingProgress = false;
     float m_animSeekHoverProgress = 0.0f;
 
-    // [Swatch] Color swatch circles on the right of toolbar
-    D2D1_RECT_F m_swatchRects[9] = {};
+    // [Swatch] Color swatch circles on the right of toolbar (0-8 color/checkerboards, 9=adaptive auto)
+    D2D1_RECT_F m_swatchRects[10] = {};
     int m_swatchHoverIndex = -1;
     int m_swatchClickIndex = -1;
 

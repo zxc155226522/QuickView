@@ -545,9 +545,9 @@ struct AppConfig {
     int CanvasCustomG = 51;
     int CanvasCustomB = 51;
     bool CanvasShowGrid = false; // Overlay grid
-    // [Swatch Background] CanvasColor==5: 0-2=built-in checkerboards, 3-8=custom RGBA
-    static constexpr int MAX_SWATCH_COLORS = 9;
-    int SwatchColors[9][4] = {
+    // [Swatch Background] CanvasColor==5: 0-2=built-in checkerboards, 3-8=custom RGBA, 9=adaptive black/white/gray
+    static constexpr int MAX_SWATCH_COLORS = 10;
+    int SwatchColors[10][4] = {
         {0,   0,   0,   0},     // 0: White checkerboard (preset)
         {0,   0,   0,   0},     // 1: Black checkerboard (preset)
         {0,   0,   0,   0},     // 2: Gray checkerboard (preset)
@@ -557,9 +557,10 @@ struct AppConfig {
         {26,  77,  153, 255},   // 6: Blue
         {153, 51,  51,  255},   // 7: Red
         {38,  102, 64,  255},   // 8: Green
+        {36,  37,  40,  255},   // 9: Adaptive Black/White/Gray (Auto)
     };
     int SwatchColorIndex = 0; // Default to white checkerboard
-bool SwatchIsCheckerboard[9] = {true, true, true, false, false, false, false, false, false}; // 0-2 built-in checkerboards
+    bool SwatchIsCheckerboard[10] = {true, true, true, false, false, false, false, false, false, false}; // 0-2 built-in checkerboards
     bool AlwaysOnTop = false;
     int OpenFullScreenMode = 0;         // 0=Off, 1=Large Only, 2=All
     bool LockWindowSize = true; // [Requirement] 默认锁定窗口大小，不跟随图片缩放

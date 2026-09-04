@@ -80,7 +80,7 @@ namespace QuickView::UI::ThemeSystem {
 
         // [Swatch] Export swatch colors and index
         yyjson_mut_obj_add_int(doc, root, "swatch_color_index", config.SwatchColorIndex);
-        for (int i = 3; i < 9; ++i) {
+        for (int i = 3; i < 10; ++i) {
             char key[32];
             snprintf(key, sizeof(key), "swatch_color_%d", i);
             yyjson_mut_val *arr = yyjson_mut_arr(doc);
@@ -199,7 +199,7 @@ namespace QuickView::UI::ThemeSystem {
             v = yyjson_obj_get(obj, "swatch_color_index");
             if (v && yyjson_is_int(v)) config.SwatchColorIndex = (int)yyjson_get_int(v);
         }
-        for (int i = 3; i < 9; ++i) {
+        for (int i = 3; i < 10; ++i) {
             char key[32];
             snprintf(key, sizeof(key), "swatch_color_%d", i);
             yyjson_val *arr = yyjson_obj_get(obj, key);

@@ -5674,6 +5674,43 @@ static RECT ExpandWindowRectToTargetWithinBounds(const RECT& currentRect, int ta
     return result;
 }
 
+static D2D1_COLOR_F ResolveAdaptiveCanvasColor() {
+    static std::wstring s_lastAdaptivePath;
+    static D2D1_COLOR_F s_cachedAdaptiveColor = D2D1::ColorF(C8(0x24), C8(0x25), C8(0x28), 1.0f);
+
+    const auto& pane = GetPaneContext(PaneSlot::Primary);
+    if (pane.path.empty()) {
+        return D2D1::ColorF(C8(0x24), C8(0x25), C8(0x28), 1.0f);
+    }
+
+    if (g_pImageEngine) {
+        auto frame = g_pImageEngine->GetCachedImage(pane.path);
+        if (frame && frame->IsValid()) {
+            if (frame->pixels && frame->width > 0 && frame->height > 0) {
+                const bool isRgba = (frame->format == QuickView::PixelFormat::RGBA8888);
+                const uint32_t bg = CImageLoader::AnalyzeAdaptiveBackground(
+                    frame->pixels, frame->width, frame->height, frame->stride, isRgba);
+                const float r = C8((bg >> 16) & 0xFF);
+                const float g = C8((bg >> 8) & 0xFF);
+                const float b = C8(bg & 0xFF);
+                s_cachedAdaptiveColor = D2D1::ColorF(r, g, b, 1.0f);
+                s_lastAdaptivePath = pane.path;
+                return s_cachedAdaptiveColor;
+            } else if (frame->IsSvg()) {
+                // SVG 矢量图像默认铺设高反差亮白微灰底
+                s_cachedAdaptiveColor = D2D1::ColorF(C8(0xF5), C8(0xF5), C8(0xF7), 1.0f);
+                s_lastAdaptivePath = pane.path;
+                return s_cachedAdaptiveColor;
+            }
+        }
+    }
+
+    if (pane.path == s_lastAdaptivePath) {
+        return s_cachedAdaptiveColor;
+    }
+    return D2D1::ColorF(C8(0x24), C8(0x25), C8(0x28), 1.0f);
+}
+
 static D2D1_COLOR_F ResolveCanvasColor() {
     if (g_slideshowState.IsActive && g_config.SlideshowImmersiveMode == 1) {
         return D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f); // Fully transparent background in Spotlight mode
@@ -5697,6 +5734,9 @@ static D2D1_COLOR_F ResolveCanvasColor() {
                     case 1: return D2D1::ColorF(C8(26),  C8(26),  C8(26));
                     case 2: return D2D1::ColorF(C8(128), C8(128), C8(128));
                 }
+            } else if (idx == 9) {
+                // [Adaptive Auto Background] 智能自适应黑白灰背景：根据当前图像主体明暗动态计算
+                return ResolveAdaptiveCanvasColor();
             } else if (idx >= 3 && idx < 9) {
                 int a = g_config.SwatchColors[idx][3];
                 if (a > 255) a = 255;
@@ -13169,7 +13209,11 @@ if (g_imageThumbPanel.IsVisible()) {
                     }
                 }
 
-                needsRepaint = true;
+                if (g_config.CanvasColor == 5 && g_config.SwatchColorIndex == 9) {
+                    RequestRepaint(PaintLayer::All);
+                } else {
+                    needsRepaint = true;
+                }
                 
                 wchar_t debugBuf[256];
                 swprintf_s(debugBuf, L"[Main] Displayed: %s (Blurry=%d, Scaled=%d)\n", 

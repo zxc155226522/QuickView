@@ -4654,15 +4654,12 @@ static HRESULT RasterizeSvgThumbnail(const std::vector<uint8_t> &xmlData,
   return S_OK;
 }
 
-void CImageLoader::AnalyzeThumbAdaptiveBackground(ThumbData *pData) {
-  if (!pData || !pData->isValid || pData->pixels.empty() || pData->width <= 0 ||
-      pData->height <= 0) {
-    return;
+uint32_t CImageLoader::AnalyzeAdaptiveBackground(const uint8_t *raw, int w, int h, int stride,
+                                                 bool isRgba, bool *outHasTransparency) {
+  if (!raw || w <= 0 || h <= 0 || stride <= 0) {
+    if (outHasTransparency) *outHasTransparency = false;
+    return 0xFFF5F5F7; // 默认亮白微灰
   }
-  const int w = pData->width;
-  const int h = pData->height;
-  const int stride = pData->stride;
-  const uint8_t *raw = pData->pixels.data();
 
   // 采样步长：最多采样 64x64 个像素，耗时通常 < 0.02ms
   const int stepX = (std::max)(1, w / 64);
@@ -4678,9 +4675,9 @@ void CImageLoader::AnalyzeThumbAdaptiveBackground(ThumbData *pData) {
     for (int x = 0; x < w; x += stepX) {
       totalSampled++;
       const uint8_t *px = row + x * 4;
-      const uint8_t b = px[0];
+      const uint8_t b = isRgba ? px[2] : px[0];
       const uint8_t g = px[1];
-      const uint8_t r = px[2];
+      const uint8_t r = isRgba ? px[0] : px[2];
       const uint8_t a = px[3];
 
       if (a < 210) {
@@ -4709,25 +4706,38 @@ void CImageLoader::AnalyzeThumbAdaptiveBackground(ThumbData *pData) {
   const bool isTransparent = (totalSampled > 0 &&
                               static_cast<double>(transparentCount) / totalSampled >= 0.03 &&
                               opaqueCount > 0);
-  pData->hasTransparency = isTransparent;
+  if (outHasTransparency) {
+    *outHasTransparency = isTransparent;
+  }
   const double avgLum = (opaqueCount > 0) ? (totalLum / opaqueCount) : 128.0;
 
   if (isTransparent) {
     if (avgLum >= 128.0) {
       // 主体偏亮/白色（例如白色文字、白胶烫画） -> 铺设深炭灰背景（#242528）反衬凸显
-      pData->adaptiveBgColor = 0xFF242528;
+      return 0xFF242528;
     } else {
       // 主体偏暗/黑色（例如黑色文字、黑线稿、黑墨烫画） -> 铺设亮白微灰背景（#F5F5F7）反衬凸显
-      pData->adaptiveBgColor = 0xFFF5F5F7;
+      return 0xFFF5F5F7;
     }
   } else {
     // 不透明图像：若为深黑色调图像则延展深炭灰（#242528），避免刺眼白边；普通彩色/亮色图像则铺设亮白微灰（#F5F5F7）
     if (avgLum < 96.0) {
-      pData->adaptiveBgColor = 0xFF242528;
+      return 0xFF242528;
     } else {
-      pData->adaptiveBgColor = 0xFFF5F5F7;
+      return 0xFFF5F5F7;
     }
   }
+}
+
+void CImageLoader::AnalyzeThumbAdaptiveBackground(ThumbData *pData) {
+  if (!pData || !pData->isValid || pData->pixels.empty() || pData->width <= 0 ||
+      pData->height <= 0) {
+    return;
+  }
+  bool hasTrans = false;
+  pData->adaptiveBgColor = AnalyzeAdaptiveBackground(
+      pData->pixels.data(), pData->width, pData->height, pData->stride, false, &hasTrans);
+  pData->hasTransparency = hasTrans;
 }
 
 HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,

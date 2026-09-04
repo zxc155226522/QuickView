@@ -623,14 +623,14 @@ void Toolbar::UpdateLayout(float winW, float winH) {
 
   // [Swatch] Position swatches within the toolbar capsule (right-aligned)
   if (showSwatches) {
-    float sx = m_bgRect.rect.right - padX - (9.0f * swatchDiameter + 8.0f * swatchGap);
+    float sx = m_bgRect.rect.right - padX - (10.0f * swatchDiameter + 9.0f * swatchGap);
     float sy = startY + (buttonSize + padY * 2 - swatchDiameter) * 0.5f;
-    for (int i = 0; i < 9; ++i) {
+    for (int i = 0; i < 10; ++i) {
       m_swatchRects[i] = D2D1::RectF(sx, sy, sx + swatchDiameter, sy + swatchDiameter);
       sx += swatchDiameter + swatchGap;
     }
   } else {
-    for (int i = 0; i < 9; ++i) m_swatchRects[i] = D2D1::RectF(0, 0, 0, 0);
+    for (int i = 0; i < 10; ++i) m_swatchRects[i] = D2D1::RectF(0, 0, 0, 0);
   }
 
   // [PDF] Page indicator / page-turn bar position is set during layout
@@ -1241,7 +1241,7 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
       ComPtr<ID2D1Factory> factory;
       pRT->GetFactory(&factory);
 
-      for (int i = 0; i < 9; ++i) {
+      for (int i = 0; i < 10; ++i) {
         if (m_swatchRects[i].right <= m_swatchRects[i].left) continue;
         float cx = (m_swatchRects[i].left + m_swatchRects[i].right) * 0.5f;
         float cy = (m_swatchRects[i].top + m_swatchRects[i].bottom) * 0.5f;
@@ -1265,6 +1265,22 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
             pRT->FillRectangle(m_swatchRects[i], b1.Get());
             pRT->FillRectangle(D2D1::RectF(cx, m_swatchRects[i].top, m_swatchRects[i].right, cy), b2.Get());
             pRT->FillRectangle(D2D1::RectF(m_swatchRects[i].left, cy, cx, m_swatchRects[i].bottom), b2.Get());
+            pRT->PopLayer();
+          }
+        } else if (i == 9) {
+          // [Adaptive Auto] 特殊按钮：黑白双拼对比圆（左深炭灰 #242528，右亮白微灰 #F5F5F7）
+          ComPtr<ID2D1EllipseGeometry> clipGeo;
+          if (factory) factory->CreateEllipseGeometry(ellipse, &clipGeo);
+          ComPtr<ID2D1Layer> swatchLayer;
+          if (clipGeo && SUCCEEDED(pRT->CreateLayer(&swatchLayer))) {
+            pRT->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), clipGeo.Get()), swatchLayer.Get());
+            ComPtr<ID2D1SolidColorBrush> bDark, bLight, bDiv;
+            pRT->CreateSolidColorBrush(D2D1::ColorF(C8(0x24), C8(0x25), C8(0x28), 1.0f), &bDark);
+            pRT->CreateSolidColorBrush(D2D1::ColorF(C8(0xF5), C8(0xF5), C8(0xF7), 1.0f), &bLight);
+            pRT->CreateSolidColorBrush(D2D1::ColorF(0.5f, 0.5f, 0.5f, 0.6f), &bDiv);
+            pRT->FillRectangle(D2D1::RectF(m_swatchRects[i].left, m_swatchRects[i].top, cx, m_swatchRects[i].bottom), bDark.Get());
+            pRT->FillRectangle(D2D1::RectF(cx, m_swatchRects[i].top, m_swatchRects[i].right, m_swatchRects[i].bottom), bLight.Get());
+            pRT->DrawLine(D2D1::Point2F(cx, m_swatchRects[i].top), D2D1::Point2F(cx, m_swatchRects[i].bottom), bDiv.Get(), 1.0f * m_uiScale);
             pRT->PopLayer();
           }
         } else {
@@ -1330,6 +1346,17 @@ void Toolbar::Render(ID2D1RenderTarget *pRT) {
   if (!activeTip && (m_animMode || m_slideshowMode) && m_animSpeedHover) {
     activeTip = AppStrings::Toolbar_Tooltip_AnimSpeed;
     activeRect = m_animSpeedRect;
+  }
+
+  // [Swatch Tooltip]
+  if (!activeTip && m_swatchHoverIndex >= 0 && m_swatchHoverIndex < 10) {
+    if (m_swatchHoverIndex == 9) {
+      activeTip = L"智能自适应背景 (黑/白/灰)";
+      activeRect = m_swatchRects[9];
+    } else if (m_swatchHoverIndex == 8) {
+      activeTip = L"自定义背景色";
+      activeRect = m_swatchRects[8];
+    }
   }
 
   if (activeTip && activeTip[0] != 0) {
@@ -1440,7 +1467,7 @@ bool Toolbar::OnMouseMove(float x, float y) {
   
   // [Swatch] Hover tracking
   int newSwatchHover = -1;
-  for (int i = 0; i < 9; ++i) {
+  for (int i = 0; i < 10; ++i) {
     if (m_swatchRects[i].right > m_swatchRects[i].left &&
         x >= m_swatchRects[i].left && x <= m_swatchRects[i].right &&
         y >= m_swatchRects[i].top && y <= m_swatchRects[i].bottom) {
@@ -1483,7 +1510,7 @@ bool Toolbar::OnClick(float x, float y, ToolbarButtonID &outId) {
   }
 
   // [Swatch] Check swatch clicks FIRST (before HitTest, so it works on welcome screen too)
-  for (int i = 0; i < 9; ++i) {
+  for (int i = 0; i < 10; ++i) {
     if (m_swatchRects[i].right > m_swatchRects[i].left &&
         x >= m_swatchRects[i].left && x <= m_swatchRects[i].right &&
         y >= m_swatchRects[i].top && y <= m_swatchRects[i].bottom) {
@@ -1538,7 +1565,7 @@ bool Toolbar::HitTest(float x, float y) {
   extern std::wstring& g_imagePath;
 
   // [Swatch] Check swatch hits FIRST - allowed even on welcome screen
-  for (int i = 0; i < 9; ++i) {
+  for (int i = 0; i < 10; ++i) {
     if (m_swatchRects[i].right > m_swatchRects[i].left &&
         x >= m_swatchRects[i].left && x <= m_swatchRects[i].right &&
         y >= m_swatchRects[i].top && y <= m_swatchRects[i].bottom) return true;

@@ -584,6 +584,8 @@ public:
                         bool allowSlow = true, bool transparentBg = false);
 
   // [Adaptive Background] Compute transparency and high-contrast background recommendation
+  static uint32_t AnalyzeAdaptiveBackground(const uint8_t *raw, int w, int h, int stride,
+                                            bool isRgba = false, bool *outHasTransparency = nullptr);
   static void AnalyzeThumbAdaptiveBackground(ThumbData *pData);
 
   // [JXL Global Runner] Global thread pool singleton to avoid creation overhead for each decode
