@@ -230,18 +230,20 @@ void ImageListThumbnailPanel::DrawItems(ID2D1RenderTarget* pRT) {
             const D2D1_SIZE_F bs = pBitmap->GetSize();
             const D2D1_RECT_F drawRect = FitRectInside(thumbRect, bs.width, bs.height);
 
-            // [Adaptive Contrast Background]
-            // If the thumbnail has transparent regions, fill an adaptive contrast card beneath it
-            // (Dark charcoal for light/white graphics, bright white-gray for dark/black graphics)
+            // [Adaptive Contrast Background on Square Card]
+            // 铺设规整正方形微圆角卡片底板，根据图像主体明暗智能自动切换黑/白/灰衬底
             auto bgIt = m_imageThumbBg.find(pageIndex);
-            if (bgIt != m_imageThumbBg.end() && bgIt->second.hasTransparency && m_brushThumbnailBg) {
-                const uint32_t bg = bgIt->second.adaptiveBgColor;
+            if (m_brushThumbnailBg) {
+                uint32_t bg = 0xFFF5F5F7; // 默认亮白微灰卡片底
+                if (bgIt != m_imageThumbBg.end() && bgIt->second.adaptiveBgColor != 0) {
+                    bg = bgIt->second.adaptiveBgColor;
+                }
                 const float r = static_cast<float>((bg >> 16) & 0xFF) / 255.0f;
                 const float g = static_cast<float>((bg >> 8) & 0xFF) / 255.0f;
                 const float b = static_cast<float>(bg & 0xFF) / 255.0f;
                 const D2D1_COLOR_F oldColor = m_brushThumbnailBg->GetColor();
                 m_brushThumbnailBg->SetColor(D2D1::ColorF(r, g, b, 1.0f));
-                D2D1_ROUNDED_RECT card = D2D1::RoundedRect(drawRect, 3.0f * g_uiScale, 3.0f * g_uiScale);
+                D2D1_ROUNDED_RECT card = D2D1::RoundedRect(thumbRect, 3.0f * g_uiScale, 3.0f * g_uiScale);
                 pRT->FillRoundedRectangle(card, m_brushThumbnailBg.Get());
                 m_brushThumbnailBg->SetColor(oldColor);
             }

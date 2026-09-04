@@ -4710,17 +4710,23 @@ void CImageLoader::AnalyzeThumbAdaptiveBackground(ThumbData *pData) {
                               static_cast<double>(transparentCount) / totalSampled >= 0.03 &&
                               opaqueCount > 0);
   pData->hasTransparency = isTransparent;
+  const double avgLum = (opaqueCount > 0) ? (totalLum / opaqueCount) : 128.0;
+
   if (isTransparent) {
-    const double avgLum = totalLum / opaqueCount;
     if (avgLum >= 128.0) {
-      // 主体偏亮/白色（例如白色文字、白胶烫画） -> 铺设深炭灰背景（#242528）
+      // 主体偏亮/白色（例如白色文字、白胶烫画） -> 铺设深炭灰背景（#242528）反衬凸显
       pData->adaptiveBgColor = 0xFF242528;
     } else {
-      // 主体偏暗/黑色（例如黑色文字、黑线稿、黑墨烫画） -> 铺设亮白微灰背景（#F5F5F7）
+      // 主体偏暗/黑色（例如黑色文字、黑线稿、黑墨烫画） -> 铺设亮白微灰背景（#F5F5F7）反衬凸显
       pData->adaptiveBgColor = 0xFFF5F5F7;
     }
   } else {
-    pData->adaptiveBgColor = 0;
+    // 不透明图像：若为深黑色调图像则延展深炭灰（#242528），避免刺眼白边；普通彩色/亮色图像则铺设亮白微灰（#F5F5F7）
+    if (avgLum < 96.0) {
+      pData->adaptiveBgColor = 0xFF242528;
+    } else {
+      pData->adaptiveBgColor = 0xFFF5F5F7;
+    }
   }
 }
 

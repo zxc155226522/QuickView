@@ -664,9 +664,65 @@ namespace {
             Gdiplus::Graphics g(&gCanvas);
             g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
             g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
-            g.Clear(Gdiplus::Color(0, 0, 0, 0));
-
             const int sw = bms.bmWidth, sh = bms.bmHeight;
+            const bool isTif = (extUpper == L"TIF" || extUpper == L"TIFF");
+            if (isTif) {
+                Gdiplus::Color cardBgColor(255, 0xF5, 0xF5, 0xF7); // 默认亮白微灰
+
+                const BYTE* pBits = (const BYTE*)bms.bmBits;
+                const int stride = bms.bmWidthBytes;
+                auto isNear = [](BYTE b, BYTE g, BYTE r, BYTE tb, BYTE tg, BYTE tr) {
+                    return std::abs((int)b - tb) <= 4 && std::abs((int)g - tg) <= 4 && std::abs((int)r - tr) <= 4;
+                };
+
+                // 优先检查四角像素（BGRA）是否已有服务端预注入的自适应对比背景色
+                BYTE b0 = pBits[0], g0 = pBits[1], r0 = pBits[2];
+                if (isNear(b0, g0, r0, 0x28, 0x25, 0x24)) {
+                    cardBgColor = Gdiplus::Color(255, 0x24, 0x25, 0x28); // 深炭灰
+                } else if (isNear(b0, g0, r0, 0xF7, 0xF5, 0xF5)) {
+                    cardBgColor = Gdiplus::Color(255, 0xF5, 0xF5, 0xF7); // 亮白微灰
+                } else {
+                    // 全图网格采样感知明度 L = 0.299R + 0.587G + 0.114B
+                    uint64_t totalLum = 0, count = 0, transCount = 0;
+                    const int stepX = (std::max)(1, sw / 32);
+                    const int stepY = (std::max)(1, sh / 32);
+                    for (int y = 0; y < sh; y += stepY) {
+                        const BYTE* row = pBits + (size_t)y * stride;
+                        for (int x = 0; x < sw; x += stepX) {
+                            const BYTE* px = row + x * 4;
+                            BYTE a = px[3];
+                            if (a < 210) transCount++;
+                            if (a >= 25) {
+                                double pr = px[2], pg = px[1], pb = px[0];
+                                if (a < 255) {
+                                    double sc = 255.0 / a;
+                                    pr = (std::min)(255.0, pr * sc);
+                                    pg = (std::min)(255.0, pg * sc);
+                                    pb = (std::min)(255.0, pb * sc);
+                                }
+                                totalLum += static_cast<uint64_t>(0.299 * pr + 0.587 * pg + 0.114 * pb);
+                                count++;
+                            }
+                        }
+                    }
+                    const bool hasTrans = (transCount > 0);
+                    const double avgLum = (count > 0) ? (static_cast<double>(totalLum) / count) : 128.0;
+                    if (hasTrans) {
+                        // 透明主体：白亮图案切深炭灰（#242528），黑暗图案切亮白微灰（#F5F5F7）
+                        cardBgColor = (avgLum >= 128.0) ? Gdiplus::Color(255, 0x24, 0x25, 0x28)
+                                                        : Gdiplus::Color(255, 0xF5, 0xF5, 0xF7);
+                    } else {
+                        // 不透明长方形：深黑色调延展深炭灰底，常规亮色/彩色铺设亮白微灰底
+                        cardBgColor = (avgLum < 96.0) ? Gdiplus::Color(255, 0x24, 0x25, 0x28)
+                                                      : Gdiplus::Color(255, 0xF5, 0xF5, 0xF7);
+                    }
+                }
+                // 铺设整个正方形自适应黑白灰底板，保证 Explorer 以统一 1:1 正方形卡片渲染
+                g.Clear(cardBgColor);
+            } else {
+                g.Clear(Gdiplus::Color(0, 0, 0, 0));
+            }
+
             const float scale = (std::min)((float)W / (float)sw, (float)W / (float)sh);
             const float dw = sw * scale, dh = sh * scale;
             const float dx = (W - dw) * 0.5f, dy = (W - dh) * 0.5f;
@@ -772,7 +828,7 @@ public:
                     DeleteObject(raw);
                     if (final) {
                         *phbmp = final;
-                        *pdwAlpha = WTSAT_RGB;
+                        *pdwAlpha = (ext == L"TIF" || ext == L"TIFF") ? WTSAT_RGB : WTSAT_ARGB;
                         DbgLog((L"  disk cache hit cx=" + std::to_wstring(cx)).c_str());
                         return S_OK;
                     }
@@ -867,9 +923,10 @@ public:
         if (!hbmp) { DbgLog(L"  worker failed/timeout"); return E_FAIL; }
         // 把原图等比缩放进统一方块画布（透明底 + 右上角类型胶囊角标，画框已缓存）。
         // 扩展名优先取真实文件名(m_realPath)，取不到再退回临时文件名的 magic 扩展名。
-        hbmp = ComposeSquareThumbnail(hbmp, GetExtUpper(m_realPath.empty() ? m_path : m_realPath), cx);
+        std::wstring finalExt = GetExtUpper(m_realPath.empty() ? m_path : m_realPath);
+        hbmp = ComposeSquareThumbnail(hbmp, finalExt, cx);
         *phbmp = hbmp;
-        *pdwAlpha = WTSAT_ARGB;
+        *pdwAlpha = (finalExt == L"TIF" || finalExt == L"TIFF") ? WTSAT_RGB : WTSAT_ARGB;
         DbgLog((L"  OK (" + std::to_wstring(t1 - t0) + L"ms)").c_str());
         return S_OK;
     }
