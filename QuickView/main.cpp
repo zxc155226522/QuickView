@@ -2810,8 +2810,13 @@ bool RenderImageToDComp(HWND hwnd, ImageResource& res, bool isFastUpgrade) {
     bool enableCrossFade = g_config.EnableCrossFade;
     float baseFadeMs = 90.0f;
     if (g_slideshowState.IsActive) {
-        enableCrossFade = false; // Disable all slideshow transitions
-        baseFadeMs = 0.0f;
+        if (g_config.SlideshowTransitionMode == 1) {
+            enableCrossFade = true;
+            baseFadeMs = 200.0f; // 幻灯片自动切换平滑交叉淡入淡出
+        } else {
+            enableCrossFade = false;
+            baseFadeMs = 0.0f;
+        }
     }
     float fadeMs = (isFastUpgrade || !enableCrossFade) ? 0.0f : baseFadeMs;
     g_compEngine->PlayPingPongCrossFade(fadeMs);
@@ -5695,7 +5700,7 @@ void UpdateAdaptiveCanvasColorFromFrame(const std::wstring& path, const QuickVie
     }
 }
 
-static D2D1_COLOR_F ResolveAdaptiveCanvasColor() {
+D2D1_COLOR_F ResolveAdaptiveCanvasColor() {
     const auto& pane = GetPaneContext(PaneSlot::Primary);
     if (pane.path.empty()) {
         return D2D1::ColorF(C8(0xF5), C8(0xF5), C8(0xF7), 1.0f);

@@ -1483,6 +1483,25 @@ HRESULT CompositionEngine::UpdateBackground(float width, float height, const D2D
               D2D1::RectF(0, 0, (float)w, (float)h), radialBrush.Get());
         }
       }
+
+      // [Adaptive Mat for Transparent/Dark Graphics]
+      // 沉浸剧场模式下，若当前透明图的主体是黑字或黑白线稿（自适应背景计算为浅白或中灰），
+      // 在图像背后垫上圆角反衬背板，彻底杜绝黑夜吞噬黑字
+      extern D2D1_COLOR_F ResolveAdaptiveCanvasColor();
+      D2D1_COLOR_F adaptClr = ResolveAdaptiveCanvasColor();
+      float adaptLuma = adaptClr.r * 0.299f + adaptClr.g * 0.587f + adaptClr.b * 0.114f;
+      if (adaptLuma > 0.40f && wImage > 0.0f && hImage > 0.0f) {
+        float cx = (float)w / 2.0f;
+        float cy = (galleryH + (float)h) / 2.0f;
+        float pad = 10.0f;
+        D2D1_RECT_F matRect = D2D1::RectF(cx - wImage / 2.0f - pad, cy - hImage / 2.0f - pad,
+                                         cx + wImage / 2.0f + pad, cy + hImage / 2.0f + pad);
+        ComPtr<ID2D1SolidColorBrush> matBrush;
+        if (SUCCEEDED(m_backgroundLayer.context->CreateSolidColorBrush(adaptClr, &matBrush))) {
+          m_backgroundLayer.context->FillRoundedRectangle(
+              D2D1::RoundedRect(matRect, 6.0f, 6.0f), matBrush.Get());
+        }
+      }
     }
 
     // 3. Draw Grid

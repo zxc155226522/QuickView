@@ -176,6 +176,14 @@ void PdfPageThumbnailPanel::DrawItems(ID2D1RenderTarget* pRT) {
         }
 
         if (pBitmap) {
+            // PDF has paper-white semantics: fill white card backing before drawing to ensure dark text is always legible
+            if (m_brushThumbnailBg) {
+                const D2D1_COLOR_F oldClr = m_brushThumbnailBg->GetColor();
+                m_brushThumbnailBg->SetColor(D2D1::ColorF(0.98f, 0.98f, 0.99f, 1.0f));
+                D2D1_ROUNDED_RECT card = D2D1::RoundedRect(thumbRect, 3.0f * g_uiScale, 3.0f * g_uiScale);
+                pRT->FillRoundedRectangle(card, m_brushThumbnailBg.Get());
+                m_brushThumbnailBg->SetColor(oldClr);
+            }
             // Letterbox inside the square cell — aspect preserved, no distortion
             const D2D1_SIZE_F bs = pBitmap->GetSize();
             const D2D1_RECT_F drawRect = FitRectInside(thumbRect, bs.width, bs.height);

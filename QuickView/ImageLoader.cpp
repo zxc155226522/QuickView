@@ -4661,29 +4661,33 @@ uint32_t CImageLoader::AnalyzeAdaptiveBackground(const uint8_t *raw, int w, int 
     return 0xFFF5F5F7; // 默认亮白微灰
   }
 
-  auto isNear = [](uint8_t b, uint8_t g, uint8_t r, uint8_t tb, uint8_t tg, uint8_t tr) {
-    return std::abs((int)b - tb) <= 4 && std::abs((int)g - tg) <= 4 && std::abs((int)r - tr) <= 4;
-  };
+  // 候选背景色彩基准（白、中灰、深炭灰）
+  // 1. 亮白微灰（Luma ≈ 245）：针对黑字、暗线条、深色印章、图表
+  constexpr uint32_t kBgWhite   = 0xFFF5F5F7;
+  constexpr double   kLumaWhite = 245.0;
+  // 2. 专业中灰（Luma ≈ 141）：针对黑白同框、复杂黑白线稿，黑字与白图案两全其美
+  constexpr uint32_t kBgMidGray = 0xFF8A8D93;
+  constexpr double   kLumaMid   = 141.0;
+  // 3. 深炭黑灰（Luma ≈ 37）：针对纯白字、白色胶印烫画、纯白色线条Logo
+  constexpr uint32_t kBgDark    = 0xFF242528;
+  constexpr double   kLumaDark  = 37.0;
 
-  // 优先检查四角像素（BGRA）是否已有服务端预注入的自适应对比背景色（与缩略图逻辑一致）
-  const uint8_t b0 = isRgba ? raw[2] : raw[0];
-  const uint8_t g0 = raw[1];
-  const uint8_t r0 = isRgba ? raw[0] : raw[2];
-  if (isNear(b0, g0, r0, 0x28, 0x25, 0x24)) {
-    if (outHasTransparency) *outHasTransparency = true;
-    return 0xFF242528; // 深炭灰
-  } else if (isNear(b0, g0, r0, 0xF7, 0xF5, 0xF5)) {
-    if (outHasTransparency) *outHasTransparency = true;
-    return 0xFFF5F5F7; // 亮白微灰
-  }
-
-  // 采样步长：最多采样 64x64 个像素，耗时通常 < 0.02ms
+  // 采样步长：最多采样 64x64 个网格像素，耗时通常 < 0.02ms，性能与精度俱佳
   const int stepX = (std::max)(1, w / 64);
   const int stepY = (std::max)(1, h / 64);
 
   uint64_t transparentCount = 0;
   uint64_t opaqueCount = 0;
-  double totalLum = 0.0;
+
+  // 冲突统计（看不清惩罚计数）：明度差 |L - L_bg| < 42 视为肉眼难以辨识的冲突严重区
+  constexpr double kClashThreshold = 42.0;
+  uint64_t clashWhite = 0;
+  uint64_t clashDark  = 0;
+
+  // 综合可见度累计得分（所有可见像素与各背景的感知明度差之和）
+  double scoreWhite   = 0.0;
+  double scoreMidGray = 0.0;
+  double scoreDark    = 0.0;
 
   for (int y = 0; y < h; y += stepY) {
     const uint8_t *row = raw + static_cast<size_t>(y) * stride;
@@ -4698,8 +4702,8 @@ uint32_t CImageLoader::AnalyzeAdaptiveBackground(const uint8_t *raw, int w, int 
         transparentCount++;
       }
       if (a >= 25) {
-        // 主体可见像素：根据真实颜色还原感知明度
-        // 像素通常为 PBGRA（预乘 Alpha），还原原始非预乘亮度
+        // 主体可见像素：根据真实颜色还原感知明度（ITU-R BT.601感知亮度方程）
+        // 像素通常为 PBGRA（预乘 Alpha），准确还原原始非预乘真实色彩与亮度
         double pr = static_cast<double>(r);
         double pg = static_cast<double>(g);
         double pb = static_cast<double>(b);
@@ -4710,34 +4714,72 @@ uint32_t CImageLoader::AnalyzeAdaptiveBackground(const uint8_t *raw, int w, int 
           pb = (std::min)(255.0, pb * scale);
         }
         const double lum = 0.299 * pr + 0.587 * pg + 0.114 * pb;
-        totalLum += lum;
+
+        // 实测该像素分别放置在 White、MidGray、Dark 背景上的明度对比差距
+        const double dWhite = std::abs(lum - kLumaWhite);
+        const double dMid   = std::abs(lum - kLumaMid);
+        const double dDark  = std::abs(lum - kLumaDark);
+
+        if (dWhite < kClashThreshold) clashWhite++;
+        if (dDark  < kClashThreshold) clashDark++;
+
+        scoreWhite   += dWhite;
+        scoreMidGray += dMid;
+        scoreDark    += dDark;
+
         opaqueCount++;
       }
     }
   }
 
-  // 判定规则：存在透明像素且存在可见主体即视为透明图（与缩略图逻辑一致）
+  // 判定规则：存在透明像素且存在可见主体即视为透明图
   const bool isTransparent = (transparentCount > 0 && opaqueCount > 0);
   if (outHasTransparency) {
     *outHasTransparency = isTransparent;
   }
-  const double avgLum = (opaqueCount > 0) ? (totalLum / opaqueCount) : 128.0;
 
-  if (isTransparent) {
-    if (avgLum >= 128.0) {
-      // 主体偏亮/白色（例如白色文字、白胶烫画） -> 铺设深炭灰背景（#242528）反衬凸显
-      return 0xFF242528;
-    } else {
-      // 主体偏暗/黑色（例如黑色文字、黑线稿、黑墨烫画） -> 铺设亮白微灰背景（#F5F5F7）反衬凸显
-      return 0xFFF5F5F7;
-    }
+  if (opaqueCount == 0) {
+    return kBgWhite; // 全透明图片默认高对比亮白底
+  }
+
+  // 计算三种候选背景上的看不清冲突比率（Clash Ratio）
+  const double rWhite = static_cast<double>(clashWhite) / static_cast<double>(opaqueCount);
+  const double rDark  = static_cast<double>(clashDark)  / static_cast<double>(opaqueCount);
+
+  // =========================================================================
+  // 第一性原理决策树（实测最大可见度与黑字保护）
+  // =========================================================================
+
+  // 1. [黑白同框判定]
+  // 图像中既有黑字/暗色线条（深底严重冲突 rDark >= 2%），又有亮白文字/图案（白底严重冲突 rWhite >= 4%）
+  // 此时无论选白底还是深黑底都会导致一方被吃掉 -> 选用专业中灰（#8A8D93），黑白双方皆获得 115+ 充足对比度！
+  if (rDark >= 0.02 && rWhite >= 0.04) {
+    return kBgMidGray;
+  }
+
+  // 2. [黑字/暗部绝对保护]
+  // 哪怕画面中只有极少量的黑字、暗黑印章或文字笔画（rDark >= 1.5%），深黑底都必须一票否决淘汰！
+  // 亮白微灰底（#F5F5F7）提供极致且舒适的高对比度反衬，彻底根治黑字隐形问题。
+  if (rDark >= 0.015) {
+    return kBgWhite;
+  }
+
+  // 3. [纯白字反衬判定]
+  // 画面中存在显著的白色主体（rWhite >= 5%），且完全不存在黑字风险（rDark < 1.0%）
+  // 选用深炭灰底（#242528）反衬出雪白文字与亮色线条。
+  if (rWhite >= 0.05 && rDark < 0.01) {
+    return kBgDark;
+  }
+
+  // 4. [综合实测得分裁定（彩色/渐变/普通图）]
+  // 无极端冲突时，比较三者综合感知得分；赋予浅色底 1.12x 阅读舒适偏好权重
+  const double finalScoreWhite = scoreWhite * 1.12;
+  if (finalScoreWhite >= scoreDark && finalScoreWhite >= scoreMidGray) {
+    return kBgWhite;
+  } else if (scoreDark >= finalScoreWhite && scoreDark >= scoreMidGray) {
+    return kBgDark;
   } else {
-    // 不透明图像：若为深黑色调图像则延展深炭灰（#242528），避免刺眼白边；普通彩色/亮色图像则铺设亮白微灰（#F5F5F7）
-    if (avgLum < 96.0) {
-      return 0xFF242528;
-    } else {
-      return 0xFFF5F5F7;
-    }
+    return kBgMidGray;
   }
 }
 

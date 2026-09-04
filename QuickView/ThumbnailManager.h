@@ -51,6 +51,10 @@ public:
     void QueueRequest(size_t imageId, LPCWSTR path, int priority);
     void ClearQueue();
 
+    // Adaptive contrast background metadata (White / MidGray / Dark)
+    uint32_t GetAdaptiveBgColor(size_t imageId);
+    bool HasTransparency(size_t imageId);
+
 private:
     struct CacheEntry {
         CImageLoader::ThumbData rawData; // L1
@@ -77,6 +81,8 @@ private:
     std::mutex m_cacheMutex;
     std::unordered_map<size_t, CImageLoader::ThumbData> m_l1Cache; // Worker writes, UI reads
     std::unordered_map<size_t, ComPtr<ID2D1Bitmap>> m_l2Cache;     // UI only (but we track size here)
+    std::unordered_map<size_t, uint32_t> m_adaptiveBgColors;       // Adaptive background metadata
+    std::unordered_map<size_t, bool> m_transparencyFlags;          // Transparency metadata
     
     // LRU Tracking
     std::list<size_t> m_lruList; 

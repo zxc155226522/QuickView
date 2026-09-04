@@ -257,8 +257,13 @@ void ImageListThumbnailPanel::DrawItems(ID2D1RenderTarget* pRT) {
                            D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
         } else {
             if (m_brushThumbnailBg) {
+                const D2D1_COLOR_F oldColor = m_brushThumbnailBg->GetColor();
+                if (pageIndex < m_imagePaths.size() && QuickView::WantsTransparentBackground(m_imagePaths[pageIndex])) {
+                    m_brushThumbnailBg->SetColor(D2D1::ColorF(0.96f, 0.96f, 0.97f, 1.0f));
+                }
                 D2D1_ROUNDED_RECT bgRect = D2D1::RoundedRect(thumbRect, 3.0f * g_uiScale, 3.0f * g_uiScale);
                 pRT->FillRoundedRectangle(bgRect, m_brushThumbnailBg.Get());
+                m_brushThumbnailBg->SetColor(oldColor);
             }
         }
 

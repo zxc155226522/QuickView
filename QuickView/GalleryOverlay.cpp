@@ -812,7 +812,20 @@ void GalleryOverlay::Render(ID2D1DeviceContext *pDC, const D2D1_SIZE_F &size,
             if (innerH < 1.0f) innerH = 1.0f;
 
             // 1. Fill cell background (for letterboxing / pillarboxing)
-            D2D1_COLOR_F bgClr = isLight ? D2D1::ColorF(0.85f, 0.85f, 0.85f, 1.0f) : D2D1::ColorF(0.2f, 0.2f, 0.2f, 1.0f);
+            // [Adaptive Contrast Background] 对透明背景图像（如黑字/白字/黑白线稿）应用实测最佳反衬卡片底
+            D2D1_COLOR_F bgClr = isLight ? D2D1::ColorF(0.88f, 0.88f, 0.90f, 1.0f) : D2D1::ColorF(0.22f, 0.22f, 0.24f, 1.0f);
+            const uint32_t adaptiveBg = m_pThumbMgr ? m_pThumbMgr->GetAdaptiveBgColor(imgId) : 0;
+            const bool hasTrans = m_pThumbMgr ? m_pThumbMgr->HasTransparency(imgId) : false;
+            const bool wantsTrans = QuickView::WantsTransparentBackground(path);
+            if (adaptiveBg != 0) {
+                const float ar = static_cast<float>((adaptiveBg >> 16) & 0xFF) / 255.0f;
+                const float ag = static_cast<float>((adaptiveBg >> 8) & 0xFF) / 255.0f;
+                const float ab = static_cast<float>(adaptiveBg & 0xFF) / 255.0f;
+                bgClr = D2D1::ColorF(ar, ag, ab, 1.0f);
+            } else if (hasTrans || wantsTrans) {
+                // 透明图像自适应底未就绪时默认优先采用亮白微灰（#F5F5F7），确保黑字100%可见
+                bgClr = D2D1::ColorF(0.96f, 0.96f, 0.97f, 1.0f);
+            }
             bgClr.a *= m_transitionProgress;
             m_brushBg->SetColor(bgClr);
             m_brushBg->SetOpacity(1.0f);
@@ -845,6 +858,9 @@ void GalleryOverlay::Render(ID2D1DeviceContext *pDC, const D2D1_SIZE_F &size,
             // Draw placeholder box (matching 6px rounded corners)
             if (m_brushBg) {
                 D2D1_COLOR_F phBase = isLight ? D2D1::ColorF(0.85f, 0.85f, 0.85f, 1.0f) : D2D1::ColorF(0.2f, 0.2f, 0.2f, 1.0f);
+                if (QuickView::WantsTransparentBackground(path)) {
+                    phBase = D2D1::ColorF(0.95f, 0.95f, 0.97f, 1.0f);
+                }
                 phBase.a *= m_transitionProgress;
                 
                 m_brushBg->SetColor(phBase);

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cwctype>
 #include "FileNavigator.h"
+#include "SupportedExtensions.h"
 extern FileNavigator& g_navigator;
 
 ThumbnailManager::ThumbnailManager() {}
@@ -32,6 +33,8 @@ void ThumbnailManager::ClearCache() {
     std::lock_guard<std::mutex> lock(m_cacheMutex);
     m_l1Cache.clear();
     m_l2Cache.clear();
+    m_adaptiveBgColors.clear();
+    m_transparencyFlags.clear();
     m_lruList.clear();
     m_lruMap.clear();
     m_currentCacheSize = 0;
@@ -172,7 +175,8 @@ void ThumbnailManager::WorkerLoopFast() {
 
         int targetSize = 300; 
         CImageLoader::ThumbData data;
-        HRESULT hr = m_pLoader->LoadThumbnail(task.path.c_str(), targetSize, &data);
+        const bool wantTrans = QuickView::WantsTransparentBackground(task.path);
+        HRESULT hr = m_pLoader->LoadThumbnail(task.path.c_str(), targetSize, &data, true, wantTrans);
         if (FAILED(hr) || !data.isValid) {
             data.isValid = true; 
             data.isFailed = true;
@@ -186,6 +190,10 @@ void ThumbnailManager::WorkerLoopFast() {
                 {
                     std::lock_guard<std::mutex> lock(m_cacheMutex);
                     size_t size = data.pixels.size();
+                    if (data.adaptiveBgColor != 0) {
+                        m_adaptiveBgColors[task.imageId] = data.adaptiveBgColor;
+                    }
+                    m_transparencyFlags[task.imageId] = data.hasTransparency;
                     m_l1Cache[task.imageId] = std::move(data);
                     AddToLRU(task.imageId, size);
                 }
@@ -231,7 +239,8 @@ void ThumbnailManager::WorkerLoopSlow() {
 
         int targetSize = 300; 
         CImageLoader::ThumbData data;
-        HRESULT hr = m_pLoader->LoadThumbnail(task.path.c_str(), targetSize, &data, true);
+        const bool wantTrans = QuickView::WantsTransparentBackground(task.path);
+        HRESULT hr = m_pLoader->LoadThumbnail(task.path.c_str(), targetSize, &data, true, wantTrans);
         if (FAILED(hr) || !data.isValid) {
             data.isValid = true; 
             data.isFailed = true;
@@ -245,6 +254,10 @@ void ThumbnailManager::WorkerLoopSlow() {
                 {
                     std::lock_guard<std::mutex> lock(m_cacheMutex);
                     size_t size = data.pixels.size();
+                    if (data.adaptiveBgColor != 0) {
+                        m_adaptiveBgColors[task.imageId] = data.adaptiveBgColor;
+                    }
+                    m_transparencyFlags[task.imageId] = data.hasTransparency;
                     m_l1Cache[task.imageId] = std::move(data);
                     AddToLRU(task.imageId, size);
                 }
@@ -335,5 +348,31 @@ ThumbnailManager::ImageInfo ThumbnailManager::GetImageInfo(size_t imageId) {
         return info;
     }
     return { 0, 0, 0, false, false };
+}
+
+uint32_t ThumbnailManager::GetAdaptiveBgColor(size_t imageId) {
+    std::lock_guard<std::mutex> lock(m_cacheMutex);
+    auto it = m_adaptiveBgColors.find(imageId);
+    if (it != m_adaptiveBgColors.end()) {
+        return it->second;
+    }
+    auto itL1 = m_l1Cache.find(imageId);
+    if (itL1 != m_l1Cache.end() && itL1->second.adaptiveBgColor != 0) {
+        return itL1->second.adaptiveBgColor;
+    }
+    return 0;
+}
+
+bool ThumbnailManager::HasTransparency(size_t imageId) {
+    std::lock_guard<std::mutex> lock(m_cacheMutex);
+    auto it = m_transparencyFlags.find(imageId);
+    if (it != m_transparencyFlags.end()) {
+        return it->second;
+    }
+    auto itL1 = m_l1Cache.find(imageId);
+    if (itL1 != m_l1Cache.end()) {
+        return itL1->second.hasTransparency;
+    }
+    return false;
 }
 
