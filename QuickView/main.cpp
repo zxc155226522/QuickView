@@ -25,7 +25,6 @@ static constexpr const char* CURRENT_MODULE = "Main";
 #include "ThumbnailWorker.h"
 #include "ImageEngine.h"
 #include "MappedFile.h"
-#include "PreviewExtractor.h"
 #include "UIRenderer.h"
 #include "AppContext.h"
 #include "CompareController.h"
@@ -200,58 +199,6 @@ static std::unique_ptr<UIRenderer> g_uiRenderer;  // Independent UI layer render
 static InputController g_inputController;  // Quantum Stream: Input state machine
 CRenderEngine* g_pRenderEngine = nullptr; // Global raw alias for linker compatibility
 CImageLoader* g_pImageLoader = nullptr; // Global raw alias for linker compatibility
-
-// [大文件快启与占位判定] 识别是否为需要优先展示窗口与内嵌缩略图的大文件
-static bool IsLargeFileCandidate(const std::wstring& path, uintmax_t knownFileSize = 0) {
-    if (path.empty()) return false;
-
-    // 1. 相机 RAW 格式（解图耗时长，优先归为大文件）
-    if (QuickView::IsRawPath(path)) return true;
-
-    // 2. 扩展名判断
-    std::wstring ext(QuickView::ExtensionOf(path));
-    std::transform(ext.begin(), ext.end(), ext.begin(), ::towlower);
-
-    // PSD / PSB 复杂图层合并解压耗时，视为大文件
-    if (ext == L".psd" || ext == L".psb") return true;
-
-    // 3. 获取文件大小
-    uintmax_t sz = knownFileSize;
-    if (sz == 0) {
-        std::error_code ec;
-        sz = std::filesystem::file_size(std::filesystem::path(path), ec);
-        if (ec) sz = 0;
-    }
-
-    // 体积阈值：>= 15MB 视为大文件
-    if (sz >= 15ull * 1024ull * 1024ull) return true;
-
-    // CDR / CMX 复杂矢量：>= 2MB 视为大文件
-    if ((ext == L".cdr" || ext == L".cmx") && sz >= 2ull * 1024ull * 1024ull) return true;
-
-    // TIFF 格式：>= 10MB 视为大文件
-    if ((ext == L".tif" || ext == L".tiff") && sz >= 10ull * 1024ull * 1024ull) return true;
-
-    // 4. 快速嗅探分辨率与总像素
-    if (g_imageLoader) {
-        CImageLoader::ImageHeaderInfo info = g_imageLoader->PeekHeader(path.c_str());
-        if (info.width <= 0 || info.height <= 0 || info.format == L"Unknown") {
-            CImageLoader::ImageInfo fastInfo{};
-            if (SUCCEEDED(g_imageLoader->GetImageInfoFast(path.c_str(), &fastInfo))) {
-                if (info.width <= 0 && fastInfo.width > 0) info.width = (int)fastInfo.width;
-                if (info.height <= 0 && fastInfo.height > 0) info.height = (int)fastInfo.height;
-            }
-        }
-        if (info.width > 0 && info.height > 0) {
-            // 单边尺寸 >= 6000 像素，或总像素 >= 2000万像素（20MP）
-            if (info.width >= 6000 || info.height >= 6000) return true;
-            uint64_t pixels = (uint64_t)info.width * (uint64_t)info.height;
-            if (pixels >= 20000000ull) return true;
-        }
-    }
-
-    return false;
-}
 
 bool g_isDraggingAnimSeek = false;
 bool g_isDraggingFilmstrip = false;
@@ -6886,9 +6833,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, [[maybe_unused]] LPWSTR lpCm
     }
 
     // --- [v10.5] Fast-Lane Boot Integration ---
-    // Start decoding immediately for normal images, but keep Titan and large files
-    // on the explicit show-first path so the window is visible immediately, followed
-    // by embedded thumbnail and background full decode.
+    // Start decoding immediately for normal images, but keep Titan startup on
+    // the original path so the first frame is sized against a stable window.
     g_initialCmdShow = nCmdShow;
     bool startedInitialLoadEarly = false;
     bool deferStartupShow = false;
@@ -6897,18 +6843,41 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, [[maybe_unused]] LPWSTR lpCm
       std::error_code ec;
       if (!std::filesystem::is_directory(
               std::filesystem::path(initialImagePath), ec)) {
-        // It's a file!
-        const bool isLargeFile = IsLargeFileCandidate(initialImagePath);
+        // It's a file! Kick off decoding immediately
+        bool isTitanCandidate = false;
+        if (g_imageLoader) {
+          CImageLoader::ImageHeaderInfo info =
+              g_imageLoader->PeekHeader(initialImagePath.c_str());
+          if (info.width <= 0 || info.height <= 0 ||
+              info.format == L"Unknown") {
+            CImageLoader::ImageInfo fastInfo{};
+            if (SUCCEEDED(g_imageLoader->GetImageInfoFast(
+                    initialImagePath.c_str(), &fastInfo))) {
+              if (info.width <= 0 && fastInfo.width > 0)
+                info.width = (int)fastInfo.width;
+              if (info.height <= 0 && fastInfo.height > 0)
+                info.height = (int)fastInfo.height;
+              if (info.format == L"Unknown" && !fastInfo.format.empty())
+                info.format = fastInfo.format;
+            }
+          }
 
-        if (isLargeFile) {
-          // [大文件加载策略] 打开大文件时：
-          // 1. 先显示窗口（绝不延迟 deferStartupShow，窗口立即显现）
-          // 2. 窗口显示后由常规流程快速展示内嵌缩略图
-          // 3. 然后由后台线程池加载完整大图
-          deferStartupShow = false;
-          startedInitialLoadEarly = false;
-        } else {
-          // 普通小文件：启动早期极速预解码以追求极致直显速度
+          std::wstring fmtUpper = info.format;
+          std::transform(fmtUpper.begin(), fmtUpper.end(), fmtUpper.begin(),
+                         ::towupper);
+          const bool isSupportedFormat =
+              (fmtUpper == L"JPEG" || fmtUpper == L"JPG" ||
+               fmtUpper == L"WEBP" || fmtUpper == L"PNG" ||
+               fmtUpper == L"JXL" || fmtUpper == L"TIF" ||
+               fmtUpper == L"TIFF" || fmtUpper == L"AVIF" ||
+               fmtUpper == L"HEIC" || fmtUpper == L"HIF");
+          const bool sizeTrigger = (info.width > 8192 || info.height > 8192);
+          const size_t pixelCount = (size_t)(std::max)(0, info.width) *
+                                    (size_t)(std::max)(0, info.height);
+          const bool pixelTrigger = (pixelCount > 50000000);
+          isTitanCandidate = isSupportedFormat && (sizeTrigger || pixelTrigger);
+        }
+        if (!isTitanCandidate) {
           GetPaneContext(PaneSlot::Primary).navigator.Initialize(initialImagePath, hwnd);
           LoadImageAsync(hwnd, GetPaneContext(PaneSlot::Primary).navigator.GetResolvedPath(initialImagePath).c_str());
           startedInitialLoadEarly = true;
@@ -13651,76 +13620,6 @@ static bool TryBuildPhase1WicEmbeddedFrame(const std::wstring& path, std::shared
     return CopyWicSourceToRawFrame(thumb.Get(), outFrame);
 }
 
-static bool TryBuildPhase1EmbeddedPreviewFrame(
-    const std::wstring& path,
-    std::shared_ptr<QuickView::RawImageFrame>* outFrame,
-    std::wstring* outLoaderName) {
-    if (!outFrame || !g_imageLoader) return false;
-
-    std::wstring ext(QuickView::ExtensionOf(path));
-    std::transform(ext.begin(), ext.end(), ext.begin(), ::towlower);
-
-    QuickView::MappedFile mapped(path);
-    if (!mapped.IsValid() || mapped.size() < 1024) return false;
-
-    const uint8_t* pData = mapped.data();
-    const size_t dataSize = mapped.size();
-
-    PreviewExtractor::ExtractedData exData;
-    const wchar_t* loader = L"Embedded Preview";
-    bool extracted = false;
-
-    if (QuickView::IsRawPath(path)) {
-        extracted = PreviewExtractor::ExtractFromRAW(pData, dataSize, exData);
-        loader = L"RAW Preview";
-    } else if (ext == L".psd" || ext == L".psb") {
-        extracted = PreviewExtractor::ExtractFromPSD(pData, dataSize, exData);
-        loader = L"PSD Preview";
-    } else if (ext == L".tif" || ext == L".tiff") {
-        extracted = PreviewExtractor::ExtractFromTIFF(pData, dataSize, exData);
-        loader = L"TIFF Preview";
-    } else if (ext == L".heic" || ext == L".heif" || ext == L".avif" || ext == L".hif") {
-        extracted = PreviewExtractor::ExtractFromHEIC(pData, dataSize, exData);
-        loader = L"HEIC Preview";
-    } else if (ext == L".cdr" || ext == L".cmx") {
-        extracted = PreviewExtractor::ExtractFromCDR(pData, dataSize, exData);
-        loader = L"CDR Preview";
-    } else if (ext == L".jpg" || ext == L".jpeg" || ext == L".jfif") {
-        extracted = PreviewExtractor::ExtractFromJPEG(pData, dataSize, exData);
-        loader = L"EXIF Preview";
-    }
-
-    if (!extracted || !exData.IsValid()) {
-        return false;
-    }
-
-    CImageLoader::ThumbData td;
-    if (FAILED(g_imageLoader->LoadThumbImageFromMemoryWIC(exData.pData, exData.size, 4096, &td)) || !td.isValid) {
-        return false;
-    }
-
-    const size_t bufSize = td.pixels.size();
-    if (bufSize == 0 || td.width <= 0 || td.height <= 0) return false;
-
-    uint8_t* heap = new (std::nothrow) uint8_t[bufSize];
-    if (!heap) return false;
-    memcpy(heap, td.pixels.data(), bufSize);
-
-    auto frame = std::make_shared<QuickView::RawImageFrame>();
-    frame->pixels = heap;
-    frame->width = td.width;
-    frame->height = td.height;
-    frame->stride = (td.stride > 0) ? td.stride : td.width * 4;
-    frame->format = QuickView::PixelFormat::BGRA8888;
-    frame->formatDetails = loader;
-    frame->quality = QuickView::DecodeQuality::Preview;
-    frame->memoryDeleter = QuickView::MemoryDeleter::FromDeleteArray();
-
-    *outFrame = std::move(frame);
-    if (outLoaderName) *outLoaderName = loader;
-    return true;
-}
-
 
 
 static bool ApplyPhase1PlaceholderFrame(
@@ -13807,12 +13706,25 @@ static void PrimePhase1Placeholder(HWND hwnd, const std::wstring& path, ImageID 
     UINT sourceH = 0;
     TryReadPhase1DimensionsFromHeader(path, &sourceW, &sourceH);
 
-    const bool isTitan = g_isNavigatingToTitan;
-    int idx = GetPaneContext(PaneSlot::Primary).navigator.FindIndex(path);
-    uintmax_t fileSize = (idx != -1) ? GetPaneContext(PaneSlot::Primary).navigator.GetFileSize(idx) : 0;
-    const bool isLarge = isTitan || IsLargeFileCandidate(path, fileSize);
+    // [Phase 1 Optimization]
+    // Non-Titan decoding is fast enough (<100ms typical) that showing a ~256px
+    // Shell cached thumbnail as placeholder causes visible flicker instead of
+    // helping perception. Only use skeleton placeholder so the full decode
+    // (>8192px or >50MP) still benefit
+    // from the placeholder chain because their decode can take 1-5 seconds.
+    {
+        bool isTitan = g_isNavigatingToTitan;
+        if (!isTitan) {
+            // [加载环] 普通图：复用系统已有的缓存缩略图作为即时占位（没有则跳过，不闪、不阻塞）
+            std::shared_ptr<QuickView::RawImageFrame> shellFrame;
+            if (TryBuildPhase1ShellCachedFrame(path, &shellFrame)) {
+                ApplyPhase1PlaceholderFrame(hwnd, path, imageId, shellFrame, sourceW, sourceH, L"Shell Cache Thumbnail");
+            }
+            return; // 不套用骨架 / 不异步 WIC，避免额外闪烁
+        }
+    }
 
-    // 1) 优先尝试 Shell 缓存缩略图（极速，系统已有则直接秒出）
+    // Shell thumbnail: multi-level cache-only extraction (no disk decode, safe for UI thread)
     std::shared_ptr<QuickView::RawImageFrame> shellFrame;
     if (TryBuildPhase1ShellCachedFrame(path, &shellFrame)) {
         if (ApplyPhase1PlaceholderFrame(hwnd, path, imageId, shellFrame, sourceW, sourceH, L"Shell Cache Thumbnail")) {
@@ -13820,39 +13732,15 @@ static void PrimePhase1Placeholder(HWND hwnd, const std::wstring& path, ImageID 
         }
     }
 
-    // 2) 如果不是大文件，不套用重型提取或骨架，避免普通小图切换产生闪烁
-    if (!isLarge) {
-        return;
+    // Skeleton fallback (4x4 transparent)
+    auto skeleton = MakePhase1SkeletonFrame();
+    if (skeleton) {
+        ApplyPhase1PlaceholderFrame(hwnd, path, imageId, skeleton, sourceW, sourceH, L"Skeleton");
     }
 
-    // 3) 大文件：极速提取内嵌高质量缩略图（RAW/PSD/TIFF/HEIC/JPEG/CDR等）
-    std::shared_ptr<QuickView::RawImageFrame> embFrame;
-    std::wstring embLoader;
-    if (TryBuildPhase1EmbeddedPreviewFrame(path, &embFrame, &embLoader)) {
-        if (ApplyPhase1PlaceholderFrame(hwnd, path, imageId, embFrame, sourceW, sourceH, embLoader.c_str())) {
-            return;
-        }
-    }
-
-    // 4) 尝试 WIC 解码器提取嵌入缩略图
-    std::shared_ptr<QuickView::RawImageFrame> wicFrame;
-    if (TryBuildPhase1WicEmbeddedFrame(path, &wicFrame)) {
-        if (ApplyPhase1PlaceholderFrame(hwnd, path, imageId, wicFrame, sourceW, sourceH, L"WIC Embedded Thumbnail")) {
-            return;
-        }
-    }
-
-    // 5) 若为 Titan 模式且以上皆无缩略图，创建透明骨架以便稳定视图表面
-    if (isTitan) {
-        auto skeleton = MakePhase1SkeletonFrame();
-        if (skeleton) {
-            ApplyPhase1PlaceholderFrame(hwnd, path, imageId, skeleton, sourceW, sourceH, L"Skeleton");
-        }
-
-        // WIC async fallback: startTick AFTER Shell path to give WIC its own full 50ms budget
-        const DWORD wicStartTick = GetTickCount();
-        LoadPhase1WicFallbackAsync(hwnd, path, imageId, sourceW, sourceH, wicStartTick);
-    }
+    // WIC async fallback: startTick AFTER Shell path to give WIC its own full 50ms budget
+    const DWORD wicStartTick = GetTickCount();
+    LoadPhase1WicFallbackAsync(hwnd, path, imageId, sourceW, sourceH, wicStartTick);
 }
 
 static bool ShouldUsePhase2TitanDebounce(const std::wstring& path, uintmax_t fileSize) {
