@@ -416,9 +416,11 @@ static void RenderAndRespond(PipeTask& t, CImageLoader& loader, bool degrade) {
   auto t1 = std::chrono::steady_clock::now();
   double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
 
+  bool composited = false;
   if (SUCCEEDED(hr) && thumb.isValid && !thumb.pixels.empty()) {
     if (thumb.hasTransparency && thumb.adaptiveBgColor != 0) {
       ApplyAdaptiveBackgroundToThumb(thumb);
+      composited = true;
     }
   }
 
@@ -441,7 +443,9 @@ static void RenderAndRespond(PipeTask& t, CImageLoader& loader, bool degrade) {
     CloseHandle(hEvent);
   }
   ServerLog(L"req path=" + t.path + L" size=" + std::to_wstring(t.size) +
-            (ok ? L" OK " : L" FAIL ") + L"(" + std::to_wstring(static_cast<int>(ms)) + L"ms)");
+            (ok ? L" OK " : L" FAIL ") + L"(" + std::to_wstring(static_cast<int>(ms)) + L"ms)" +
+            L" trans=" + (thumb.hasTransparency ? L"1" : L"0") +
+            L" bg=" + (composited ? L"1" : L"0"));
   // Byte-mode pipes discard any bytes the client has not yet read when
   // DisconnectNamedPipe runs. Flush first so the caller receives the full
   // response (status + bmpLen + bmp); otherwise it sees a truncated/EOF read
