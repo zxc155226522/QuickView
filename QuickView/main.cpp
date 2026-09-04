@@ -5674,16 +5674,38 @@ static RECT ExpandWindowRectToTargetWithinBounds(const RECT& currentRect, int ta
     return result;
 }
 
-static D2D1_COLOR_F ResolveAdaptiveCanvasColor() {
-    static std::wstring s_lastAdaptivePath;
-    static D2D1_COLOR_F s_cachedAdaptiveColor = D2D1::ColorF(C8(0xF5), C8(0xF5), C8(0xF7), 1.0f); // 默认亮白微灰（与缩略图卡片底一致）
+static std::wstring s_lastAdaptivePath;
+static D2D1_COLOR_F s_cachedAdaptiveColor = D2D1::ColorF(C8(0xF5), C8(0xF5), C8(0xF7), 1.0f); // 默认亮白微灰（与缩略图卡片底一致）
 
+void UpdateAdaptiveCanvasColorFromFrame(const std::wstring& path, const QuickView::RawImageFrame* frame) {
+    if (path.empty() || !frame || !frame->IsValid()) return;
+    if (frame->pixels && frame->width > 0 && frame->height > 0) {
+        const bool isRgba = (frame->format == QuickView::PixelFormat::RGBA8888);
+        const uint32_t bg = CImageLoader::AnalyzeAdaptiveBackground(
+            frame->pixels, frame->width, frame->height, frame->stride, isRgba);
+        const float r = C8((bg >> 16) & 0xFF);
+        const float g = C8((bg >> 8) & 0xFF);
+        const float b = C8(bg & 0xFF);
+        s_cachedAdaptiveColor = D2D1::ColorF(r, g, b, 1.0f);
+        s_lastAdaptivePath = path;
+    } else if (frame->IsSvg()) {
+        s_cachedAdaptiveColor = D2D1::ColorF(C8(0xF5), C8(0xF5), C8(0xF7), 1.0f);
+        s_lastAdaptivePath = path;
+    }
+}
+
+static D2D1_COLOR_F ResolveAdaptiveCanvasColor() {
     const auto& pane = GetPaneContext(PaneSlot::Primary);
     if (pane.path.empty()) {
         return D2D1::ColorF(C8(0xF5), C8(0xF5), C8(0xF7), 1.0f);
     }
 
-    // 1. 优先直接复用缩略图面板中当前图片已分析好的自适应背景色（保证大图与缩略图底色100%同一源）
+    // 1. 若当前路径已经计算并缓存，直接返回
+    if (pane.path == s_lastAdaptivePath) {
+        return s_cachedAdaptiveColor;
+    }
+
+    // 2. 优先直接复用缩略图面板中当前图片已分析好的自适应背景色（保证大图与缩略图底色100%同一源）
     extern ImageListThumbnailPanel g_imageThumbPanel;
     auto& nav = GetPaneContext(PaneSlot::Primary).navigator;
     if (nav.Count() > 0) {
@@ -5699,32 +5721,33 @@ static D2D1_COLOR_F ResolveAdaptiveCanvasColor() {
         }
     }
 
-    // 2. 缩略图未就绪或未开启时，采用与缩略图完全一致的算法从当前图像帧采样计算
+    // 3. 缩略图未就绪或未开启时，采用与缩略图完全一致的算法从当前图像帧采样计算
     if (g_pImageEngine) {
         auto frame = g_pImageEngine->GetCachedImage(pane.path);
         if (frame && frame->IsValid()) {
-            if (frame->pixels && frame->width > 0 && frame->height > 0) {
-                const bool isRgba = (frame->format == QuickView::PixelFormat::RGBA8888);
-                const uint32_t bg = CImageLoader::AnalyzeAdaptiveBackground(
-                    frame->pixels, frame->width, frame->height, frame->stride, isRgba);
-                const float r = C8((bg >> 16) & 0xFF);
-                const float g = C8((bg >> 8) & 0xFF);
-                const float b = C8(bg & 0xFF);
-                s_cachedAdaptiveColor = D2D1::ColorF(r, g, b, 1.0f);
-                s_lastAdaptivePath = pane.path;
-                return s_cachedAdaptiveColor;
-            } else if (frame->IsSvg()) {
-                // SVG 矢量图像默认铺设高反差亮白微灰底
-                s_cachedAdaptiveColor = D2D1::ColorF(C8(0xF5), C8(0xF5), C8(0xF7), 1.0f);
-                s_lastAdaptivePath = pane.path;
+            UpdateAdaptiveCanvasColorFromFrame(pane.path, frame.get());
+            if (pane.path == s_lastAdaptivePath) {
                 return s_cachedAdaptiveColor;
             }
         }
     }
 
-    if (pane.path == s_lastAdaptivePath) {
-        return s_cachedAdaptiveColor;
+    // 4. 若内存暂无帧，直接通过轻量快速缩略图采样分析背景色（耗时 < 1ms，对所有图片格式通用）
+    if (g_imageLoader) {
+        CImageLoader::ThumbData thumbData;
+        const bool wantTrans = QuickView::WantsTransparentBackground(pane.path);
+        if (SUCCEEDED(g_imageLoader->LoadThumbnail(pane.path.c_str(), 128, &thumbData, false, wantTrans)) &&
+            thumbData.isValid && thumbData.adaptiveBgColor != 0) {
+            const uint32_t bg = thumbData.adaptiveBgColor;
+            const float r = C8((bg >> 16) & 0xFF);
+            const float g = C8((bg >> 8) & 0xFF);
+            const float b = C8(bg & 0xFF);
+            s_cachedAdaptiveColor = D2D1::ColorF(r, g, b, 1.0f);
+            s_lastAdaptivePath = pane.path;
+            return s_cachedAdaptiveColor;
+        }
     }
+
     return D2D1::ColorF(C8(0xF5), C8(0xF5), C8(0xF7), 1.0f);
 }
 
@@ -12537,6 +12560,7 @@ void ProcessEngineEvents(HWND hwnd) {
                              : g_renderEngine->GetDisplayColorState();
             
             if (evt.rawFrame && evt.rawFrame->IsValid()) {
+                UpdateAdaptiveCanvasColorFromFrame(evt.filePath, evt.rawFrame.get());
                 if (evt.rawFrame->IsSvg()) {
                      // === SVG Path ===
                      GetPaneContext(PaneSlot::Primary).resource.Reset();
