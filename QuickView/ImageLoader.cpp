@@ -4661,19 +4661,33 @@ uint32_t CImageLoader::AnalyzeAdaptiveBackground(const uint8_t *raw, int w, int 
     return 0xFFF5F5F7; // 默认亮白微灰
   }
 
+  auto isNear = [](uint8_t b, uint8_t g, uint8_t r, uint8_t tb, uint8_t tg, uint8_t tr) {
+    return std::abs((int)b - tb) <= 4 && std::abs((int)g - tg) <= 4 && std::abs((int)r - tr) <= 4;
+  };
+
+  // 优先检查四角像素（BGRA）是否已有服务端预注入的自适应对比背景色（与缩略图逻辑一致）
+  const uint8_t b0 = isRgba ? raw[2] : raw[0];
+  const uint8_t g0 = raw[1];
+  const uint8_t r0 = isRgba ? raw[0] : raw[2];
+  if (isNear(b0, g0, r0, 0x28, 0x25, 0x24)) {
+    if (outHasTransparency) *outHasTransparency = true;
+    return 0xFF242528; // 深炭灰
+  } else if (isNear(b0, g0, r0, 0xF7, 0xF5, 0xF5)) {
+    if (outHasTransparency) *outHasTransparency = true;
+    return 0xFFF5F5F7; // 亮白微灰
+  }
+
   // 采样步长：最多采样 64x64 个像素，耗时通常 < 0.02ms
   const int stepX = (std::max)(1, w / 64);
   const int stepY = (std::max)(1, h / 64);
 
   uint64_t transparentCount = 0;
   uint64_t opaqueCount = 0;
-  uint64_t totalSampled = 0;
   double totalLum = 0.0;
 
   for (int y = 0; y < h; y += stepY) {
     const uint8_t *row = raw + static_cast<size_t>(y) * stride;
     for (int x = 0; x < w; x += stepX) {
-      totalSampled++;
       const uint8_t *px = row + x * 4;
       const uint8_t b = isRgba ? px[2] : px[0];
       const uint8_t g = px[1];
@@ -4702,10 +4716,8 @@ uint32_t CImageLoader::AnalyzeAdaptiveBackground(const uint8_t *raw, int w, int 
     }
   }
 
-  // 判定规则：透明像素占比 >= 3% 且存在可见主体
-  const bool isTransparent = (totalSampled > 0 &&
-                              static_cast<double>(transparentCount) / totalSampled >= 0.03 &&
-                              opaqueCount > 0);
+  // 判定规则：存在透明像素且存在可见主体即视为透明图（与缩略图逻辑一致）
+  const bool isTransparent = (transparentCount > 0 && opaqueCount > 0);
   if (outHasTransparency) {
     *outHasTransparency = isTransparent;
   }

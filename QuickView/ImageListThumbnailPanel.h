@@ -45,6 +45,16 @@ public:
     // kept public so the main window can resolve the right-click target file
     std::wstring GetItemFullPath(uint32_t index) const override;
 
+    // Get adaptive background color calculated for thumbnail (0 if not available)
+    uint32_t GetAdaptiveBgColorForIndex(int index) const {
+        if (index < 0) return 0;
+        auto it = m_imageThumbBg.find(static_cast<uint32_t>(index));
+        if (it != m_imageThumbBg.end() && it->second.adaptiveBgColor != 0) {
+            return it->second.adaptiveBgColor;
+        }
+        return 0;
+    }
+
 protected:
     // ThumbnailPanelBase interface
     void OnUpdateThumbnailRequests() override;

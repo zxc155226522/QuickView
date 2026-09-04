@@ -5676,13 +5676,30 @@ static RECT ExpandWindowRectToTargetWithinBounds(const RECT& currentRect, int ta
 
 static D2D1_COLOR_F ResolveAdaptiveCanvasColor() {
     static std::wstring s_lastAdaptivePath;
-    static D2D1_COLOR_F s_cachedAdaptiveColor = D2D1::ColorF(C8(0x24), C8(0x25), C8(0x28), 1.0f);
+    static D2D1_COLOR_F s_cachedAdaptiveColor = D2D1::ColorF(C8(0xF5), C8(0xF5), C8(0xF7), 1.0f); // 默认亮白微灰（与缩略图卡片底一致）
 
     const auto& pane = GetPaneContext(PaneSlot::Primary);
     if (pane.path.empty()) {
-        return D2D1::ColorF(C8(0x24), C8(0x25), C8(0x28), 1.0f);
+        return D2D1::ColorF(C8(0xF5), C8(0xF5), C8(0xF7), 1.0f);
     }
 
+    // 1. 优先直接复用缩略图面板中当前图片已分析好的自适应背景色（保证大图与缩略图底色100%同一源）
+    extern ImageListThumbnailPanel g_imageThumbPanel;
+    auto& nav = GetPaneContext(PaneSlot::Primary).navigator;
+    if (nav.Count() > 0) {
+        int idx = nav.Index();
+        uint32_t thumbBg = g_imageThumbPanel.GetAdaptiveBgColorForIndex(idx);
+        if (thumbBg != 0) {
+            const float r = C8((thumbBg >> 16) & 0xFF);
+            const float g = C8((thumbBg >> 8) & 0xFF);
+            const float b = C8(thumbBg & 0xFF);
+            s_cachedAdaptiveColor = D2D1::ColorF(r, g, b, 1.0f);
+            s_lastAdaptivePath = pane.path;
+            return s_cachedAdaptiveColor;
+        }
+    }
+
+    // 2. 缩略图未就绪或未开启时，采用与缩略图完全一致的算法从当前图像帧采样计算
     if (g_pImageEngine) {
         auto frame = g_pImageEngine->GetCachedImage(pane.path);
         if (frame && frame->IsValid()) {
@@ -5708,7 +5725,7 @@ static D2D1_COLOR_F ResolveAdaptiveCanvasColor() {
     if (pane.path == s_lastAdaptivePath) {
         return s_cachedAdaptiveColor;
     }
-    return D2D1::ColorF(C8(0x24), C8(0x25), C8(0x28), 1.0f);
+    return D2D1::ColorF(C8(0xF5), C8(0xF5), C8(0xF7), 1.0f);
 }
 
 static D2D1_COLOR_F ResolveCanvasColor() {
