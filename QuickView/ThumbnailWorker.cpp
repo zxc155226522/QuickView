@@ -416,6 +416,29 @@ static void RenderAndRespond(PipeTask& t, CImageLoader& loader, bool degrade) {
   auto t1 = std::chrono::steady_clock::now();
   double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
 
+  // [Retry-on-partial-write] Files being exported by upstream software (or on
+  // a congested NAS share) can fail to open/read within a few ms because the
+  // byte count is still growing. A short delayed retry rescues those requests
+  // cheaply: by the second attempt the writer has usually finished, turning an
+  // "Explorer falls back to the system thumbnail (no badge/no backing)"
+  // outcome into a proper QuickView render.
+  if (FAILED(hr) || !thumb.isValid || thumb.pixels.empty()) {
+    if (hr != E_ABORT) {
+      Sleep(250);
+      auto r0 = std::chrono::steady_clock::now();
+      thumb = CImageLoader::ThumbData{};
+      __try {
+        hr = loader.LoadThumbnail(t.path.c_str(), targetSize, &thumb, true, transparentBg);
+      } __except (EXCEPTION_EXECUTE_HANDLER) {
+        hr = E_FAIL;
+        ServerLog(L"LoadThumbnail threw (retry), path=" + t.path);
+      }
+      auto r1 = std::chrono::steady_clock::now();
+      ms += std::chrono::duration<double, std::milli>(r1 - r0).count();
+      if (SUCCEEDED(hr)) ServerLog(L"retry rescued, path=" + t.path);
+    }
+  }
+
   bool composited = false;
   if (SUCCEEDED(hr) && thumb.isValid && !thumb.pixels.empty()) {
     if (thumb.hasTransparency && thumb.adaptiveBgColor != 0) {

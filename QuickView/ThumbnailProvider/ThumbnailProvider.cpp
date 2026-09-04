@@ -168,6 +168,7 @@ struct WatchdogState {
     HBITMAP hbmp = nullptr;
     bool done = false;
     bool detached = false;
+    PipeResult pipeResult = PipeResult::Error; // transport outcome (ServerFail suppresses one-shot fallback)
     HANDLE hEvent = nullptr;
     CRITICAL_SECTION cs;
     WatchdogState() { InitializeCriticalSection(&cs); }
@@ -177,7 +178,7 @@ struct WatchdogState {
 // [Watchdog] Forward declarations so WatchdogWorker (above) can call the pipe
 // helpers defined later in this file. The enum is hoisted here from its
 // original location so PipeResult::Ok is visible at the call site.
-enum class PipeResult { Ok, Stale, Error };
+enum class PipeResult { Ok, Stale, Error, ServerFail };
 static HBITMAP BmpBytesToHBITMAP(const BYTE* data, size_t len);
 static PipeResult RequestThumbnailViaPipe(const std::wstring& exePath,
                                           const std::wstring& inputPath, UINT size,
@@ -198,6 +199,7 @@ static DWORD WINAPI WatchdogWorker(LPVOID lp) {
     {
         EnterCriticalSection(&st->cs);
         st->hbmp = h;
+        st->pipeResult = r;
         st->done = true;
         detached = st->detached;
         LeaveCriticalSection(&st->cs);
@@ -440,6 +442,12 @@ static PipeResult PipeTransaction(HANDLE hPipe, const std::wstring& inputPath, U
                 }
             } else if (status == 3) {
                 result = PipeResult::Stale; // server dropped this as stale
+            } else if (status == 1) {
+                // Authoritative decode failure: the live server (running the
+                // exact same pipeline as the one-shot worker) already failed
+                // this file. Retrying via a cold one-shot process would just
+                // reproduce the failure 3-4s later.
+                result = PipeResult::ServerFail;
             } else {
                 result = PipeResult::Error;
             }
@@ -480,6 +488,7 @@ static PipeResult RequestThumbnailViaPipe(const std::wstring& exePath,
         CloseHandle(hPipe);
         if (r == PipeResult::Ok) return PipeResult::Ok;
         if (r == PipeResult::Stale) return PipeResult::Stale; // do not relaunch
+        if (r == PipeResult::ServerFail) return PipeResult::ServerFail; // do not relaunch / do not one-shot
         launched = false; // error -> relaunch on next attempt
     }
     return PipeResult::Error;
@@ -773,6 +782,7 @@ public:
 
         auto t0 = GetTickCount64();
         HBITMAP hbmp = nullptr;
+        PipeResult syncPipeResult = PipeResult::Error; // set only on the sync degraded path
 
         // Fast path: persistent server over named pipe (no per-call process
         // spawn). Falls back to the one-shot worker if the pipe path is
@@ -798,8 +808,10 @@ public:
             if (r == PipeResult::Ok) {
                 hbmp = BmpBytesToHBITMAP(bmp.data(), bmp.size());
                 QuickView::ThumbDiskCache::Instance().Put(inputPath, cx, bmp.data(), bmp.size());
-            } else
-                DbgLog(L"  pipe not Ok (stale/error) -> fallback one-shot worker");
+            } else {
+                syncPipeResult = r;
+                DbgLog(L"  pipe not Ok (stale/fail/error) -> fallback one-shot worker");
+            }
         } else {
             DWORD wait = WaitForSingleObject(watch->hEvent, kWatchdogMs);
             if (wait == WAIT_OBJECT_0) {
@@ -815,6 +827,7 @@ public:
                 watch->detached = true;
                 LeaveCriticalSection(&watch->cs);
                 CloseHandle(hThread);
+                watch = nullptr; // detached: the worker self-cleans; do not touch st again
                 DbgLog(L"  watchdog timeout -> placeholder");
                 hbmp = ComposeSquareThumbnail(
                     MakeSolidDib(static_cast<int>(cx), static_cast<int>(cx), RGB(232, 232, 232)),
@@ -840,6 +853,17 @@ public:
         }
 
         auto t1 = GetTickCount64();
+        // [ServerFail] The live server authoritatively failed this file (same
+        // pipeline as the one-shot worker). Skip the cold-process fallback:
+        // it would reproduce the failure seconds later and stall the shell
+        // thread. E_FAIL lets Explorer fall back to its own thumbnail chain.
+        if (!hbmp && ((watch && watch->pipeResult == PipeResult::ServerFail) ||
+                      (!watch && syncPipeResult == PipeResult::ServerFail))) {
+            DbgLog(L"  server authoritative FAIL -> skip one-shot fallback");
+            delete watch;
+            watch = nullptr;
+            return E_FAIL;
+        }
         if (!hbmp) { DbgLog(L"  worker failed/timeout"); return E_FAIL; }
         // 把原图等比缩放进统一方块画布（透明底 + 右上角类型胶囊角标，画框已缓存）。
         // 扩展名优先取真实文件名(m_realPath)，取不到再退回临时文件名的 magic 扩展名。
