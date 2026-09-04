@@ -18,19 +18,8 @@ ThumbDiskCache& ThumbDiskCache::Instance() {
 
 ThumbDiskCache::ThumbDiskCache() {
     m_dir = CacheDir();
-    m_enabled = !m_dir.empty();
-    // Seed the size estimate by scanning existing files once.
-    if (m_enabled) {
-        WIN32_FIND_DATAW fd = {};
-        HANDLE h = FindFirstFileW((m_dir + L"\\*.bmp").c_str(), &fd);
-        if (h != INVALID_HANDLE_VALUE) {
-            do {
-                if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
-                    m_estBytes += (static_cast<uint64_t>(fd.nFileSizeHigh) << 32) | fd.nFileSizeLow;
-            } while (FindNextFileW(h, &fd));
-            FindClose(h);
-        }
-    }
+    // [Disabled] 磁盘持久缓存功能暂时关闭
+    m_enabled = false;
 }
 
 std::wstring ThumbDiskCache::CacheDir() {
@@ -157,7 +146,7 @@ void ThumbDiskCache::EvictIfNeeded() {
 }
 
 bool ThumbDiskCache::Get(const std::wstring& path, UINT cx, std::vector<BYTE>& outBytes) {
-    if (!m_enabled) return false;
+    if (!m_enabled) return false; // [Disabled] 磁盘缩略图持久缓存已关闭
     uint64_t mtime = 0, size = 0;
     if (!FileStamp(path, mtime, size)) return false;
     std::wstring file = PathForHash(HashKey(path, mtime, size, cx));
@@ -183,7 +172,7 @@ bool ThumbDiskCache::Get(const std::wstring& path, UINT cx, std::vector<BYTE>& o
 }
 
 void ThumbDiskCache::Put(const std::wstring& path, UINT cx, const BYTE* data, size_t len) {
-    if (!m_enabled || !data || len == 0 || len > 64 * 1024 * 1024) return;
+    if (!m_enabled || !data || len == 0 || len > 64 * 1024 * 1024) return; // [Disabled] 磁盘缩略图持久缓存已关闭
     uint64_t mtime = 0, size = 0;
     if (!FileStamp(path, mtime, size)) return;
     std::wstring file = PathForHash(HashKey(path, mtime, size, cx));
