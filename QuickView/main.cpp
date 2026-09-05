@@ -3257,6 +3257,33 @@ static bool OpenPathOrDirectory(HWND hwnd, const std::wstring& path, bool clearT
         g_thumbMgr.ClearCache();
     }
 
+    // [缩略图栏先显示] 不等主图解码完成（大 TIF 网络盘要数秒）：
+    // 快速状态就绪后立即显示底部缩略图栏，当前项先以占位卡片出现，
+    // 缩略图随后渐进填充。多页文档（PDF/AI/CDR/DWG）仍按原逻辑在
+    // 加载完成后切到 PDF 页面面板。
+    {
+        static const wchar_t* kPagedDocExts[] = {
+            L".pdf", L".ai", L".cdr", L".cmx", L".dwg", L".dxf", L".plt"};
+        std::wstring openExt = isDirectory ? L"" : fsPath.extension().wstring();
+        std::transform(openExt.begin(), openExt.end(), openExt.begin(),
+                       [](wchar_t c) { return std::towlower(c); });
+        bool isPagedDocExt = false;
+        for (const wchar_t* e : kPagedDocExts) {
+            if (openExt == e) { isPagedDocExt = true; break; }
+        }
+        auto& nav = GetPaneContext(PaneSlot::Primary).navigator;
+        if (!isPagedDocExt && nav.Count() >= 1 &&
+            g_config.ImageThumbPanelSide != 2) {
+            g_imageThumbPanel.SetPanelSide(g_config.ImageThumbPanelSide);
+            g_imageThumbPanel.ShowImageThumbnails(
+                &nav, nav.Index(), (uint32_t)nav.Count());
+            RECT rcClient; GetClientRect(hwnd, &rcClient);
+            g_imageThumbPanel.UpdateLayout(D2D1::RectF(
+                0.0f, 0.0f, (float)(rcClient.right - rcClient.left),
+                (float)(rcClient.bottom - rcClient.top)));
+        }
+    }
+
     if (isDirectory) {
         auto& dirNav = GetPaneContext(PaneSlot::Primary).navigator;
         if (dirNav.Count() >= 1) {
