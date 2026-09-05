@@ -13,6 +13,31 @@ extern float g_uiScale;
 extern AppConfig g_config;
 extern std::unique_ptr<CImageLoader> g_imageLoader;
 
+// ============================================================================
+// [缩略图性能日志] 诊断网络盘大目录缩略图加载慢：
+// 每张缩略图记录 文件名 / 结果(loaderName 或 失败) / 解码耗时；
+// ShowImageThumbnails 记录列表规模。日志：E:\qv_thumb_perf.log
+// ============================================================================
+namespace {
+std::mutex g_perfLogMutex;
+
+void QvThumbPerfLog(const wchar_t* fmt, ...) {
+    std::lock_guard<std::mutex> lock(g_perfLogMutex);
+    FILE* fp = _wfopen(L"E:\\qv_thumb_perf.log", L"a");
+    if (!fp) return;
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    fwprintf(fp, L"[%02u:%02u:%02u.%03u] ", st.wHour, st.wMinute, st.wSecond,
+             st.wMilliseconds);
+    va_list args;
+    va_start(args, fmt);
+    vfwprintf(fp, fmt, args);
+    va_end(args);
+    fputws(L"\n", fp);
+    fclose(fp);
+}
+} // namespace
+
 ImageListThumbnailPanel::~ImageListThumbnailPanel() {
     m_thumbRunning = false;
     m_thumbCV.notify_all();
@@ -28,6 +53,9 @@ ImageListThumbnailPanel::~ImageListThumbnailPanel() {
 
 void ImageListThumbnailPanel::InitializeEx(HWND hwnd) {
     Initialize(hwnd);
+    _wremove(L"E:\\qv_thumb_perf.log"); // 每次启动重新累积
+    QvThumbPerfLog(L"[Panel] InitializeEx, %d worker threads",
+                   kThumbWorkerThreads);
     // Start background thumbnail worker thread pool
     m_thumbRunning = true;
     m_thumbThreads.reserve(kThumbWorkerThreads);
@@ -82,6 +110,8 @@ void ImageListThumbnailPanel::ShowImageThumbnails(FileNavigator* nav, int curren
     ScrollToCurrentPage(true);
     // [初始加载窗口] 本轮只加载当前项前后各 kInitialLoadRadius 张
     m_initialBurstPending = true;
+    QvThumbPerfLog(L"[SHOW] total=%u cur=%d burstRadius=%u",
+                   totalFiles, currentIndex, kInitialLoadRadius);
 }
 
 void ImageListThumbnailPanel::OnDocumentClosed() {
@@ -399,7 +429,15 @@ void ImageListThumbnailPanel::ProcessAsyncResults(ID2D1RenderTarget* pRT) {
         std::lock_guard<std::mutex> lock(m_thumbResultMutex);
         results.swap(m_thumbResults);
     }
+    std::vector<uint32_t> consumedPages;
     for (auto& r : results) {
+        consumedPages.push_back(r.pageIndex);
+        // [防竞态] 列表在解码期间被换入（切换目录/全量列表到达）：
+        // 结果与当前列表不一致时直接丢弃，不污染新缓存
+        if (r.pageIndex >= m_imagePaths.size() ||
+            m_imagePaths[r.pageIndex] != r.sourcePath) {
+            continue;
+        }
         if (!r.valid || r.width <= 0 || r.height <= 0 || r.pixels.empty()) {
             m_imageThumbCache[r.pageIndex] = nullptr;
             continue;
@@ -421,6 +459,12 @@ void ImageListThumbnailPanel::ProcessAsyncResults(ID2D1RenderTarget* pRT) {
             m_imageThumbCache[r.pageIndex] = nullptr;
             m_imageThumbBg.erase(r.pageIndex);
         }
+    }
+    // [防重复加载] 结果已入缓存（或已丢弃），此刻才解除 pending 标记，
+    // 关闭"解码完成→结果入缓存"空窗期内的重复入队
+    if (!consumedPages.empty()) {
+        std::lock_guard<std::mutex> lock(m_thumbQueueMutex);
+        for (uint32_t p : consumedPages) m_thumbPending.erase(p);
     }
 }
 
@@ -458,6 +502,7 @@ void ImageListThumbnailPanel::ThumbWorkerLoop() {
 
     while (m_thumbRunning) {
         uint32_t idx;
+        std::wstring path;
         {
             std::unique_lock<std::mutex> lock(m_thumbQueueMutex);
             m_thumbCV.wait(lock, [this] { return !m_thumbQueue.empty() || !m_thumbRunning; });
@@ -465,16 +510,35 @@ void ImageListThumbnailPanel::ThumbWorkerLoop() {
             if (m_thumbQueue.empty()) continue;
             idx = m_thumbQueue.front();
             m_thumbQueue.pop();
+            // [防竞态] 路径在锁内拷贝：UI 线程可能在 ShowImageThumbnails 中改写 m_imagePaths
+            if (idx < m_imagePaths.size()) path = m_imagePaths[idx];
         }
 
         AsyncThumbResult result;
         result.pageIndex = idx;
+        result.sourcePath = path;
 
-        if (idx < m_imagePaths.size()) {
-            const bool wantTrans = QuickView::WantsTransparentBackground(m_imagePaths[idx]);
+        const uint64_t decodeStart = GetTickCount64();
+        if (!path.empty()) {
+            const bool wantTrans = QuickView::WantsTransparentBackground(path);
             CImageLoader::ThumbData thumbData;
             HRESULT hr = loader.LoadThumbnail(
-                m_imagePaths[idx].c_str(), kThumbnailTargetWidth, &thumbData, true, wantTrans);
+                path.c_str(), kThumbnailTargetWidth, &thumbData, true, wantTrans);
+            const uint64_t decodeMs = GetTickCount64() - decodeStart;
+            {
+                size_t slash = path.find_last_of(L"\\/");
+                const wchar_t* name = (slash != std::wstring::npos) ? path.c_str() + slash + 1 : path.c_str();
+                if (SUCCEEDED(hr) && thumbData.isValid) {
+                    QvThumbPerfLog(L"[THUMB] #%u %ls -> %ls, %llu ms",
+                                   idx, name,
+                                   thumbData.loaderName.c_str(),
+                                   (unsigned long long)decodeMs);
+                } else {
+                    QvThumbPerfLog(L"[THUMB] #%u %ls -> FAILED hr=0x%08X, %llu ms",
+                                   idx, name, (unsigned)hr,
+                                   (unsigned long long)decodeMs);
+                }
+            }
             if (SUCCEEDED(hr) && thumbData.isValid && !thumbData.pixels.empty()) {
                 result.pixels = std::move(thumbData.pixels);
                 result.width = thumbData.width;
@@ -495,10 +559,10 @@ void ImageListThumbnailPanel::ThumbWorkerLoop() {
             PostMessage(m_hwnd, WM_IMAGE_THUMB_READY, 0, 0);
         }
 
-        {
-            std::lock_guard<std::mutex> lock(m_thumbQueueMutex);
-            m_thumbPending.erase(idx);
-        }
+        // [防重复加载] pending 标记保持到主线程把结果收进缓存为止
+        //（ProcessAsyncResults 中清除）。若在"解码完成→结果入缓存"的空窗期
+        // 清除，加载调度器会认为该项既不在缓存也不在 pending 而重新入队，
+        // 导致整批缩略图加载两遍。
     }
 
     if (SUCCEEDED(coInit)) CoUninitialize();

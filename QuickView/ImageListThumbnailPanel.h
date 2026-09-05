@@ -76,6 +76,7 @@ private:
     // Async thumbnail loader
     struct AsyncThumbResult {
         uint32_t pageIndex = 0;
+        std::wstring sourcePath; // [防竞态] 结果只在与当前列表一致时才入缓存
         std::vector<uint8_t> pixels;
         int width = 0;
         int height = 0;
