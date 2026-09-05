@@ -351,6 +351,13 @@ void FileNavigator::ApplyPendingScanResult() {
         auto it = std::find(m_files.begin(), m_files.end(), currentPath);
         if (it != m_files.end()) {
             m_currentIndex = (int)std::distance(m_files.begin(), it);
+        } else if (result.partial) {
+            // [渐进扫描] 快照还没枚举到当前文件：临时追加到列表尾保持选择
+            // 有效（邻居显示为快照尾部文件），最终完整结果到达后自动归位
+            m_files.push_back(currentPath);
+            m_sizes.push_back(0);
+            m_ids.push_back(ComputePathHash(currentPath));
+            m_currentIndex = (int)m_files.size() - 1;
         } else {
             // [RAW+JPEG Pairing] The viewed RAW may have just been folded
             // behind its rendered sibling (e.g. its JPG appeared on disk) --
@@ -381,7 +388,7 @@ void FileNavigator::ApplyPendingScanResult() {
 
     // [RAW+JPEG Pairing] A rescan may have folded new pairs -- verify them.
     // Already-verified pairs are skipped, so this cannot loop.
-    StartPairVerification();
+    if (!result.partial) StartPairVerification();
 }
 
 void FileNavigator::RescanDirectory() {
@@ -852,39 +859,41 @@ FileNavigator::DirectoryScanResult FileNavigator::PerformDirectoryScan(const std
     namespace fs = std::filesystem;
     std::error_code ec;
 
-    for (const auto& entry : fs::directory_iterator(dir, ec)) {
-        if (entry.is_regular_file(ec)) {
-            std::wstring ext = entry.path().extension().wstring();
-            std::transform(ext.begin(), ext.end(), ext.begin(), [](wchar_t c){ return std::towlower(c); });
+    const int scanSortOrder = g_runtime.SortOrder;
 
-            // Skip archive container files from the flat folder slideshow playlist
-            bool isArchiveExt = QuickView::IsArchiveExtension(ext);
-            if (isArchiveExt) continue;
-
-            for (const auto& supp : QuickView::SUPPORTED_EXTENSIONS) {
-                if (ext == supp) {
-                    result.files.push_back(entry.path().wstring());
-                    result.sizes.push_back(entry.file_size(ec));
-                    break;
-                }
-            }
-        }
-    }
-
-    // Sort (same logic as Initialize, but without VFS virtual path handling)
+    // [扫描提速] 枚举与 SortEntry 构建合并为一次遍历：directory_entry 自带
+    // 枚举时缓存的文件大小/修改时间，避免逐文件按路径 last_write_time 重查
+    // ——网络盘上那是每个文件一次元数据往返，几千文件的目录要多扫好几秒。
+    // [渐进扫描] 枚举本身是流式的（NTFS/SMB 按名称序分批返回）：每积累
+    // kScanProgressiveBatchFiles 个文件且距上次投递超过 kScanProgressiveMinMs
+    // 就把已枚举部分排序为快照发给 UI，当前文件 ±20 邻居在枚举完成前就能显示。
+    constexpr size_t kScanProgressiveBatchFiles = 256;
+    constexpr uint64_t kScanProgressiveMinMs = 300;
     std::vector<SortEntry> entries;
-    entries.reserve(result.files.size());
-    for (size_t i = 0; i < result.files.size(); ++i) {
-        SortEntry e;
-        e.p = result.files[i];
-        e.s = result.sizes[i];
-        std::error_code ec2;
-        e.m = fs::last_write_time(e.p, ec2);
-        e.t = fs::path(e.p).extension().wstring();
-        std::transform(e.t.begin(), e.t.end(), e.t.begin(), [](wchar_t c){ return std::towlower(c); });
+    size_t lastPostedSize = 0;
+    uint64_t lastPostTick = GetTickCount64();
+    for (const auto& entry : fs::directory_iterator(dir, ec)) {
+        if (!entry.is_regular_file(ec)) continue;
+        std::wstring ext = entry.path().extension().wstring();
+        std::transform(ext.begin(), ext.end(), ext.begin(), [](wchar_t c){ return std::towlower(c); });
 
-        int sortOrder = g_runtime.SortOrder;
-        if (sortOrder == 3) {
+        // Skip archive container files from the flat folder slideshow playlist
+        if (QuickView::IsArchiveExtension(ext)) continue;
+
+        bool supported = false;
+        for (const auto& supp : QuickView::SUPPORTED_EXTENSIONS) {
+            if (ext == supp) { supported = true; break; }
+        }
+        if (!supported) continue;
+
+        SortEntry e;
+        e.p = entry.path().wstring();
+        e.s = entry.file_size(ec);
+        std::error_code tmEc;
+        e.m = entry.last_write_time(tmEc);
+        e.t = std::move(ext);
+
+        if (scanSortOrder == 3) {
             FILE* fp = nullptr;
             _wfopen_s(&fp, e.p.c_str(), L"rb");
             if (fp) {
@@ -900,10 +909,17 @@ FileNavigator::DirectoryScanResult FileNavigator::PerformDirectoryScan(const std
             }
         }
 
-        entries.push_back(e);
+        entries.push_back(std::move(e));
+
+        if (entries.size() - lastPostedSize >= kScanProgressiveBatchFiles &&
+            GetTickCount64() - lastPostTick >= kScanProgressiveMinMs) {
+            PostPartialScanResult(dir, entries);
+            lastPostedSize = entries.size();
+            lastPostTick = GetTickCount64();
+        }
     }
 
-    int sortOrder = g_runtime.SortOrder;
+    int sortOrder = scanSortOrder;
     bool sortDesc = g_runtime.SortDescending;
     SortEntries(entries, sortOrder, sortDesc, dir);
 
@@ -930,6 +946,41 @@ FileNavigator::DirectoryScanResult FileNavigator::PerformDirectoryScan(const std
     }
 
     return result;
+}
+
+// [渐进扫描] 已枚举部分排序成部分快照投递给 UI。快照前缀稳定（NTFS/SMB
+// 枚举按名称序返回），UI 换入后当前文件 ±20 邻居即可显示，不等全部枚举完。
+void FileNavigator::PostPartialScanResult(const std::wstring& dir,
+                                          const std::vector<SortEntry>& entries) {
+    DirectoryScanResult partial;
+    partial.dir = dir;
+    partial.partial = true;
+
+    std::vector<SortEntry> sorted = entries;
+    SortEntries(sorted, g_runtime.SortOrder, g_runtime.SortDescending, dir);
+    partial.files.reserve(sorted.size());
+    partial.sizes.reserve(sorted.size());
+    for (const auto& e : sorted) {
+        partial.files.push_back(e.p);
+        partial.sizes.push_back(e.s);
+    }
+    partial.ids.reserve(partial.files.size());
+    for (const auto& f : partial.files) {
+        partial.ids.push_back(ComputePathHash(f));
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(m_scanResultMutex);
+        m_pendingScanResult = std::move(partial);
+    }
+    if (FILE* fp = _wfopen(L"E:\\qv_thumb_perf.log", L"a")) {
+        SYSTEMTIME st; GetLocalTime(&st);
+        fwprintf(fp, L"[%02u:%02u:%02u.%03u] [SCAN-PARTIAL] %ls -> %zu files\n",
+                 st.wHour, st.wMinute, st.wSecond, st.wMilliseconds,
+                 dir.c_str(), partial.files.size());
+        fclose(fp);
+    }
+    if (m_hwnd) PostMessageW(m_hwnd, WM_NAVIGATOR_DIR_CHANGED, 1, 0);
 }
 
 void FileNavigator::WatcherThreadProc() {
@@ -1014,7 +1065,18 @@ void FileNavigator::ScanWorkerLoop() {
             genAtPick = m_scanGeneration.load();
         }
 
+        const uint64_t scanStart = GetTickCount64();
         DirectoryScanResult result = PerformDirectoryScan(dir);
+        const uint64_t scanMs = GetTickCount64() - scanStart;
+        // [扫描提速验证] 记录全量目录扫描耗时（与缩略图性能日志同文件）
+        if (FILE* fp = _wfopen(L"E:\\qv_thumb_perf.log", L"a")) {
+            SYSTEMTIME st; GetLocalTime(&st);
+            fwprintf(fp, L"[%02u:%02u:%02u.%03u] [SCAN] %ls -> %zu files, %llu ms\n",
+                     st.wHour, st.wMinute, st.wSecond, st.wMilliseconds,
+                     dir.c_str(), result.files.size(),
+                     (unsigned long long)scanMs);
+            fclose(fp);
+        }
 
         if (m_scanGeneration.load() != genAtPick) continue; // 已被新导航取代
 

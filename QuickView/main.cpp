@@ -9343,11 +9343,25 @@ RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);  // OSD and Border ind
                     g_toolbar.SetPageIndicator((uint32_t)idx, (uint32_t)nav.Count());
                 }
                 SyncThumbPanelsWithToolbar(hwnd);
+                // [渐进扫描] 面板刷新策略：
+                // - 最终结果（wParam==0）：始终刷新；
+                // - 中间快照（wParam==1，前缀稳定）：面板已显示且当前项索引
+                //   未变化时跳过（现有 ±20 窗口仍正确，避免反复重载）；
+                //   当前文件还在快照尾部（临时追加态）时也跳过，等枚举越过
+                //   它或最终结果到达。
+                const bool scanPartial = (wParam != 0);
+                const int tailGuard = idx < 0 ? 0 : idx;
+                const bool currentInTail =
+                    nav.Count() < 8 || (size_t)tailGuard + 8 >= nav.Count();
+                const bool shouldRefreshPanel =
+                    !g_imageThumbPanel.IsVisible() || !scanPartial ||
+                    (!currentInTail &&
+                     g_imageThumbPanel.GetCurrentImageIndex() != idx);
                 // [异步目录扫描] 全量列表到达后同步缩略图栏：
                 // - 主图加载完成时列表仍是快速状态而跳过显示的，在此补显示
                 // - 面板已显示快速状态（仅当前文件）的，换入全量列表并重新居中
                 if (!g_pagedDoc.active && !g_imagePath.empty() &&
-                    g_config.ImageThumbPanelSide != 2 &&
+                    g_config.ImageThumbPanelSide != 2 && shouldRefreshPanel &&
                     nav.Count() >= 1 && idx >= 0 && (size_t)idx < nav.Count()) {
                     g_imageThumbPanel.SetPanelSide(g_config.ImageThumbPanelSide);
                     g_imageThumbPanel.ShowImageThumbnails(&nav, nav.Index(), (uint32_t)nav.Count());

@@ -36,6 +36,8 @@ public:
     void OnDocumentClosed();
     void SetCurrentImageIndex(int index);
     [[nodiscard]] bool IsImageMode() const { return m_isImageMode; }
+    // [渐进扫描] 当前面板定位到的文件索引（用于判断列表刷新是否必要）
+    [[nodiscard]] int GetCurrentImageIndex() const { return m_currentImageIndex; }
 
     // Process async thumbnail results (call from main thread via WM_IMAGE_THUMB_READY)
     void ProcessAsyncResults(ID2D1RenderTarget* pRT);

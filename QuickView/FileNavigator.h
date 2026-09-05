@@ -48,6 +48,8 @@ public:
         std::vector<uintmax_t> sizes;
         std::vector<ImageID> ids;
         std::unordered_map<ImageID, PairedRaw> pairedRaws;
+        // [渐进扫描] true = 分批枚举的中间快照（前缀稳定），false = 最终完整结果
+        bool partial = false;
     };
 
     FileNavigator() = default;
@@ -185,6 +187,10 @@ private:
 
     // [Directory Watcher] Background directory monitoring
     DirectoryScanResult PerformDirectoryScan(const std::wstring& dir);
+    // [渐进扫描] 把已枚举部分排序成部分快照投递给 UI（WM_NAVIGATOR_DIR_CHANGED
+    // 的 wParam=1），让当前文件 ±20 邻居在枚举完成前就能显示
+    void PostPartialScanResult(const std::wstring& dir,
+                               const std::vector<SortEntry>& entries);
     void WatcherThreadProc();
     void StartDirectoryWatcher(const std::wstring& dirPath);
     void StopDirectoryWatcher();
