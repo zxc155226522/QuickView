@@ -25,6 +25,7 @@
 #include <chrono>
 #include <thread>
 #include <atomic>
+#include <mutex>
 #include <memory>
 
 namespace QuickView {
@@ -1903,6 +1904,11 @@ private:
 // 取消谓词在渲染循环中每 256 个实体检查一次; 解析阶段无法注入检查点
 // (LibreDWG 内核未改造), 但渲染阶段是主要耗时环节
 // ============================================================================
+// [线程安全] LibreDWG 内核含全局状态 (loglevel 等), 并发 dwg_read_memory/
+// dwg_free 会堆损坏 (0xc0000374, 独立 harness 4 线程必现) —— 所有进出
+// LibreDWG 的调用必须串行化。CAD 解析本身已较快 (百毫秒级), 串行无感。
+static std::mutex g_libredwgMutex;
+
 static std::string LoadCadToSVG(const uint8_t* data, size_t size, bool isDwg,
                                 SimplePredicate checkCancel = {}) {
     if (!data || size == 0) return {};
@@ -1911,6 +1917,7 @@ static std::string LoadCadToSVG(const uint8_t* data, size_t size, bool isDwg,
     if (checkCancel && checkCancel()) return {};
 
     std::string result;
+    std::lock_guard<std::mutex> libredwgLock(g_libredwgMutex);
     {
         Dwg_Data dwg;
         memset(&dwg, 0, sizeof(dwg));
