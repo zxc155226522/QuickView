@@ -3732,6 +3732,11 @@ HRESULT CImageLoader::LoadShellThumbnail(LPCWSTR filePath, int targetSize,
   if (FAILED(sourceToCopy->GetSize(&w, &h)) || w == 0 || h == 0)
     return E_FAIL;
 
+  // Stale small cache entries (e.g. an old 96px tile in the Explorer cache)
+  // stretched to the requested size look blurry; reject and regenerate.
+  if ((int)std::max(w, h) < (std::min)(targetSize, 256))
+    return E_FAIL;
+
   UINT stride = QuickView::CalculateAlignedStride(w, 4);
   size_t byteCount = static_cast<size_t>(stride) * h;
 
@@ -4853,7 +4858,8 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
                  ::towlower);
 
   auto tryEmbeddedPreview = [&](const wchar_t *loaderName,
-                                auto extractor) -> bool {
+                                auto extractor,
+                                bool enforceMinSize = false) -> bool {
     if (!mappedData || mappedSize == 0)
       return false;
     PreviewExtractor::ExtractedData exData;
@@ -4863,6 +4869,15 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
     if (FAILED(LoadThumbJPEGFromMemory(exData.pData, exData.size, targetSize,
                                        pData)) ||
         !pData->isValid) {
+      return false;
+    }
+    // A tiny embedded preview (160~640px is common in TIFFs) stretched to the
+    // target size looks blurry. Reject it and let the MiniTiff path decide
+    // between a cheap sampled decode and the best available sub-IFD.
+    if (enforceMinSize &&
+        std::max(pData->width, pData->height) < (std::min)(targetSize, 256)) {
+      pData->isValid = false;
+      pData->pixels.clear();
       return false;
     }
     pData->loaderName = loaderName;
@@ -4877,7 +4892,8 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
     return finishSuccess();
   }
   if (format == L"TIFF" &&
-      tryEmbeddedPreview(L"TIFF Preview", PreviewExtractor::ExtractFromTIFF)) {
+      tryEmbeddedPreview(L"TIFF Preview", PreviewExtractor::ExtractFromTIFF,
+                         /*enforceMinSize=*/true)) {
     return finishSuccess();
   }
   if ((format == L"HEIC" || pathLower.ends_with(L".heic") ||
@@ -5067,6 +5083,10 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
   ctx.forcePreview = true;
   ctx.targetWidth = targetSize;
   ctx.targetHeight = targetSize;
+  // Thumbnail floor: never accept a sub-IFD/embedded preview smaller than
+  // this (MiniTiff picks a sharp cheap path or full decode instead, when
+  // affordable). 64 preserves legacy behavior for other DecodeContext users.
+  ctx.minPreviewSize = (std::min)(targetSize, 256);
   ctx.allocator.ctx = pData;
   ctx.allocator.pfn = [](void *c, size_t s) -> uint8_t * {
     auto *d = static_cast<ThumbData *>(c);

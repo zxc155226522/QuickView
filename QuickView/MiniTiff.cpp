@@ -1042,7 +1042,8 @@ static std::vector<IfdInfo> EnumerateTiffIfds(const uint8_t* data, size_t size) 
     return out;
 }
 
-static const IfdInfo* SelectThumbIfd(const std::vector<IfdInfo>& ifds, uint32_t targetPx) {
+static const IfdInfo* SelectThumbIfd(const std::vector<IfdInfo>& ifds, uint32_t targetPx,
+                                     uint32_t minAcceptPx = 64) {
     if (ifds.empty()) return nullptr;
 
     // 1) Smallest IFD whose max dimension >= targetPx (exact or larger mipmap)
@@ -1058,10 +1059,11 @@ static const IfdInfo* SelectThumbIfd(const std::vector<IfdInfo>& ifds, uint32_t 
     if (bestAdequate) return bestAdequate;
 
     // 2) Explicit thumbnail subfile (NewSubfileType bit0/bit1), even if slightly smaller
-    // than targetPx (e.g. 160x120 or 200x200), as long as it has reasonable resolution (>= 64px).
-    // Avoiding decoding 20MP~100MP full-res for a 256px thumbnail is a 100x+ speedup.
+    // than targetPx (e.g. 200x200), as long as it reaches minAcceptPx. Avoiding decoding
+    // 20MP~100MP full-res for a 256px thumbnail is a 100x+ speedup.
     for (auto& i : ifds) {
-        if ((i.newSubfileType & 0x1) && i.w >= 64 && i.h >= 64) {
+        if ((i.newSubfileType & 0x1) && i.w >= 64 && i.h >= 64 &&
+            std::max(i.w, i.h) >= minAcceptPx) {
             return &i;
         }
     }
@@ -1074,7 +1076,7 @@ static const IfdInfo* SelectThumbIfd(const std::vector<IfdInfo>& ifds, uint32_t 
         for (auto& i : ifds) {
             if (&i == primary) continue;
             uint32_t m = std::max(i.w, i.h);
-            if (m >= 64 && m > bestSubM) {
+            if (m >= 64 && m >= minAcceptPx && m > bestSubM) {
                 bestSub = &i;
                 bestSubM = m;
             }
@@ -1562,14 +1564,50 @@ HRESULT Load(const uint8_t* data, size_t size,
         uint32_t targetPx = (ctx.targetWidth > 0)
                                 ? static_cast<uint32_t>(ctx.targetWidth)
                                 : 256;
-        const IfdInfo* pick = SelectThumbIfd(ifds, targetPx);
+        uint32_t minAccept = ctx.minPreviewSize > 64 ? ctx.minPreviewSize : 64;
+        const IfdInfo* pick = SelectThumbIfd(ifds, targetPx, minAccept);
         if (pick) {
             TiffImageDesc desc;
             Status st = ParseTiffIFD(data, size, desc, pick->off);
             if (st == Status::Ok && CapabilityGate(desc) == Status::Ok) {
+                // A sub-256px pick would be stretched to targetPx (blurry).
+                // Prefer a sharp result when it is affordable: the primary IFD
+                // qualifies for the cheap sampled-preview paths (fast even for
+                // multi-GB scans), or the primary is small enough that a full
+                // decode costs only tens of ms. Giant exotic-compression files
+                // keep the small-IFD pick (old behavior) instead of stalling.
+                constexpr uint64_t kThumbFullDecodeMaxPixels = 24'000'000ULL;
+                bool switchedToPrimary = false;
+                if (pick->off != ifds[0].off &&
+                    std::max(desc.width, desc.height) < targetPx) {
+                    TiffImageDesc primaryDesc;
+                    if (ParseTiffIFD(data, size, primaryDesc, ifds[0].off) == Status::Ok &&
+                        CapabilityGate(primaryDesc) == Status::Ok) {
+                        const uint64_t primaryPx =
+                            (uint64_t)primaryDesc.width * (uint64_t)primaryDesc.height;
+                        const bool cheapSampled =
+                            (!primaryDesc.isTiled && primaryDesc.bitsPerSample == 8 &&
+                             primaryDesc.planarConfig == 1 &&
+                             (primaryDesc.photometric == 0 || primaryDesc.photometric == 1 ||
+                              primaryDesc.photometric == 2 || primaryDesc.photometric == 5) &&
+                             ((primaryDesc.compression == 1 && primaryDesc.predictor == 1 &&
+                               (primaryDesc.samples == 1 || primaryDesc.samples == 3 ||
+                                primaryDesc.samples == 4 || primaryDesc.samples == 5 ||
+                                primaryDesc.samples == 6)) ||
+                              (primaryDesc.predictor <= 2 &&
+                               (primaryDesc.compression == 5 ||
+                                primaryDesc.compression == 32773 ||
+                                primaryDesc.compression == 8 ||
+                                primaryDesc.compression == 32946))));
+                        if (cheapSampled || primaryPx <= kThumbFullDecodeMaxPixels) {
+                            desc = std::move(primaryDesc);
+                            switchedToPrimary = true;
+                        }
+                    }
+                }
                 // If a sub-IFD (thumbnail/reduced image) has no ICC profile of its own,
                 // inherit the primary IFD0's ICC profile so colors match the main image.
-                if (desc.iccProfile.empty() && !ifds.empty() && pick->off != ifds[0].off) {
+                if (desc.iccProfile.empty() && !switchedToPrimary) {
                     TiffImageDesc primaryDesc;
                     if (ParseTiffIFD(data, size, primaryDesc, ifds[0].off) == Status::Ok) {
                         desc.iccProfile = primaryDesc.iccProfile;

@@ -765,6 +765,10 @@ struct DecodeContext {
   int targetHeight = 0;
   PixelFormat format = PixelFormat::BGRA8888;
   bool forcePreview = false;
+  // Thumbnail floor: preview picks (sub-IFD / embedded preview) below this
+  // max-dimension are rejected so a small image is never stretched to the
+  // requested size (blurry). 64 = legacy behavior.
+  uint32_t minPreviewSize = 64;
   float targetHdrHeadroomStops = -1.0f;
 
   std::wstring *pLoaderName = nullptr;
