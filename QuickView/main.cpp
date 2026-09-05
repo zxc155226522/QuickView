@@ -169,7 +169,6 @@ void SyncDCompState(HWND hwnd, float winW, float winH, bool animate);
 #define WM_UPDATE_FOUND  (WM_APP + 2)
 #define WM_ENGINE_EVENT  (WM_APP + 3)
 #define WM_ROUTED_OPEN   (WM_APP + 10)  // [Phase 0] Reserved for pipe-routed file open
-constexpr UINT_PTR TIMER_ID_STARTUP_SHOW = 992;
 
 
 
@@ -6591,7 +6590,6 @@ static void TryCleanupOldVersion(int argc, LPWSTR* argv) {
     }
 }
 HCURSOR g_currentCursor = nullptr;
-int g_initialCmdShow = SW_SHOW;
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, [[maybe_unused]] LPWSTR lpCmdLine, int nCmdShow) {
     // Early capture of foreground window before any QuickView initialization/window creation
@@ -6832,59 +6830,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, [[maybe_unused]] LPWSTR lpCm
          g_imageEngine->SetPrefetchPolicy(policy);
     }
 
-    // --- [v10.5] Fast-Lane Boot Integration ---
-    // Start decoding immediately for normal images, but keep Titan startup on
-    // the original path so the first frame is sized against a stable window.
-    g_initialCmdShow = nCmdShow;
-    bool startedInitialLoadEarly = false;
-    bool deferStartupShow = false;
+    // [启动统一逻辑] 所有文件一律先显示窗口，再经 OpenPathOrDirectory 开始加载
     std::wstring initialImagePath = QuickView::ProcessRouter::ParseImagePath();
-    if (!initialImagePath.empty()) {
-      std::error_code ec;
-      if (!std::filesystem::is_directory(
-              std::filesystem::path(initialImagePath), ec)) {
-        // It's a file! Kick off decoding immediately
-        bool isTitanCandidate = false;
-        if (g_imageLoader) {
-          CImageLoader::ImageHeaderInfo info =
-              g_imageLoader->PeekHeader(initialImagePath.c_str());
-          if (info.width <= 0 || info.height <= 0 ||
-              info.format == L"Unknown") {
-            CImageLoader::ImageInfo fastInfo{};
-            if (SUCCEEDED(g_imageLoader->GetImageInfoFast(
-                    initialImagePath.c_str(), &fastInfo))) {
-              if (info.width <= 0 && fastInfo.width > 0)
-                info.width = (int)fastInfo.width;
-              if (info.height <= 0 && fastInfo.height > 0)
-                info.height = (int)fastInfo.height;
-              if (info.format == L"Unknown" && !fastInfo.format.empty())
-                info.format = fastInfo.format;
-            }
-          }
-
-          std::wstring fmtUpper = info.format;
-          std::transform(fmtUpper.begin(), fmtUpper.end(), fmtUpper.begin(),
-                         ::towupper);
-          const bool isSupportedFormat =
-              (fmtUpper == L"JPEG" || fmtUpper == L"JPG" ||
-               fmtUpper == L"WEBP" || fmtUpper == L"PNG" ||
-               fmtUpper == L"JXL" || fmtUpper == L"TIF" ||
-               fmtUpper == L"TIFF" || fmtUpper == L"AVIF" ||
-               fmtUpper == L"HEIC" || fmtUpper == L"HIF");
-          const bool sizeTrigger = (info.width > 8192 || info.height > 8192);
-          const size_t pixelCount = (size_t)(std::max)(0, info.width) *
-                                    (size_t)(std::max)(0, info.height);
-          const bool pixelTrigger = (pixelCount > 50000000);
-          isTitanCandidate = isSupportedFormat && (sizeTrigger || pixelTrigger);
-        }
-        if (!isTitanCandidate) {
-          GetPaneContext(PaneSlot::Primary).navigator.Initialize(initialImagePath, hwnd);
-          LoadImageAsync(hwnd, GetPaneContext(PaneSlot::Primary).navigator.GetResolvedPath(initialImagePath).c_str());
-          startedInitialLoadEarly = true;
-          deferStartupShow = true;
-        }
-      }
-    }
 
     // Initialize DirectComposition (Visual Ping-Pong Architecture)
     // g_compEngine = std::make_unique<CompositionEngine>();
@@ -6942,12 +6889,8 @@ g_toolbar.SetImageThumbPanelState(g_config.ImageThumbPanelSide);
     g_toolbar.SetExifState(g_runtime.ShowInfoPanel);
     g_toolbar.SetPinned(true); // [A块] Toolbar always pinned
     
-    if (deferStartupShow) {
-        SetTimer(hwnd, TIMER_ID_STARTUP_SHOW, 150, nullptr);
-    } else {
-        ShowWindow(hwnd, nCmdShow); UpdateWindow(hwnd);
-        ForceForegroundWindow(hwnd); // Ensure window takes focus
-    }
+    ShowWindow(hwnd, nCmdShow); UpdateWindow(hwnd);
+    ForceForegroundWindow(hwnd); // Ensure window takes focus
     
     // Initialize Toolbar layout with window size (fixes initial rendering issue)
     {
@@ -6964,21 +6907,9 @@ g_toolbar.SetImageThumbPanelState(g_config.ImageThumbPanelSide);
 
 
     if (!initialImagePath.empty()) {
-      std::error_code ec;
-      if (std::filesystem::is_directory(std::filesystem::path(initialImagePath),
-                                        ec)) {
-        // Directory: Open it now that UI is fully initialized
-        OpenPathOrDirectory(hwnd, initialImagePath);
-      } else if (startedInitialLoadEarly) {
-        // File: Already kicked off above. Force event queue check just in case
-        // it finished insanely fast.
+      // 文件与目录同一条路径：窗口已显示，这里才开始打开/加载
+      if (OpenPathOrDirectory(hwnd, initialImagePath)) {
         PostMessageW(hwnd, WM_ENGINE_EVENT, 0, 0);
-      } else {
-        // Titan startup falls back to the original open-after-show path so the
-        // first transform uses the real client size.
-        if (OpenPathOrDirectory(hwnd, initialImagePath)) {
-          PostMessageW(hwnd, WM_ENGINE_EVENT, 0, 0);
-        }
       }
     } else {
         // No file specified - stay on welcome screen and request repaint
@@ -7641,16 +7572,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
         if (wParam == GAMUT_DEBOUNCE_TIMER_ID) {
             KillTimer(hwnd, GAMUT_DEBOUNCE_TIMER_ID);
             ScheduleGamutWarningAnalysisImpl(hwnd);
-            return 0;
-        }
-
-        if (wParam == TIMER_ID_STARTUP_SHOW) {
-            KillTimer(hwnd, TIMER_ID_STARTUP_SHOW);
-            if (!IsWindowVisible(hwnd)) {
-                ShowWindow(hwnd, g_initialCmdShow);
-                UpdateWindow(hwnd);
-                ForceForegroundWindow(hwnd);
-            }
             return 0;
         }
 
@@ -13119,13 +13040,6 @@ void ProcessEngineEvents(HWND hwnd) {
                     }
                 }
 
-                if (!IsWindowVisible(hwnd)) {
-                    ShowWindow(hwnd, g_initialCmdShow);
-                    UpdateWindow(hwnd);
-                    ForceForegroundWindow(hwnd);
-                    KillTimer(hwnd, TIMER_ID_STARTUP_SHOW);
-                }
-
                 // Cleanup
                 g_isLoading = false;
                 ResetLoadProgress(); // [加载环] 隐藏转圈环
@@ -14096,7 +14010,7 @@ void StartNavigation(HWND hwnd, std::wstring path, [[maybe_unused]] bool showOSD
 // Phase 2 Kick: queue-drop debounce (Titan only)
     // (Moved fileSize lookup to top of StartNavigation)
 
-    if (ShouldUsePhase2TitanDebounce(path, fileSize)) {
+    if (g_isNavigatingToTitan) {
         EnqueuePhase2NavigationTask(hwnd, path, fileSize, idx, myToken, myImageId, dir);
     } else {
         DispatchNavigationToEngine(path, fileSize, myToken, idx, dir);

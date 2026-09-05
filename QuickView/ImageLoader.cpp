@@ -15416,10 +15416,49 @@ CImageLoader::ImageHeaderInfo CImageLoader::PeekHeader(LPCWSTR filePath) {
   std::error_code ec;
   result.fileSize = std::filesystem::file_size(filePath, ec);
 
+  // [大文件防卡死] 缓存查询：同一路径在一次导航中会被多次调用，
+  // 命中则直接返回，避免重复执行昂贵的 LibRaw 探测。
+  int64_t mtimeTicks = 0;
+  {
+    std::filesystem::path fsp(filePath);
+    std::error_code ecMt;
+    auto ft = std::filesystem::last_write_time(fsp, ecMt);
+    if (!ecMt)
+      mtimeTicks = ft.time_since_epoch().count();
+    std::lock_guard<std::mutex> lock(m_peekCacheMutex);
+    for (auto &entry : m_peekCache) {
+      if (entry.path == filePath && entry.fileSize == result.fileSize &&
+          entry.mtimeTicks == mtimeTicks) {
+        return entry.info;
+      }
+    }
+  }
+
+  auto storeInCache = [&]() {
+    std::lock_guard<std::mutex> lock(m_peekCacheMutex);
+    for (auto &entry : m_peekCache) {
+      if (entry.path == filePath && entry.fileSize == result.fileSize &&
+          entry.mtimeTicks == mtimeTicks) {
+        entry.info = result;
+        return;
+      }
+    }
+    PeekCacheEntry e;
+    e.path = filePath;
+    e.fileSize = result.fileSize;
+    e.mtimeTicks = mtimeTicks;
+    e.info = result;
+    m_peekCache.insert(m_peekCache.begin(), std::move(e));
+    if (m_peekCache.size() > kPeekCacheCapacity)
+      m_peekCache.pop_back();
+  };
+
   // [v9.3] Use extension-first format detection (handles RAW correctly)
   result.format = DetectFormatFromContent(filePath);
-  if (result.format == L"Unknown")
+  if (result.format == L"Unknown") {
+    storeInCache();
     return result;
+  }
 
   // Try to get dimensions from fast header parsing
   ImageInfo info;
@@ -15504,6 +15543,13 @@ CImageLoader::ImageHeaderInfo CImageLoader::PeekHeader(LPCWSTR filePath) {
     // [v9.1] Smart RAW Dispatch: Based on Embedded Preview Size
     result.hasEmbeddedThumb = true;
 
+    // [大文件防卡死] GetEmbeddedPreviewInfo 走 LibRaw open_file+unpack_thumb
+    //（真解码内嵌缩略图），对大文件（尤其多页/金字塔 TIFF、网络盘）可能秒级
+    // 阻塞 UI 线程。大文件直接路由 HeavyLane：完整解码本就应在后台做，内嵌
+    // 预览提取仍在后台执行，只是跳过这个昂贵的同步探测。
+    if (result.fileSize >= 8ull * 1024ull * 1024ull) {
+      result.type = ImageType::TypeB_Heavy;
+    } else {
     // Try to get embedded preview dimensions
     int previewW = 0, previewH = 0;
     if (SUCCEEDED(GetEmbeddedPreviewInfo(filePath, &previewW, &previewH))) {
@@ -15527,6 +15573,7 @@ CImageLoader::ImageHeaderInfo CImageLoader::PeekHeader(LPCWSTR filePath) {
       // No embedded preview or extraction failed -> HeavyLane (LibRaw
       // half-size)
       result.type = ImageType::TypeB_Heavy;
+    }
     }
   } else if (result.format == L"AVIF" || result.format == L"HEIC") {
     // AVIF/HEIC: ≤4MP → Express Fast Pass
@@ -15569,6 +15616,7 @@ CImageLoader::ImageHeaderInfo CImageLoader::PeekHeader(LPCWSTR filePath) {
     // else: Invalid (default)
   }
 
+  storeInCache();
   return result;
 }
 

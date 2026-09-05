@@ -5,6 +5,7 @@
 #include "pch.h"
 #include <cstdint>
 #include <memory_resource>
+#include <mutex>
 #include <stop_token>
 #include <vector>
 #include <optional>
@@ -708,6 +709,21 @@ private:
   // threads without locking. Main app keeps it true for page-navigation
   // caching.
   bool m_bPopulateCdrCache = true;
+
+private:
+  // [大文件防卡死] PeekHeader 结果缓存：一次导航中 PeekHeader 会被 UI 线程
+  // 多次调用（Titan 判定×2、占位链、DispatchImageLoad、FastLane worker），
+  // 而 RAW/TIFF 分支的 GetEmbeddedPreviewInfo(LibRaw open+unpack_thumb) 对大
+  // 文件可能秒级阻塞。缓存按 路径+大小+mtime 失效。
+  struct PeekCacheEntry {
+    std::wstring path;
+    uintmax_t fileSize = 0;
+    int64_t mtimeTicks = 0;
+    ImageHeaderInfo info;
+  };
+  static constexpr size_t kPeekCacheCapacity = 16;
+  mutable std::mutex m_peekCacheMutex;
+  mutable std::vector<PeekCacheEntry> m_peekCache; // front = newest
 };
 
 // [CDR/CMX Multi-page] Cached SVG page data for multi-page CDR/CMX documents.

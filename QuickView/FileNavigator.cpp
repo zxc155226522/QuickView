@@ -50,6 +50,8 @@ void FileNavigator::Initialize(const std::wstring& currentPath, HWND hwnd) {
     }
 
     m_sizes.clear();
+    // [防卡死] 目录枚举阶段缓存的 mtime（与 m_files 平行），排序阶段直接复用
+    std::vector<std::pair<fs::file_time_type, bool>> cachedMtimes;
 
     // Archive containers are no longer supported: reject them up front so a
     // directly-opened .zip/.rar leaves an empty playlist instead of trying to
@@ -74,6 +76,11 @@ void FileNavigator::Initialize(const std::wstring& currentPath, HWND hwnd) {
                     m_files.push_back(entry.path().wstring());
                     // Cache file size for Scout Lane decision
                     m_sizes.push_back(entry.file_size(ec));
+                    // [防卡死] 复用目录枚举缓存的 mtime，避免排序阶段逐文件
+                    // 重新 stat（网络盘上 2591 个文件 = 数千次元数据往返）
+                    std::error_code ecMt;
+                    auto mt = entry.last_write_time(ecMt);
+                    cachedMtimes.push_back({mt, !ecMt});
                     break;
                 }
             }
@@ -89,7 +96,11 @@ void FileNavigator::Initialize(const std::wstring& currentPath, HWND hwnd) {
         e.p = m_files[i];
         e.s = m_sizes[i];
         std::error_code ec2;
-        e.m = fs2::last_write_time(e.p, ec2);
+        if (i < cachedMtimes.size() && !cachedMtimes[i].second) {
+            e.m = cachedMtimes[i].first; // 枚举时缓存的 mtime，零额外 IO
+        } else {
+            e.m = fs2::last_write_time(e.p, ec2);
+        }
 
         e.t = fs2::path(e.p).extension().wstring();
         std::transform(e.t.begin(), e.t.end(), e.t.begin(), [](wchar_t c){ return std::towlower(c); });
