@@ -3234,8 +3234,13 @@ static bool OpenPathOrDirectory(HWND hwnd, const std::wstring& path, bool clearT
 
     GetPaneContext(PaneSlot::Primary).editState.Reset();
     GetPaneContext(PaneSlot::Primary).view.Reset();
-    GetPaneContext(PaneSlot::Primary).navigator.Initialize(path, hwnd);
-    if (clearThumbCache) {
+    auto& primaryNav = GetPaneContext(PaneSlot::Primary).navigator;
+    const std::wstring prevWatchedDir = primaryNav.GetWatchedDir();
+    primaryNav.Initialize(path, hwnd);
+    if (clearThumbCache && primaryNav.GetWatchedDir() != prevWatchedDir) {
+        // [防冲突] 仅在目录真正切换时清空缩略图缓存。同目录内打开/切换文件
+        // 不清缓存：否则大目录下每次导航都会触发全部缩略图重新生成，
+        // 与当前文件的解码抢占磁盘 I/O，造成加载卡顿。
         g_thumbMgr.ClearCache();
     }
 
@@ -9271,6 +9276,17 @@ RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);  // OSD and Border ind
             if (g_gallery.IsVisible()) {
                 RequestRepaint(PaintLayer::Gallery);
             }
+            // [异步目录扫描] 初始化扫描结果到达后，文件总数从快速状态的 1
+            // 变为全量列表，同步页面指示器与胶片条
+            if (!g_isLoading) {
+                auto& nav = GetPaneContext(PaneSlot::Primary).navigator;
+                int idx = nav.Index();
+                if (nav.Count() > 1 && idx >= 0 && (size_t)idx < nav.Count()) {
+                    g_toolbar.SetImageMode(true);
+                    g_toolbar.SetPageIndicator((uint32_t)idx, (uint32_t)nav.Count());
+                }
+                SyncThumbPanelsWithToolbar(hwnd);
+            }
         }
         return 0;
     }
@@ -13042,6 +13058,7 @@ void ProcessEngineEvents(HWND hwnd) {
 
                 // Cleanup
                 g_isLoading = false;
+                g_thumbMgr.SetSuspended(false); // [防冲突] 加载结束，恢复缩略图生成
                 ResetLoadProgress(); // [加载环] 隐藏转圈环
 
                 // [PDF/AI/CDR] Activate multi-page mode for documents with >1 pages
@@ -13206,6 +13223,7 @@ if (g_imageThumbPanel.IsVisible()) {
             
             if (evt.imageId != g_currentImageId.load()) break;
             g_isLoading = false;
+            g_thumbMgr.SetSuspended(false); // [防冲突] 加载结束，恢复缩略图生成
             ResetLoadProgress(); // [加载环] 隐藏转圈环
             needsRepaint = true;
             break;
@@ -13365,6 +13383,7 @@ if (g_imageThumbPanel.IsVisible()) {
     if (g_imageEngine->IsIdle() && !g_isPhase2Debouncing.load(std::memory_order_acquire)) {
         if (g_isLoading) {  // Was loading, now finished
             g_isLoading = false;
+            g_thumbMgr.SetSuspended(false); // [防冲突] 加载结束，恢复缩略图生成
             // Force cursor update immediately
             POINT pt;
             if (GetCursorPos(&pt) && ScreenToClient(hwnd, &pt)) {
@@ -13853,6 +13872,7 @@ void StartNavigation(HWND hwnd, std::wstring path, [[maybe_unused]] bool showOSD
 
     if (!g_imageEngine || path.empty()) return;
     g_isLoading = true; // [Fix] Start loading state machine
+    g_thumbMgr.SetSuspended(true); // [防冲突] 加载期间暂停缩略图生成，把磁盘 I/O 让给主图解码
     SetTimer(hwnd, 995, 16, nullptr); // [Fix] ~60 FPS UI Heartbeat for progress bar (runs for ALL loads to avoid WM_PAINT starvation)
 
     // [PDF/AI/CDR] Reset paged document state for new file
@@ -14026,6 +14046,7 @@ static void CancelCurrentLoad(HWND hwnd) {
     g_loadProgress.active.store(false);
     if (g_imageEngine) g_imageEngine->CancelHeavy(); // 取消 HeavyLane 中的慢解码
     g_isLoading = false;
+    g_thumbMgr.SetSuspended(false); // [防冲突] 加载取消，恢复缩略图生成
     KillTimer(hwnd, 995);
     RequestRepaint(PaintLayer::All);
 }

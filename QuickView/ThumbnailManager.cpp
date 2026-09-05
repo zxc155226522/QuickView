@@ -22,6 +22,7 @@ void ThumbnailManager::Initialize(HWND hwnd, CImageLoader* pLoader) {
 
 void ThumbnailManager::Shutdown() {
     m_running = false;
+    m_suspendCv.notify_all();
     m_cvFast.notify_all();
     m_cvSlow.notify_all();
     if (m_workerThreadFast.joinable()) m_workerThreadFast.join();
@@ -146,19 +147,40 @@ void ThumbnailManager::TouchLRU(size_t imageId) {
     }
 }
 
+void ThumbnailManager::SetSuspended(bool suspended) {
+    {
+        std::lock_guard<std::mutex> lock(m_suspendMutex);
+        if (m_suspended.exchange(suspended) == suspended) return;
+    }
+    if (!suspended) {
+        // 唤醒可能停在挂起等待或队列等待上的所有工作线程
+        m_suspendCv.notify_all();
+        {
+            std::lock_guard<std::mutex> lock(m_queueMutex);
+            m_cvFast.notify_all();
+            m_cvSlow.notify_all();
+        }
+    }
+}
+
 void ThumbnailManager::WorkerLoopFast() {
     // Thumbnail extraction (especially via WIC/Shell) relies on COM components
     HRESULT coInitHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     
     while (m_running) {
+        // [防冲突] 主图解码期间挂起，不取新任务（已在解码的任务让它自然完成）
+        {
+            std::unique_lock<std::mutex> slock(m_suspendMutex);
+            m_suspendCv.wait(slock, [this] { return !m_suspended.load() || !m_running; });
+            if (!m_running.load()) break;
+        }
         Task task;
         {
             std::unique_lock<std::mutex> lock(m_queueMutex);
-            m_cvFast.wait(lock, [this] { return !m_fastQueue.empty() || !m_running; });
-            
+            m_cvFast.wait(lock, [this] {
+                return !m_running || (!m_suspended.load() && !m_fastQueue.empty());
+            });
             if (!m_running) break;
-            
-            // Double check empty in case of spurious wake or stolen task (unlikely with one consumer per queue, but safe)
             if (m_fastQueue.empty()) continue;
 
             task = m_fastQueue.top();
@@ -216,13 +238,19 @@ void ThumbnailManager::WorkerLoopSlow() {
     HRESULT coInitHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     
     while (m_running) {
+        // [防冲突] 主图解码期间挂起，不取新任务（已在解码的任务让它自然完成）
+        {
+            std::unique_lock<std::mutex> slock(m_suspendMutex);
+            m_suspendCv.wait(slock, [this] { return !m_suspended.load() || !m_running; });
+            if (!m_running.load()) break;
+        }
         Task task;
         {
             std::unique_lock<std::mutex> lock(m_queueMutex);
-            m_cvSlow.wait(lock, [this] { return !m_slowQueue.empty() || !m_running; });
-            
+            m_cvSlow.wait(lock, [this] {
+                return !m_running || (!m_suspended.load() && !m_slowQueue.empty());
+            });
             if (!m_running) break;
-            
             if (m_slowQueue.empty()) continue;
 
             task = m_slowQueue.top();

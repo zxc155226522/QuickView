@@ -55,6 +55,10 @@ public:
     uint32_t GetAdaptiveBgColor(size_t imageId);
     bool HasTransparency(size_t imageId);
 
+    // [防冲突] 当前文件加载期间挂起缩略图生成，把磁盘 I/O 让给主图解码；
+    // 加载结束后 SetSuspended(false) 恢复。
+    void SetSuspended(bool suspended);
+
 private:
     struct CacheEntry {
         CImageLoader::ThumbData rawData; // L1
@@ -115,9 +119,14 @@ private:
     std::priority_queue<Task, std::vector<Task>, std::greater<Task>> m_fastQueue;
     std::priority_queue<Task, std::vector<Task>, std::greater<Task>> m_slowQueue;
     
-    std::unordered_map<size_t, bool> m_pendingTasks; 
+    std::unordered_map<size_t, bool> m_pendingTasks;
     std::atomic<bool> m_running = false;
     std::atomic<uint64_t> m_currentGeneration{ 0 };
+
+    // [防冲突] 挂起开关：主图解码期间暂停出队新缩略图任务
+    std::atomic<bool> m_suspended{ false };
+    std::mutex m_suspendMutex;
+    std::condition_variable m_suspendCv;
 
     void WorkerLoopFast();
     void WorkerLoopSlow();

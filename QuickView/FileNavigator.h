@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <atomic>
+#include <condition_variable>
 #include <thread>
 #include <filesystem>
 #include <algorithm>
@@ -42,6 +43,7 @@ public:
 
     // Background scan result (produced by watcher thread, consumed by main thread)
     struct DirectoryScanResult {
+        std::wstring dir;  // 扫描时的目录，用于丢弃过期结果
         std::vector<std::wstring> files;
         std::vector<uintmax_t> sizes;
         std::vector<ImageID> ids;
@@ -49,7 +51,7 @@ public:
     };
 
     FileNavigator() = default;
-    ~FileNavigator() { StopPairVerification(true); StopDirectoryWatcher(); }
+    ~FileNavigator() { StopPairVerification(true); StopInitialScan(); StopDirectoryWatcher(); }
     FileNavigator(const FileNavigator&) = delete;
     FileNavigator& operator=(const FileNavigator&) = delete;
 
@@ -70,6 +72,8 @@ public:
     // Status info
     inline size_t Count() const { return m_files.size(); }
     inline int Index() const { return m_currentIndex; }
+    // 当前监视的目录（未打开目录时为空）。用于判断目录是否真的切换了。
+    inline const std::wstring& GetWatchedDir() const { return m_watchedDir; }
     void SetIndex(int index);
 
     // Random Access (For Gallery Virtualization)
@@ -124,6 +128,8 @@ public:
 
     // [Directory Watcher] Apply pending scan result from background thread (main thread only)
     void ApplyPendingScanResult();
+    void StopInitialScan();
+    void ScanWorkerLoop();
 
     // [RAW+JPEG Pairing] Re-list the watched directory synchronously and apply
     // the result (main thread only) -- used when the pairing setting toggles,
@@ -178,7 +184,7 @@ private:
     std::wstring FindAdjacentFolderImage(bool next);
 
     // [Directory Watcher] Background directory monitoring
-    DirectoryScanResult PerformDirectoryScan();
+    DirectoryScanResult PerformDirectoryScan(const std::wstring& dir);
     void WatcherThreadProc();
     void StartDirectoryWatcher(const std::wstring& dirPath);
     void StopDirectoryWatcher();
@@ -215,6 +221,16 @@ private:
     std::wstring m_watchedDir;
     HANDLE m_hCancelEvent = nullptr;
     std::thread m_watcherThread;
+    // [异步目录扫描] Initialize 只建立快速状态，全量扫描放常驻工作线程，
+    // 完成后经 WM_NAVIGATOR_DIR_CHANGED → ApplyPendingScanResult 换入。
+    // 常驻线程避免快速导航时 join 在途扫描再次卡住 UI。
+    std::thread m_scanWorker;
+    std::mutex m_scanWorkMutex;
+    std::condition_variable m_scanWorkCv;
+    bool m_scanWorkPending = false;
+    bool m_scanWorkerStop = false;
+    std::wstring m_scanDir;                       // 待扫描目录（m_scanWorkMutex 保护）
+    std::atomic<uint32_t> m_scanGeneration{ 0 };  // 每次导航递增，用于丢弃过期结果
     std::mutex m_scanResultMutex;
     std::optional<DirectoryScanResult> m_pendingScanResult;
 };

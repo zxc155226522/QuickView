@@ -50,8 +50,8 @@ void FileNavigator::Initialize(const std::wstring& currentPath, HWND hwnd) {
     }
 
     m_sizes.clear();
-    // [防卡死] 目录枚举阶段缓存的 mtime（与 m_files 平行），排序阶段直接复用
-    std::vector<std::pair<fs::file_time_type, bool>> cachedMtimes;
+    m_ids.clear();
+    m_pairedRaws.clear();
 
     // Archive containers are no longer supported: reject them up front so a
     // directly-opened .zip/.rar leaves an empty playlist instead of trying to
@@ -62,137 +62,47 @@ void FileNavigator::Initialize(const std::wstring& currentPath, HWND hwnd) {
         return;
     }
 
-    for (const auto& entry : fs::directory_iterator(dir, ec)) {
-        if (entry.is_regular_file(ec)) {
-            std::wstring ext = entry.path().extension().wstring();
-            std::transform(ext.begin(), ext.end(), ext.begin(), [](wchar_t c){ return std::towlower(c); });
-
-            // Skip archive container files from the flat folder slideshow playlist
-            bool isArchiveExt = QuickView::IsArchiveExtension(ext);
-            if (isArchiveExt) continue;
-
-            for (const auto& supp : QuickView::SUPPORTED_EXTENSIONS) {
-                if (ext == supp) {
-                    m_files.push_back(entry.path().wstring());
-                    // Cache file size for Scout Lane decision
-                    m_sizes.push_back(entry.file_size(ec));
-                    // [防卡死] 复用目录枚举缓存的 mtime，避免排序阶段逐文件
-                    // 重新 stat（网络盘上 2591 个文件 = 数千次元数据往返）
-                    std::error_code ecMt;
-                    auto mt = entry.last_write_time(ecMt);
-                    cachedMtimes.push_back({mt, !ecMt});
-                    break;
-                }
-            }
-        }
-    }
-
-    
-    std::vector<SortEntry> entries;
-    entries.reserve(m_files.size());
-    namespace fs2 = std::filesystem;
-    for(size_t i=0; i<m_files.size(); ++i) {
-        SortEntry e;
-        e.p = m_files[i];
-        e.s = m_sizes[i];
-        std::error_code ec2;
-        if (i < cachedMtimes.size() && !cachedMtimes[i].second) {
-            e.m = cachedMtimes[i].first; // 枚举时缓存的 mtime，零额外 IO
-        } else {
-            e.m = fs2::last_write_time(e.p, ec2);
-        }
-
-        e.t = fs2::path(e.p).extension().wstring();
-        std::transform(e.t.begin(), e.t.end(), e.t.begin(), [](wchar_t c){ return std::towlower(c); });
-
-        // Only parse EXIF date if specifically requested and it's a real file
-        if (g_runtime.SortOrder == 3) {
-             FILE *fp = nullptr;
-             _wfopen_s(&fp, e.p.c_str(), L"rb");
-             if (fp) {
-                 unsigned char buf[65536];
-                 size_t bytes = fread(buf, 1, sizeof(buf), fp);
-                 fclose(fp);
-                 if (bytes > 0) {
-                     easyexif::EXIFInfo info;
-                     if (info.parseFrom(buf, (unsigned)bytes) == PARSE_EXIF_SUCCESS) {
-                         e.exifDate = info.DateTimeOriginal;
-                     }
-                 }
-             }
-        }
-
-        entries.push_back(e);
-    }
-    
-    int sortOrder = g_runtime.SortOrder;
-    bool sortDesc = g_runtime.SortDescending;
-
-    SortEntries(entries, sortOrder, sortDesc, dir.wstring());
-
-    // [RAW+JPEG Pairing] Fold same-name RAW + rendered pairs (real folders
-    // only; archives are never paired)
-    m_pairedRaws.clear();
-    if (g_config.PairRawJpeg) {
-        std::unordered_set<ImageID> skip;
-        {
-            std::lock_guard<std::mutex> lock(m_verifyMutex);
-            skip = m_verifyUnpaired;
-        }
-        ApplyRawJpegPairing(entries, m_pairedRaws, skip.empty() ? nullptr : &skip);
-    }
-
-    // Write back
-    m_files.clear();
-    m_sizes.clear();
-    for(const auto& e : entries) {
-        m_files.push_back(e.p);
-        m_sizes.push_back(e.s);
-    }
-    
-    // [ImageID] Compute stable hash IDs for all files
-    m_ids.clear();
-    m_ids.reserve(m_files.size());
-    for (const auto& f : m_files) {
-        m_ids.push_back(ComputePathHash(f));
-    }
-
-
-    // Find current index
+    // [异步目录扫描] 只建立"快速状态"让界面和主图立即就绪，不再在 UI 线程
+    // 同步扫描整个目录（大目录 + 网络盘会卡住窗口数秒）：
+    // - 打开文件：列表先只含当前文件，索引 0（导航/胶片条/页面指示立即可用）
+    // - 打开目录：空列表（画廊先显示框架，文件列表后台到达后填入）
+    // 全量扫描放后台线程，完成后经 WM_NAVIGATOR_DIR_CHANGED →
+    // ApplyPendingScanResult 原子换入。
     if (!isDirectory) {
-        std::wstring currentFull = p.wstring();
-
-        for (size_t i = 0; i < m_files.size(); ++i) {
-            if (m_files[i] == currentFull) {
-                m_currentIndex = (int)i;
-                break;
-            }
-        }
-
-        // [RAW+JPEG Pairing] The opened file may be a RAW folded behind
-        // its rendered sibling -- land on the pair instead.
-        if (m_currentIndex < 0 && !m_pairedRaws.empty()) {
-            for (const auto& [renderedId, raw] : m_pairedRaws) {
-                if (raw.path == currentFull) {
-                    for (size_t i = 0; i < m_ids.size(); ++i) {
-                        if (m_ids[i] == renderedId) {
-                            m_currentIndex = (int)i;
-                            break;
-                        }
-                    }
-                    break;
-                }
-            }
-        }
+        std::error_code ecSz;
+        m_files.assign(1, p.wstring());
+        m_sizes.push_back(fs::file_size(p, ecSz));
+        m_ids.push_back(ComputePathHash(p.wstring()));
+        m_currentIndex = 0;
+    } else {
+        m_files.clear();
+        m_currentIndex = -1;
     }
 
-    // [Directory Watcher] Start monitoring for real directories
+    // [Directory Watcher] Start monitoring first: it sets m_watchedDir which
+    // PerformDirectoryScan (running on the scan thread) reads.
     if (m_hwnd) {
         std::wstring watchDir = dir.wstring();
         if (!watchDir.empty()) {
             StartDirectoryWatcher(watchDir);
         }
     }
+
+    if (m_watchedDir.empty()) {
+        return; // 没有可扫描的目录（异常路径）
+    }
+
+    // 唤醒常驻扫描线程执行全量扫描
+    {
+        std::lock_guard<std::mutex> lock(m_scanWorkMutex);
+        m_scanDir = dir.wstring();
+        m_scanWorkPending = true;
+        ++m_scanGeneration;
+    }
+    if (!m_scanWorker.joinable()) {
+        m_scanWorker = std::thread(&FileNavigator::ScanWorkerLoop, this);
+    }
+    m_scanWorkCv.notify_one();
 
     // [RAW+JPEG Pairing] Kick off capture-time verification for fresh pairs
     StartPairVerification();
@@ -401,6 +311,9 @@ void FileNavigator::ApplyPendingScanResult() {
         m_pendingScanResult.reset();
     }
 
+    // [防串扰] 目录已切换：丢弃过期扫描结果
+    if (result.dir != m_watchedDir) return;
+
     // Cache current path BEFORE swap for index reconciliation
     std::wstring currentPath;
     if (m_currentIndex >= 0 && m_currentIndex < (int)m_files.size()) {
@@ -456,7 +369,7 @@ void FileNavigator::RescanDirectory() {
     // Join any in-flight verification pass first: it could otherwise post a
     // result computed before this one right after it.
     StopPairVerification();
-    DirectoryScanResult result = PerformDirectoryScan();
+    DirectoryScanResult result = PerformDirectoryScan(m_watchedDir);
     {
         std::lock_guard<std::mutex> lock(m_scanResultMutex);
         m_pendingScanResult = std::move(result);
@@ -554,7 +467,7 @@ void FileNavigator::StartPairVerification() {
         // Split the mismatched pairs back up: rescan with the blacklist in
         // effect and hand the result to the main thread through the exact
         // channel the directory watcher already uses (one atomic list swap).
-        DirectoryScanResult result = PerformDirectoryScan();
+        DirectoryScanResult result = PerformDirectoryScan(m_watchedDir);
         if (m_verifyGeneration.load() != gen) return;
         {
             std::lock_guard<std::mutex> lock(m_scanResultMutex);
@@ -913,12 +826,13 @@ std::wstring FileNavigator::FindAdjacentFolderImage(bool next) {
     return L"";
 }
 
-FileNavigator::DirectoryScanResult FileNavigator::PerformDirectoryScan() {
+FileNavigator::DirectoryScanResult FileNavigator::PerformDirectoryScan(const std::wstring& dir) {
     DirectoryScanResult result;
+    result.dir = dir;
     namespace fs = std::filesystem;
     std::error_code ec;
-    
-    for (const auto& entry : fs::directory_iterator(m_watchedDir, ec)) {
+
+    for (const auto& entry : fs::directory_iterator(dir, ec)) {
         if (entry.is_regular_file(ec)) {
             std::wstring ext = entry.path().extension().wstring();
             std::transform(ext.begin(), ext.end(), ext.begin(), [](wchar_t c){ return std::towlower(c); });
@@ -971,7 +885,7 @@ FileNavigator::DirectoryScanResult FileNavigator::PerformDirectoryScan() {
 
     int sortOrder = g_runtime.SortOrder;
     bool sortDesc = g_runtime.SortDescending;
-    SortEntries(entries, sortOrder, sortDesc, m_watchedDir);
+    SortEntries(entries, sortOrder, sortDesc, dir);
 
     // [RAW+JPEG Pairing] Same fold as Initialize (watcher rescan path)
     if (g_config.PairRawJpeg) {
@@ -1030,7 +944,7 @@ void FileNavigator::WatcherThreadProc() {
         if (cancelled) break;
 
         // === Background Scan (on this thread, zero UI impact) ===
-        auto scanResult = PerformDirectoryScan();
+        auto scanResult = PerformDirectoryScan(m_watchedDir);
 
         {
             std::lock_guard<std::mutex> lock(m_scanResultMutex);
@@ -1053,6 +967,43 @@ void FileNavigator::StartDirectoryWatcher(const std::wstring& dirPath) {
     if (!m_hCancelEvent) return;
 
     m_watcherThread = std::thread(&FileNavigator::WatcherThreadProc, this);
+}
+
+void FileNavigator::StopInitialScan() {
+    {
+        std::lock_guard<std::mutex> lock(m_scanWorkMutex);
+        m_scanWorkerStop = true;
+    }
+    m_scanWorkCv.notify_all();
+    if (m_scanWorker.joinable()) {
+        m_scanWorker.join();
+    }
+}
+
+// 常驻扫描线程：处理 Initialize 提交的全量目录扫描请求（串行，最新优先）
+void FileNavigator::ScanWorkerLoop() {
+    for (;;) {
+        std::wstring dir;
+        uint32_t genAtPick = 0;
+        {
+            std::unique_lock<std::mutex> lock(m_scanWorkMutex);
+            m_scanWorkCv.wait(lock, [this] { return m_scanWorkPending || m_scanWorkerStop; });
+            if (m_scanWorkerStop) return;
+            m_scanWorkPending = false;
+            dir = m_scanDir;
+            genAtPick = m_scanGeneration.load();
+        }
+
+        DirectoryScanResult result = PerformDirectoryScan(dir);
+
+        if (m_scanGeneration.load() != genAtPick) continue; // 已被新导航取代
+
+        {
+            std::lock_guard<std::mutex> lock(m_scanResultMutex);
+            m_pendingScanResult = std::move(result);
+        }
+        if (m_hwnd) PostMessageW(m_hwnd, WM_NAVIGATOR_DIR_CHANGED, 0, 0);
+    }
 }
 
 void FileNavigator::StopDirectoryWatcher() {
