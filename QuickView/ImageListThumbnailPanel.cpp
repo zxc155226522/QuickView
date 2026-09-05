@@ -88,10 +88,26 @@ void ImageListThumbnailPanel::ShowImageThumbnails(FileNavigator* nav, int curren
         m_imagePaths[i] = nav->GetFile((int)i);
     }
 
-    // Clear cache
-    for (auto& pair : m_imageThumbCache) { if (pair.second) pair.second->Release(); }
-    m_imageThumbCache.clear();
-    m_imageThumbBg.clear();
+    // [渐进扫描] 列表刷新时保留"同位置同文件"的已加载缩略图，避免分批
+    // 快照 / 最终结果到达时窗口闪烁重载；只清掉位置内容变化的条目
+    {
+        std::vector<uint32_t> stale;
+        for (auto& pair : m_imageThumbCache) {
+            const uint32_t idx = pair.first;
+            auto keyIt = m_cacheIndexPaths.find(idx);
+            const bool keep = idx < m_imagePaths.size() &&
+                              keyIt != m_cacheIndexPaths.end() &&
+                              keyIt->second == m_imagePaths[idx];
+            if (!keep) stale.push_back(idx);
+        }
+        for (uint32_t idx : stale) {
+            auto it = m_imageThumbCache.find(idx);
+            if (it != m_imageThumbCache.end() && it->second) it->second->Release();
+            m_imageThumbCache.erase(idx);
+            m_imageThumbBg.erase(idx);
+            m_cacheIndexPaths.erase(idx);
+        }
+    }
     // Clear async queue
     {
         std::lock_guard<std::mutex> lock(m_thumbQueueMutex);
@@ -127,6 +143,7 @@ void ImageListThumbnailPanel::OnDocumentClosed() {
     for (auto& pair : m_imageThumbCache) { if (pair.second) pair.second->Release(); }
     m_imageThumbCache.clear();
     m_imageThumbBg.clear();
+    m_cacheIndexPaths.clear();
     m_scrollY = 0.0f;
     m_targetScrollY = 0.0f;
     m_scrollX = 0.0f;
@@ -377,6 +394,7 @@ void ImageListThumbnailPanel::OnUpdateThumbnailRequests() {
                 if (dist > 30) {
                     if (it->second) it->second->Release();
                     m_imageThumbBg.erase(it->first);
+                    m_cacheIndexPaths.erase(it->first);
                     it = m_imageThumbCache.erase(it);
                 } else {
                     ++it;
@@ -413,6 +431,7 @@ void ImageListThumbnailPanel::OnUpdateThumbnailRequests() {
             if (dist > 30) {
                 if (it->second) it->second->Release();
                 m_imageThumbBg.erase(it->first);
+                m_cacheIndexPaths.erase(it->first);
                 it = m_imageThumbCache.erase(it);
             } else {
                 ++it;
@@ -440,6 +459,7 @@ void ImageListThumbnailPanel::ProcessAsyncResults(ID2D1RenderTarget* pRT) {
         }
         if (!r.valid || r.width <= 0 || r.height <= 0 || r.pixels.empty()) {
             m_imageThumbCache[r.pageIndex] = nullptr;
+            m_cacheIndexPaths[r.pageIndex] = r.sourcePath;
             continue;
         }
         D2D1_BITMAP_PROPERTIES props = D2D1::BitmapProperties(
@@ -454,10 +474,12 @@ void ImageListThumbnailPanel::ProcessAsyncResults(ID2D1RenderTarget* pRT) {
             }
             m_imageThumbCache[r.pageIndex] = bmp.Detach();
             m_imageThumbBg[r.pageIndex] = { r.hasTransparency, r.adaptiveBgColor };
+            m_cacheIndexPaths[r.pageIndex] = r.sourcePath;
             m_needsRepaint = true;
         } else {
             m_imageThumbCache[r.pageIndex] = nullptr;
             m_imageThumbBg.erase(r.pageIndex);
+            m_cacheIndexPaths[r.pageIndex] = r.sourcePath;
         }
     }
     // [防重复加载] 结果已入缓存（或已丢弃），此刻才解除 pending 标记，

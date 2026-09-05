@@ -911,8 +911,11 @@ FileNavigator::DirectoryScanResult FileNavigator::PerformDirectoryScan(const std
 
         entries.push_back(std::move(e));
 
+        // [渐进扫描] 首批不限时间：SMB 大包瞬时返回时若也要求"距上次投递
+        // 超 300ms"，第一次投递会被拦掉，冷缓存下邻居要等整个枚举结束
+        const bool firstPost = (lastPostedSize == 0);
         if (entries.size() - lastPostedSize >= kScanProgressiveBatchFiles &&
-            GetTickCount64() - lastPostTick >= kScanProgressiveMinMs) {
+            (firstPost || GetTickCount64() - lastPostTick >= kScanProgressiveMinMs)) {
             PostPartialScanResult(dir, entries);
             lastPostedSize = entries.size();
             lastPostTick = GetTickCount64();
@@ -969,6 +972,7 @@ void FileNavigator::PostPartialScanResult(const std::wstring& dir,
         partial.ids.push_back(ComputePathHash(f));
     }
 
+    const size_t partialCount = partial.files.size();
     {
         std::lock_guard<std::mutex> lock(m_scanResultMutex);
         m_pendingScanResult = std::move(partial);
@@ -977,7 +981,7 @@ void FileNavigator::PostPartialScanResult(const std::wstring& dir,
         SYSTEMTIME st; GetLocalTime(&st);
         fwprintf(fp, L"[%02u:%02u:%02u.%03u] [SCAN-PARTIAL] %ls -> %zu files\n",
                  st.wHour, st.wMinute, st.wSecond, st.wMilliseconds,
-                 dir.c_str(), partial.files.size());
+                 dir.c_str(), partialCount);
         fclose(fp);
     }
     if (m_hwnd) PostMessageW(m_hwnd, WM_NAVIGATOR_DIR_CHANGED, 1, 0);

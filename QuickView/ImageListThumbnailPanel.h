@@ -119,4 +119,7 @@ private:
     std::vector<std::wstring> m_imagePaths;
     std::map<uint32_t, ID2D1Bitmap*> m_imageThumbCache;
     std::map<uint32_t, ThumbBgInfo> m_imageThumbBg;
+    // [渐进扫描] 缓存条目对应的文件路径：列表刷新时同位置同文件的位图
+    // 直接保留，避免分批快照/最终结果到达时窗口闪烁重载
+    std::map<uint32_t, std::wstring> m_cacheIndexPaths;
 };
