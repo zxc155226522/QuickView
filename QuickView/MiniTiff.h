@@ -44,12 +44,6 @@ HRESULT LoadRegion(const uint8_t* data, size_t size,
                    QuickView::Codec::DecodeResult& result,
                    int cropX, int cropY, int cropW, int cropH);
 
-// [Sampled Thumbnail] 无压缩 chunky TIFF 快速缩略图：均匀采样若干行拼出
-// targetSize 方框内的缩略图（网络映射文件只触碰采样行所在页，单张 I/O 约
-// 为完整读取的几十分之一）。不满足前提返回失败，调用方落回完整解码。
-HRESULT LoadSampledThumb(const uint8_t* data, size_t size, int targetSize,
-                         CImageLoader::ThumbData* pData);
-
 // RAII wrapper that builds a CMYK(embedded ICC) -> sRGB transform via lcms2.
 // Used by ConvertCmykToBgra so CMYK TIFFs (e.g. Corel heat-transfer exports)
 // decode with accurate device color instead of the naive (255-C)*(255-K)

@@ -3257,33 +3257,6 @@ static bool OpenPathOrDirectory(HWND hwnd, const std::wstring& path, bool clearT
         g_thumbMgr.ClearCache();
     }
 
-    // [缩略图栏先显示] 不等主图解码完成（大 TIF 网络盘要数秒）：
-    // 快速状态就绪后立即显示底部缩略图栏，当前项先以占位卡片出现，
-    // 缩略图随后渐进填充。多页文档（PDF/AI/CDR/DWG）仍按原逻辑在
-    // 加载完成后切到 PDF 页面面板。
-    {
-        static const wchar_t* kPagedDocExts[] = {
-            L".pdf", L".ai", L".cdr", L".cmx", L".dwg", L".dxf", L".plt"};
-        std::wstring openExt = isDirectory ? L"" : fsPath.extension().wstring();
-        std::transform(openExt.begin(), openExt.end(), openExt.begin(),
-                       [](wchar_t c) { return std::towlower(c); });
-        bool isPagedDocExt = false;
-        for (const wchar_t* e : kPagedDocExts) {
-            if (openExt == e) { isPagedDocExt = true; break; }
-        }
-        auto& nav = GetPaneContext(PaneSlot::Primary).navigator;
-        if (!isPagedDocExt && nav.Count() >= 1 &&
-            g_config.ImageThumbPanelSide != 2) {
-            g_imageThumbPanel.SetPanelSide(g_config.ImageThumbPanelSide);
-            g_imageThumbPanel.ShowImageThumbnails(
-                &nav, nav.Index(), (uint32_t)nav.Count());
-            RECT rcClient; GetClientRect(hwnd, &rcClient);
-            g_imageThumbPanel.UpdateLayout(D2D1::RectF(
-                0.0f, 0.0f, (float)(rcClient.right - rcClient.left),
-                (float)(rcClient.bottom - rcClient.top)));
-        }
-    }
-
     if (isDirectory) {
         auto& dirNav = GetPaneContext(PaneSlot::Primary).navigator;
         if (dirNav.Count() >= 1) {
@@ -9346,9 +9319,8 @@ RequestRepaint(PaintLayer::Dynamic | PaintLayer::Static);  // OSD and Border ind
                 // [渐进扫描] 面板刷新策略：
                 // - 最终结果（wParam==0）：始终刷新；
                 // - 中间快照（wParam==1，前缀稳定）：面板已显示且当前项索引
-                //   未变化时跳过（现有 ±20 窗口仍正确，避免反复重载）；
-                //   当前文件还在快照尾部（临时追加态）时也跳过，等枚举越过
-                //   它或最终结果到达。
+                //   未变化时跳过，避免反复重载；当前文件还在快照尾部
+                //   （临时追加态）时也跳过，等枚举越过它或最终结果到达。
                 const bool scanPartial = (wParam != 0);
                 const int tailGuard = idx < 0 ? 0 : idx;
                 const bool currentInTail =
@@ -10070,8 +10042,7 @@ case ToolbarButtonID::ImageThumbPanelToggle: {
         g_imageThumbPanel.SetPanelSide(3);
         if (!g_imagePath.empty()) {
             auto& nav = GetPaneContext(PaneSlot::Primary).navigator;
-            // [异步目录扫描] 快速状态（仅当前文件）也立即显示
-            if (nav.Count() >= 1) {
+            if (nav.Count() > 1) {
                 g_imageThumbPanel.ShowImageThumbnails(&nav, nav.Index(), (uint32_t)nav.Count());
             }
         }
@@ -12314,8 +12285,7 @@ const std::wstring& contextPath = contextLeft ? GetPaneContext(PaneSlot::Left).p
                 g_imageThumbPanel.SetPanelSide(newSide);
                 if (!g_imagePath.empty()) {
                     auto& nav = GetPaneContext(PaneSlot::Primary).navigator;
-                    // [异步目录扫描] 快速状态（仅当前文件）也立即显示
-                    if (nav.Count() >= 1) {
+                    if (nav.Count() > 1) {
                         g_imageThumbPanel.ShowImageThumbnails(&nav, nav.Index(), (uint32_t)nav.Count());
                     }
                 }
@@ -12353,8 +12323,7 @@ const std::wstring& contextPath = contextLeft ? GetPaneContext(PaneSlot::Left).p
                 g_imageThumbPanel.SetPanelSide(newSide);
                 if (!g_imagePath.empty()) {
                     auto& nav = GetPaneContext(PaneSlot::Primary).navigator;
-                    // [异步目录扫描] 快速状态（仅当前文件）也立即显示
-                    if (nav.Count() >= 1) {
+                    if (nav.Count() > 1) {
                         g_imageThumbPanel.ShowImageThumbnails(&nav, nav.Index(), (uint32_t)nav.Count());
                     }
                 }
@@ -13213,13 +13182,10 @@ void ProcessEngineEvents(HWND hwnd) {
                             }
                         }
                     } else {
-                        // [Image Mode] Show folder image thumbnails if panel is not off.
-                        // [异步目录扫描] 不再要求 Count()>1：打开文件时列表处于快速状态
-                        // （只含当前文件），缩略图栏立即显示，全量列表到达后由
-                        // WM_NAVIGATOR_DIR_CHANGED 补入其余缩略图
+                        // [Image Mode] Show folder image thumbnails if panel is not off
                         if (g_config.ImageThumbPanelSide != 2) {
                             auto& nav = GetPaneContext(PaneSlot::Primary).navigator;
-                            if (nav.Count() >= 1) {
+                            if (nav.Count() > 1) {
                                 g_imageThumbPanel.SetPanelSide(g_config.ImageThumbPanelSide);
                                 g_imageThumbPanel.ShowImageThumbnails(&nav, nav.Index(), (uint32_t)nav.Count());
                                 RECT rcClient; GetClientRect(hwnd, &rcClient);

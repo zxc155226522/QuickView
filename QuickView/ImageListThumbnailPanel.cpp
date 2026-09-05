@@ -13,31 +13,6 @@ extern float g_uiScale;
 extern AppConfig g_config;
 extern std::unique_ptr<CImageLoader> g_imageLoader;
 
-// ============================================================================
-// [缩略图性能日志] 诊断网络盘大目录缩略图加载慢：
-// 每张缩略图记录 文件名 / 结果(loaderName 或 失败) / 解码耗时；
-// ShowImageThumbnails 记录列表规模。日志：E:\qv_thumb_perf.log
-// ============================================================================
-namespace {
-std::mutex g_perfLogMutex;
-
-void QvThumbPerfLog(const wchar_t* fmt, ...) {
-    std::lock_guard<std::mutex> lock(g_perfLogMutex);
-    FILE* fp = _wfopen(L"E:\\qv_thumb_perf.log", L"a");
-    if (!fp) return;
-    SYSTEMTIME st;
-    GetLocalTime(&st);
-    fwprintf(fp, L"[%02u:%02u:%02u.%03u] ", st.wHour, st.wMinute, st.wSecond,
-             st.wMilliseconds);
-    va_list args;
-    va_start(args, fmt);
-    vfwprintf(fp, fmt, args);
-    va_end(args);
-    fputws(L"\n", fp);
-    fclose(fp);
-}
-} // namespace
-
 ImageListThumbnailPanel::~ImageListThumbnailPanel() {
     m_thumbRunning = false;
     m_thumbCV.notify_all();
@@ -53,9 +28,6 @@ ImageListThumbnailPanel::~ImageListThumbnailPanel() {
 
 void ImageListThumbnailPanel::InitializeEx(HWND hwnd) {
     Initialize(hwnd);
-    _wremove(L"E:\\qv_thumb_perf.log"); // 每次启动重新累积
-    QvThumbPerfLog(L"[Panel] InitializeEx, %d worker threads",
-                   kThumbWorkerThreads);
     // Start background thumbnail worker thread pool
     m_thumbRunning = true;
     m_thumbThreads.reserve(kThumbWorkerThreads);
@@ -69,8 +41,10 @@ void ImageListThumbnailPanel::ShowImageThumbnails(FileNavigator* nav, int curren
         OnDocumentClosed();
         return;
     }
-    // [异步目录扫描] totalFiles==1 允许显示：打开文件时列表处于快速状态
-    // （只含当前文件），缩略图栏先显示，全量列表到达后再次调用本函数填入
+    if (totalFiles <= 1) {
+        OnDocumentClosed();
+        return;
+    }
 
     bool wasVisible = m_visible && m_isImageMode;
     m_visible = true;
@@ -88,26 +62,10 @@ void ImageListThumbnailPanel::ShowImageThumbnails(FileNavigator* nav, int curren
         m_imagePaths[i] = nav->GetFile((int)i);
     }
 
-    // [渐进扫描] 列表刷新时保留"同位置同文件"的已加载缩略图，避免分批
-    // 快照 / 最终结果到达时窗口闪烁重载；只清掉位置内容变化的条目
-    {
-        std::vector<uint32_t> stale;
-        for (auto& pair : m_imageThumbCache) {
-            const uint32_t idx = pair.first;
-            auto keyIt = m_cacheIndexPaths.find(idx);
-            const bool keep = idx < m_imagePaths.size() &&
-                              keyIt != m_cacheIndexPaths.end() &&
-                              keyIt->second == m_imagePaths[idx];
-            if (!keep) stale.push_back(idx);
-        }
-        for (uint32_t idx : stale) {
-            auto it = m_imageThumbCache.find(idx);
-            if (it != m_imageThumbCache.end() && it->second) it->second->Release();
-            m_imageThumbCache.erase(idx);
-            m_imageThumbBg.erase(idx);
-            m_cacheIndexPaths.erase(idx);
-        }
-    }
+    // Clear cache
+    for (auto& pair : m_imageThumbCache) { if (pair.second) pair.second->Release(); }
+    m_imageThumbCache.clear();
+    m_imageThumbBg.clear();
     // Clear async queue
     {
         std::lock_guard<std::mutex> lock(m_thumbQueueMutex);
@@ -124,16 +82,11 @@ void ImageListThumbnailPanel::ShowImageThumbnails(FileNavigator* nav, int curren
     // Always re-center on the newly opened file, even if the panel was already
     // visible (opening another image in the same/another folder).
     ScrollToCurrentPage(true);
-    // [初始加载窗口] 本轮只加载当前项前后各 kInitialLoadRadius 张
-    m_initialBurstPending = true;
-    QvThumbPerfLog(L"[SHOW] total=%u cur=%d burstRadius=%u",
-                   totalFiles, currentIndex, kInitialLoadRadius);
 }
 
 void ImageListThumbnailPanel::OnDocumentClosed() {
     m_visible = false;
     m_isImageMode = false;
-    m_initialBurstPending = false;
     m_totalPages = 0;
     m_currentPage = 0;
     m_navigator = nullptr;
@@ -143,7 +96,6 @@ void ImageListThumbnailPanel::OnDocumentClosed() {
     for (auto& pair : m_imageThumbCache) { if (pair.second) pair.second->Release(); }
     m_imageThumbCache.clear();
     m_imageThumbBg.clear();
-    m_cacheIndexPaths.clear();
     m_scrollY = 0.0f;
     m_targetScrollY = 0.0f;
     m_scrollX = 0.0f;
@@ -367,19 +319,11 @@ void ImageListThumbnailPanel::OnUpdateThumbnailRequests() {
 
     if (m_panelSide == 3) {
         const float itemWidth = BottomItemStride();
-        int start = std::max(0, static_cast<int>(m_scrollX / itemWidth)) - 2;
-        int end = std::min(static_cast<int>(m_totalImages),
+        const int visibleStart = std::max(0, static_cast<int>(m_scrollX / itemWidth)) - 2;
+        const int visibleEnd = std::min(static_cast<int>(m_totalImages),
             static_cast<int>((m_scrollX + m_panelWidth) / itemWidth) + 3);
-        // [初始加载窗口] 首屏只加载当前项前后各 kInitialLoadRadius 张，
-        // 入队后恢复常规的可视范围按需加载
-        if (m_initialBurstPending) {
-            const int cur = std::max(0, m_currentImageIndex);
-            start = std::max(start, cur - static_cast<int>(kInitialLoadRadius));
-            end = std::min(end, cur + static_cast<int>(kInitialLoadRadius) + 1);
-            m_initialBurstPending = false;
-        }
 
-        for (int i = start; i < end; ++i) {
+        for (int i = visibleStart; i < visibleEnd; ++i) {
             if (i < 0 || i >= (int)m_totalImages) continue;
             uint32_t idx = (uint32_t)i;
             if (m_imageThumbCache.find(idx) == m_imageThumbCache.end()) {
@@ -394,7 +338,6 @@ void ImageListThumbnailPanel::OnUpdateThumbnailRequests() {
                 if (dist > 30) {
                     if (it->second) it->second->Release();
                     m_imageThumbBg.erase(it->first);
-                    m_cacheIndexPaths.erase(it->first);
                     it = m_imageThumbCache.erase(it);
                 } else {
                     ++it;
@@ -405,18 +348,11 @@ void ImageListThumbnailPanel::OnUpdateThumbnailRequests() {
     }
 
     const float itemHeight = kThumbnailTargetHeight * g_uiScale + kPageLabelHeight * g_uiScale + kItemSpacing;
-    int start = std::max(0, static_cast<int>(m_scrollY / itemHeight)) - 2;
-    int end = std::min(static_cast<int>(m_totalImages),
+    const int visibleStart = std::max(0, static_cast<int>(m_scrollY / itemHeight)) - 2;
+    const int visibleEnd = std::min(static_cast<int>(m_totalImages),
         static_cast<int>((m_scrollY + m_panelHeight) / itemHeight) + 3);
-    // [初始加载窗口] 同底部条：首屏只加载当前项前后各 kInitialLoadRadius 张
-    if (m_initialBurstPending) {
-        const int cur = std::max(0, m_currentImageIndex);
-        start = std::max(start, cur - static_cast<int>(kInitialLoadRadius));
-        end = std::min(end, cur + static_cast<int>(kInitialLoadRadius) + 1);
-        m_initialBurstPending = false;
-    }
 
-    for (int i = start; i < end; ++i) {
+    for (int i = visibleStart; i < visibleEnd; ++i) {
         if (i < 0 || i >= (int)m_totalImages) continue;
         uint32_t idx = (uint32_t)i;
         if (m_imageThumbCache.find(idx) == m_imageThumbCache.end()) {
@@ -431,7 +367,6 @@ void ImageListThumbnailPanel::OnUpdateThumbnailRequests() {
             if (dist > 30) {
                 if (it->second) it->second->Release();
                 m_imageThumbBg.erase(it->first);
-                m_cacheIndexPaths.erase(it->first);
                 it = m_imageThumbCache.erase(it);
             } else {
                 ++it;
@@ -448,18 +383,9 @@ void ImageListThumbnailPanel::ProcessAsyncResults(ID2D1RenderTarget* pRT) {
         std::lock_guard<std::mutex> lock(m_thumbResultMutex);
         results.swap(m_thumbResults);
     }
-    std::vector<uint32_t> consumedPages;
     for (auto& r : results) {
-        consumedPages.push_back(r.pageIndex);
-        // [防竞态] 列表在解码期间被换入（切换目录/全量列表到达）：
-        // 结果与当前列表不一致时直接丢弃，不污染新缓存
-        if (r.pageIndex >= m_imagePaths.size() ||
-            m_imagePaths[r.pageIndex] != r.sourcePath) {
-            continue;
-        }
         if (!r.valid || r.width <= 0 || r.height <= 0 || r.pixels.empty()) {
             m_imageThumbCache[r.pageIndex] = nullptr;
-            m_cacheIndexPaths[r.pageIndex] = r.sourcePath;
             continue;
         }
         D2D1_BITMAP_PROPERTIES props = D2D1::BitmapProperties(
@@ -474,19 +400,11 @@ void ImageListThumbnailPanel::ProcessAsyncResults(ID2D1RenderTarget* pRT) {
             }
             m_imageThumbCache[r.pageIndex] = bmp.Detach();
             m_imageThumbBg[r.pageIndex] = { r.hasTransparency, r.adaptiveBgColor };
-            m_cacheIndexPaths[r.pageIndex] = r.sourcePath;
             m_needsRepaint = true;
         } else {
             m_imageThumbCache[r.pageIndex] = nullptr;
             m_imageThumbBg.erase(r.pageIndex);
-            m_cacheIndexPaths[r.pageIndex] = r.sourcePath;
         }
-    }
-    // [防重复加载] 结果已入缓存（或已丢弃），此刻才解除 pending 标记，
-    // 关闭"解码完成→结果入缓存"空窗期内的重复入队
-    if (!consumedPages.empty()) {
-        std::lock_guard<std::mutex> lock(m_thumbQueueMutex);
-        for (uint32_t p : consumedPages) m_thumbPending.erase(p);
     }
 }
 
@@ -524,7 +442,6 @@ void ImageListThumbnailPanel::ThumbWorkerLoop() {
 
     while (m_thumbRunning) {
         uint32_t idx;
-        std::wstring path;
         {
             std::unique_lock<std::mutex> lock(m_thumbQueueMutex);
             m_thumbCV.wait(lock, [this] { return !m_thumbQueue.empty() || !m_thumbRunning; });
@@ -532,35 +449,16 @@ void ImageListThumbnailPanel::ThumbWorkerLoop() {
             if (m_thumbQueue.empty()) continue;
             idx = m_thumbQueue.front();
             m_thumbQueue.pop();
-            // [防竞态] 路径在锁内拷贝：UI 线程可能在 ShowImageThumbnails 中改写 m_imagePaths
-            if (idx < m_imagePaths.size()) path = m_imagePaths[idx];
         }
 
         AsyncThumbResult result;
         result.pageIndex = idx;
-        result.sourcePath = path;
 
-        const uint64_t decodeStart = GetTickCount64();
-        if (!path.empty()) {
-            const bool wantTrans = QuickView::WantsTransparentBackground(path);
+        if (idx < m_imagePaths.size()) {
+            const bool wantTrans = QuickView::WantsTransparentBackground(m_imagePaths[idx]);
             CImageLoader::ThumbData thumbData;
             HRESULT hr = loader.LoadThumbnail(
-                path.c_str(), kThumbnailTargetWidth, &thumbData, true, wantTrans);
-            const uint64_t decodeMs = GetTickCount64() - decodeStart;
-            {
-                size_t slash = path.find_last_of(L"\\/");
-                const wchar_t* name = (slash != std::wstring::npos) ? path.c_str() + slash + 1 : path.c_str();
-                if (SUCCEEDED(hr) && thumbData.isValid) {
-                    QvThumbPerfLog(L"[THUMB] #%u %ls -> %ls, %llu ms",
-                                   idx, name,
-                                   thumbData.loaderName.c_str(),
-                                   (unsigned long long)decodeMs);
-                } else {
-                    QvThumbPerfLog(L"[THUMB] #%u %ls -> FAILED hr=0x%08X, %llu ms",
-                                   idx, name, (unsigned)hr,
-                                   (unsigned long long)decodeMs);
-                }
-            }
+                m_imagePaths[idx].c_str(), kThumbnailTargetWidth, &thumbData, true, wantTrans);
             if (SUCCEEDED(hr) && thumbData.isValid && !thumbData.pixels.empty()) {
                 result.pixels = std::move(thumbData.pixels);
                 result.width = thumbData.width;
@@ -581,10 +479,10 @@ void ImageListThumbnailPanel::ThumbWorkerLoop() {
             PostMessage(m_hwnd, WM_IMAGE_THUMB_READY, 0, 0);
         }
 
-        // [防重复加载] pending 标记保持到主线程把结果收进缓存为止
-        //（ProcessAsyncResults 中清除）。若在"解码完成→结果入缓存"的空窗期
-        // 清除，加载调度器会认为该项既不在缓存也不在 pending 而重新入队，
-        // 导致整批缩略图加载两遍。
+        {
+            std::lock_guard<std::mutex> lock(m_thumbQueueMutex);
+            m_thumbPending.erase(idx);
+        }
     }
 
     if (SUCCEEDED(coInit)) CoUninitialize();

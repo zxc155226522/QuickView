@@ -78,7 +78,6 @@ private:
     // Async thumbnail loader
     struct AsyncThumbResult {
         uint32_t pageIndex = 0;
-        std::wstring sourcePath; // [防竞态] 结果只在与当前列表一致时才入缓存
         std::vector<uint8_t> pixels;
         int width = 0;
         int height = 0;
@@ -105,21 +104,15 @@ private:
     void EnqueueThumb(uint32_t idx);
     void ThumbWorkerLoop();
 
-    static constexpr int kThumbWorkerThreads = 8;    static constexpr size_t kMaxCacheSize = 80;
-    // [初始加载窗口] 打开文件/换入全量列表后，只加载当前项前后各 20 张，
-    // 其余等滚动到再按需加载（网络盘大目录首屏快速填充）
-    static constexpr uint32_t kInitialLoadRadius = 20;
+    static constexpr int kThumbWorkerThreads = 4;
+    static constexpr size_t kMaxCacheSize = 80;
 
     // Image mode state
     bool m_isImageMode = false;
-    bool m_initialBurstPending = false;
     FileNavigator* m_navigator = nullptr;
     int m_currentImageIndex = -1;
     uint32_t m_totalImages = 0;
     std::vector<std::wstring> m_imagePaths;
     std::map<uint32_t, ID2D1Bitmap*> m_imageThumbCache;
     std::map<uint32_t, ThumbBgInfo> m_imageThumbBg;
-    // [渐进扫描] 缓存条目对应的文件路径：列表刷新时同位置同文件的位图
-    // 直接保留，避免分批快照/最终结果到达时窗口闪烁重载
-    std::map<uint32_t, std::wstring> m_cacheIndexPaths;
 };
