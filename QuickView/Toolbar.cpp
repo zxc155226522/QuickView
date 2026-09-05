@@ -1606,7 +1606,9 @@ bool Toolbar::UpdateAnimation() {
   }
   float speed = 0.34f;
   if (m_targetVisible) {
-    if (m_opacity < 1.0f) { m_opacity += speed; if (m_opacity > 1.0f) m_opacity = 1.0f; return true; }
+    // [Fix] 启动/首次显示时直接不透明：加载慢时淡入中间帧会停留很久，
+    // 半透明图层会把背景透出来。淡出动画保留。
+    if (m_opacity < 1.0f) { m_opacity = 1.0f; return true; }
   } else {
     if (m_opacity > 0.0f) { m_opacity -= speed; if (m_opacity < 0.0f) m_opacity = 0.0f; return true; }
   }
