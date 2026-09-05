@@ -4880,6 +4880,17 @@ HRESULT CImageLoader::LoadThumbnail(LPCWSTR filePath, int targetSize,
       tryEmbeddedPreview(L"TIFF Preview", PreviewExtractor::ExtractFromTIFF)) {
     return finishSuccess();
   }
+
+  // [Sampled Thumb] 无压缩 chunky TIFF 没有嵌入预览，完整解码需要从网络
+  // 读整个文件（几十 MB/张）。均匀采样行拼缩略图，单张 I/O 降到几 MB：
+  if (format == L"TIFF" && mappedData && mappedSize > 0 &&
+      SUCCEEDED(QuickView::MiniTiff::LoadSampledThumb(
+          mappedData, mappedSize, targetSize, pData))) {
+    pData->loaderName = L"TIFF Sampled";
+    DownscaleThumbDataIfNeeded(pData, targetSize);
+    PopulateThumbOriginalInfo(headerInfo, fallbackFileSize, pData);
+    return finishSuccess();
+  }
   if ((format == L"HEIC" || pathLower.ends_with(L".heic") ||
        pathLower.ends_with(L".heif") || pathLower.ends_with(L".hif")) &&
       tryEmbeddedPreview(L"HEIC Preview", PreviewExtractor::ExtractFromHEIC)) {

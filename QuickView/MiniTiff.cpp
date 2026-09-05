@@ -431,6 +431,172 @@ static Status CapabilityGate(const TiffImageDesc& desc) {
     return Status::Ok;
 }
 
+// ============================================================================
+// [Sampled Thumbnail] 无压缩 chunky TIFF（扫描件 / Corel 导出常见）快速缩略图：
+// 不逐行读全图，而是按输出高度在整幅图内均匀采样若干源行（内存映射的网络
+// 文件上只触碰这些行所在的页），横向 box 降采样后直接拼成缩略图。
+// 单张缩略图 I/O 从整个文件（几十 MB）降到约几 MB，带宽受限的大网络目录
+// 缩略图填充从几十秒缩短到几秒。CMYK 走 ICC/naive 转换，与主图观感一致。
+// 任何不满足前提的文件返回失败，由调用方落回完整解码路径。
+// ============================================================================
+HRESULT LoadSampledThumb(const uint8_t* data, size_t size, int targetSize,
+                         CImageLoader::ThumbData* pData) {
+    if (!data || size < 16 || !pData || targetSize <= 0) return E_INVALIDARG;
+
+    TiffImageDesc desc;
+    if (ParseTiffIFD(data, size, desc) != Status::Ok) return E_FAIL;
+
+    // 仅处理无压缩、chunky、8bit 的条带图
+    if (desc.isTiled || desc.compression != 1 || desc.planarConfig != 1 ||
+        desc.bitsPerSample != 8) {
+        return E_FAIL;
+    }
+    const bool isCmyk = (desc.photometric == 5);
+    const bool isRgb = (desc.photometric == 2);
+    const bool isGray = (desc.photometric == 1);
+    if (!isCmyk && !isRgb && !isGray) return E_FAIL;
+    if (isCmyk && desc.samples < 4) return E_FAIL;
+    if (isRgb && desc.samples < 3) return E_FAIL;
+
+    // 用 StripByteCounts 总量校验"8bit 均匀 + 无压缩"假设（ParseTiffIFD 已保证
+    // BitsPerSample 一致，此处若不等于 w*h*spp 说明有 Slack/混合位深，放弃）
+    uint64_t totalBytes = 0;
+    for (uint64_t b : desc.byteCounts) totalBytes += b;
+    const uint64_t expectBytes =
+        static_cast<uint64_t>(desc.width) * desc.height * desc.samples;
+    if (totalBytes != expectBytes) return E_FAIL;
+
+    const int w = static_cast<int>(desc.width);
+    const int h = static_cast<int>(desc.height);
+    const int spp = desc.samples;
+    const uint64_t rowBytes = static_cast<uint64_t>(w) * spp;
+
+    // 缩略图适配 targetSize 方框，保持纵横比
+    int thumbW = targetSize;
+    int thumbH = (int)(((int64_t)targetSize * h + w / 2) / w);
+    if (thumbH < 1) thumbH = 1;
+    if (thumbH > targetSize) {
+        thumbH = targetSize;
+        thumbW = (int)(((int64_t)targetSize * w + h / 2) / h);
+        if (thumbW < 1) thumbW = 1;
+    }
+
+    // 采样行数：每个输出行至多取一个源行
+    const int sampleRows = (thumbH < h) ? thumbH : h;
+    const uint64_t sampledBytes = rowBytes * sampleRows;
+    if (sampledBytes == 0 || sampledBytes * 4 >= totalBytes) {
+        // 采样省不了多少 I/O（小图）——走完整解码保证质量
+        return E_FAIL;
+    }
+
+    std::vector<uint8_t> sampled;
+    sampled.resize(static_cast<size_t>(sampledBytes));
+
+    // 均匀取行：(j + 0.5) * h / sampleRows，落在条带内直接从映射内存拷贝
+    const uint32_t rps = desc.rowsPerStrip ? desc.rowsPerStrip : desc.height;
+    for (int j = 0; j < sampleRows; ++j) {
+        const int64_t srcRow =
+            ((int64_t)j * 2 + 1) * h / (2 * (int64_t)sampleRows);
+        if (srcRow < 0 || srcRow >= h) return E_FAIL;
+        const int strip = static_cast<int>(srcRow / rps);
+        if (strip < 0 || strip >= static_cast<int>(desc.offsets.size()))
+            return E_FAIL;
+        const uint64_t off =
+            desc.offsets[strip] + static_cast<uint64_t>(srcRow % rps) * rowBytes;
+        if (off > size || off + rowBytes > size) return E_FAIL;
+        memcpy(sampled.data() + static_cast<size_t>(j) * rowBytes,
+               data + off, static_cast<size_t>(rowBytes));
+    }
+
+    // 横向 box 降采样 → 逐像素 BGRA
+    pData->width = thumbW;
+    pData->height = thumbH;
+    pData->stride = thumbW * 4;
+    pData->pixels.resize(static_cast<size_t>(pData->stride) * thumbH);
+    pData->isValid = true;
+    pData->isBlurry = false;
+    pData->origWidth = w;
+    pData->origHeight = h;
+
+    CmykIccXform xform;
+    if (isCmyk && !desc.iccProfile.empty()) {
+        xform.Build(desc.iccProfile.data(), desc.iccProfile.size());
+    }
+    // 与主图一致：ExtraSamples 声明为关联/非关联 alpha 时第 5 通道是透明蒙版
+    const bool cmykAlpha = isCmyk && (desc.extraSamples == 1 || desc.extraSamples == 2) && spp >= 5;
+
+    std::vector<uint8_t> cmykRowBuf;
+    if (isCmyk) {
+        cmykRowBuf.resize(static_cast<size_t>(thumbW) * spp);
+    }
+
+    for (int y = 0; y < thumbH; ++y) {
+        const int srcRowIdx = (sampleRows == thumbH)
+            ? y
+            : (int)((int64_t)y * sampleRows / thumbH);
+        if (srcRowIdx < 0 || srcRowIdx >= sampleRows) return E_FAIL;
+        const uint8_t* srow =
+            sampled.data() + static_cast<size_t>(srcRowIdx) * rowBytes;
+        uint8_t* drow =
+            pData->pixels.data() + static_cast<size_t>(y) * pData->stride;
+
+        if (isCmyk) {
+            for (int x = 0; x < thumbW; ++x) {
+                const int x0 = (int)((int64_t)x * w / thumbW);
+                const int x1 = (int)((int64_t)(x + 1) * w / thumbW);
+                if (x1 <= x0) return E_FAIL;
+                uint32_t acc[4] = {0, 0, 0, 0};
+                for (int sx = x0; sx < x1; ++sx) {
+                    const uint8_t* px = srow + static_cast<size_t>(sx) * spp;
+                    acc[0] += px[0]; acc[1] += px[1];
+                    acc[2] += px[2]; acc[3] += px[3];
+                }
+                const int n = x1 - x0;
+                uint8_t* out = cmykRowBuf.data() + static_cast<size_t>(x) * spp;
+                out[0] = static_cast<uint8_t>(acc[0] / n);
+                out[1] = static_cast<uint8_t>(acc[1] / n);
+                out[2] = static_cast<uint8_t>(acc[2] / n);
+                out[3] = static_cast<uint8_t>(acc[3] / n);
+            }
+            ConvertCmykToBgra(cmykRowBuf.data(), drow, thumbW, spp,
+                              cmykAlpha, false, xform.xform);
+        } else {
+            // RGB（含 gray 复制）box 降采样；有第 4 通道时按 alpha 预乘
+            const bool rgba = isRgb && spp >= 4;
+            for (int x = 0; x < thumbW; ++x) {
+                const int x0 = (int)((int64_t)x * w / thumbW);
+                const int x1 = (int)((int64_t)(x + 1) * w / thumbW);
+                if (x1 <= x0) return E_FAIL;
+                uint32_t ar = 0, ag = 0, ab = 0, aa = 0;
+                for (int sx = x0; sx < x1; ++sx) {
+                    const uint8_t* px = srow + static_cast<size_t>(sx) * spp;
+                    if (isGray) {
+                        ar += px[0]; ag += px[0]; ab += px[0];
+                    } else {
+                        ar += px[0]; ag += px[1]; ab += px[2];
+                    }
+                    if (rgba) aa += px[3];
+                }
+                const int n = x1 - x0;
+                const uint8_t a = rgba
+                    ? static_cast<uint8_t>(aa / n) : 255;
+                uint8_t r = static_cast<uint8_t>(ar / n);
+                uint8_t g = static_cast<uint8_t>(ag / n);
+                uint8_t b = static_cast<uint8_t>(ab / n);
+                if (rgba && a < 255) {
+                    r = static_cast<uint8_t>((r * a + 127) / 255);
+                    g = static_cast<uint8_t>((g * a + 127) / 255);
+                    b = static_cast<uint8_t>((b * a + 127) / 255);
+                }
+                uint8_t* out = drow + static_cast<size_t>(x) * 4;
+                out[0] = b; out[1] = g; out[2] = r; out[3] = a;
+            }
+        }
+    }
+
+    return S_OK;
+}
+
 HRESULT LoadRegion(const uint8_t* data, size_t size,
                    const QuickView::Codec::DecodeContext& ctx,
                    QuickView::Codec::DecodeResult& result,

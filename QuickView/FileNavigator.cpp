@@ -65,7 +65,8 @@ void FileNavigator::Initialize(const std::wstring& currentPath, HWND hwnd) {
     // [异步目录扫描] 只建立"快速状态"让界面和主图立即就绪，不再在 UI 线程
     // 同步扫描整个目录（大目录 + 网络盘会卡住窗口数秒）：
     // - 打开文件：列表先只含当前文件，索引 0（导航/胶片条/页面指示立即可用）
-    // - 打开目录：空列表（画廊先显示框架，文件列表后台到达后填入）
+    // - 打开目录：只同步探测第一个可显示文件（directory_iterator 取到即停，
+    //   网络盘上开销很小），主图立即开始解码；全量列表由后台扫描补入
     // 全量扫描放后台线程，完成后经 WM_NAVIGATOR_DIR_CHANGED →
     // ApplyPendingScanResult 原子换入。
     if (!isDirectory) {
@@ -75,8 +76,27 @@ void FileNavigator::Initialize(const std::wstring& currentPath, HWND hwnd) {
         m_ids.push_back(ComputePathHash(p.wstring()));
         m_currentIndex = 0;
     } else {
-        m_files.clear();
-        m_currentIndex = -1;
+        std::error_code itEc;
+        for (const auto& entry : fs::directory_iterator(dir, itEc)) {
+            std::error_code feEc;
+            if (!entry.is_regular_file(feEc)) continue;
+            std::wstring ext = entry.path().extension().wstring();
+            std::transform(ext.begin(), ext.end(), ext.begin(), [](wchar_t c){ return std::towlower(c); });
+            if (QuickView::IsArchiveExtension(ext)) continue;
+            bool supported = false;
+            for (const auto& supp : QuickView::SUPPORTED_EXTENSIONS) {
+                if (ext == supp) { supported = true; break; }
+            }
+            if (supported) {
+                std::error_code ecSz;
+                m_files.assign(1, entry.path().wstring());
+                m_sizes.push_back(fs::file_size(entry.path(), ecSz));
+                m_ids.push_back(ComputePathHash(entry.path().wstring()));
+                m_currentIndex = 0;
+                break;
+            }
+        }
+        if (m_files.empty()) m_currentIndex = -1;
     }
 
     // [Directory Watcher] Start monitoring first: it sets m_watchedDir which

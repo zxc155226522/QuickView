@@ -41,10 +41,8 @@ void ImageListThumbnailPanel::ShowImageThumbnails(FileNavigator* nav, int curren
         OnDocumentClosed();
         return;
     }
-    if (totalFiles <= 1) {
-        OnDocumentClosed();
-        return;
-    }
+    // [异步目录扫描] totalFiles==1 允许显示：打开文件时列表处于快速状态
+    // （只含当前文件），缩略图栏先显示，全量列表到达后再次调用本函数填入
 
     bool wasVisible = m_visible && m_isImageMode;
     m_visible = true;
@@ -82,11 +80,14 @@ void ImageListThumbnailPanel::ShowImageThumbnails(FileNavigator* nav, int curren
     // Always re-center on the newly opened file, even if the panel was already
     // visible (opening another image in the same/another folder).
     ScrollToCurrentPage(true);
+    // [初始加载窗口] 本轮只加载当前项前后各 kInitialLoadRadius 张
+    m_initialBurstPending = true;
 }
 
 void ImageListThumbnailPanel::OnDocumentClosed() {
     m_visible = false;
     m_isImageMode = false;
+    m_initialBurstPending = false;
     m_totalPages = 0;
     m_currentPage = 0;
     m_navigator = nullptr;
@@ -319,11 +320,19 @@ void ImageListThumbnailPanel::OnUpdateThumbnailRequests() {
 
     if (m_panelSide == 3) {
         const float itemWidth = BottomItemStride();
-        const int visibleStart = std::max(0, static_cast<int>(m_scrollX / itemWidth)) - 2;
-        const int visibleEnd = std::min(static_cast<int>(m_totalImages),
+        int start = std::max(0, static_cast<int>(m_scrollX / itemWidth)) - 2;
+        int end = std::min(static_cast<int>(m_totalImages),
             static_cast<int>((m_scrollX + m_panelWidth) / itemWidth) + 3);
+        // [初始加载窗口] 首屏只加载当前项前后各 kInitialLoadRadius 张，
+        // 入队后恢复常规的可视范围按需加载
+        if (m_initialBurstPending) {
+            const int cur = std::max(0, m_currentImageIndex);
+            start = std::max(start, cur - static_cast<int>(kInitialLoadRadius));
+            end = std::min(end, cur + static_cast<int>(kInitialLoadRadius) + 1);
+            m_initialBurstPending = false;
+        }
 
-        for (int i = visibleStart; i < visibleEnd; ++i) {
+        for (int i = start; i < end; ++i) {
             if (i < 0 || i >= (int)m_totalImages) continue;
             uint32_t idx = (uint32_t)i;
             if (m_imageThumbCache.find(idx) == m_imageThumbCache.end()) {
@@ -348,11 +357,18 @@ void ImageListThumbnailPanel::OnUpdateThumbnailRequests() {
     }
 
     const float itemHeight = kThumbnailTargetHeight * g_uiScale + kPageLabelHeight * g_uiScale + kItemSpacing;
-    const int visibleStart = std::max(0, static_cast<int>(m_scrollY / itemHeight)) - 2;
-    const int visibleEnd = std::min(static_cast<int>(m_totalImages),
+    int start = std::max(0, static_cast<int>(m_scrollY / itemHeight)) - 2;
+    int end = std::min(static_cast<int>(m_totalImages),
         static_cast<int>((m_scrollY + m_panelHeight) / itemHeight) + 3);
+    // [初始加载窗口] 同底部条：首屏只加载当前项前后各 kInitialLoadRadius 张
+    if (m_initialBurstPending) {
+        const int cur = std::max(0, m_currentImageIndex);
+        start = std::max(start, cur - static_cast<int>(kInitialLoadRadius));
+        end = std::min(end, cur + static_cast<int>(kInitialLoadRadius) + 1);
+        m_initialBurstPending = false;
+    }
 
-    for (int i = visibleStart; i < visibleEnd; ++i) {
+    for (int i = start; i < end; ++i) {
         if (i < 0 || i >= (int)m_totalImages) continue;
         uint32_t idx = (uint32_t)i;
         if (m_imageThumbCache.find(idx) == m_imageThumbCache.end()) {

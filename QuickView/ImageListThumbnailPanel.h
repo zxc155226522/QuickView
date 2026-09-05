@@ -102,11 +102,14 @@ private:
     void EnqueueThumb(uint32_t idx);
     void ThumbWorkerLoop();
 
-    static constexpr int kThumbWorkerThreads = 4;
-    static constexpr size_t kMaxCacheSize = 80;
+    static constexpr int kThumbWorkerThreads = 8;    static constexpr size_t kMaxCacheSize = 80;
+    // [初始加载窗口] 打开文件/换入全量列表后，只加载当前项前后各 20 张，
+    // 其余等滚动到再按需加载（网络盘大目录首屏快速填充）
+    static constexpr uint32_t kInitialLoadRadius = 20;
 
     // Image mode state
     bool m_isImageMode = false;
+    bool m_initialBurstPending = false;
     FileNavigator* m_navigator = nullptr;
     int m_currentImageIndex = -1;
     uint32_t m_totalImages = 0;
