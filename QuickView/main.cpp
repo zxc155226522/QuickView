@@ -3652,7 +3652,11 @@ static float ComputeFitZoom(HWND hwnd) {
     const float winW = (float)rc.right;
     const float winH = (float)rc.bottom;
     const ImageViewportLayout viewport = ComputeImageViewportLayout(winW, winH);
-    const float rawFit = std::min(viewport.Width / effSize.width, viewport.Height / effSize.height);
+    // 适应窗口时四周留 30px 内边距；仅影响 fit 缩放比例，手动缩放/平移仍可贴边
+    const float fitPad = 30.0f * g_uiScale;
+    const float fitW = (std::max)(1.0f, viewport.Width - fitPad * 2.0f);
+    const float fitH = (std::max)(1.0f, viewport.Height - fitPad * 2.0f);
+    const float rawFit = std::min(fitW / effSize.width, fitH / effSize.height);
     VisualState vs = GetVisualState();
     const float cappedFit = ComputeBaseFitScaleForVisual(vs, viewport.Width, viewport.Height);
     return (cappedFit > 0.0001f) ? rawFit / cappedFit : 1.0f;
@@ -3991,8 +3995,8 @@ static void PerformZoomFit(HWND hwnd, float maxScreenPct = 1.0f, bool allowResiz
              float ratioH = (float)maxClientH / imgPixH;
              float scale = std::min(ratioW, ratioH);
              
-             int targetClientW = (int)(imgPixW * scale);
-             int targetClientH = (int)(imgPixH * scale);
+             int targetClientW = (int)(imgPixW * scale) + (int)(30.0f * g_uiScale) * 2;
+             int targetClientH = (int)(imgPixH * scale) + (int)(30.0f * g_uiScale) * 2;
              
              int targetWinW = targetClientW + borderW;
              int targetWinH = targetClientH + borderH;
