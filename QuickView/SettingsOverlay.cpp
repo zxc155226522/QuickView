@@ -340,6 +340,19 @@ static LONG SafeRegSetString(HKEY hRoot, const wchar_t* subKey, const wchar_t* v
     return r;
 }
 
+// Write a REG_DWORD value into a registry key. Used for the thumbnail CLSID's
+// DisableProcessIsolation=1 flag (Explorer otherwise uses IInitializeWithStream, which
+// QuickViewThumbnailProvider.dll deliberately does not implement -> thumbnails silently fail).
+static LONG SafeRegSetDWord(HKEY hRoot, const wchar_t* subKey, const wchar_t* valueName, DWORD value) {
+    HKEY hKey;
+    LONG r = RegCreateKeyExW(hRoot, subKey, 0, NULL, 0, KEY_WRITE, NULL, &hKey, NULL);
+    if (r == ERROR_SUCCESS) {
+        r = RegSetValueExW(hKey, valueName, 0, REG_DWORD, (const BYTE*)&value, sizeof(value));
+        RegCloseKey(hKey);
+    }
+    return r;
+}
+
 // IconHandler 的 ShellEx 类别 GUID（文件类型覆盖图标，IExtractIconW）
 static const wchar_t kIconHandlerIIDShell[] = L"{00021401-0000-0000-C000-000000000046}";
 
@@ -654,6 +667,13 @@ bool SettingsOverlay::RegisterAssociations() {
             std::wstring inprocKey = clsidKey + L"\\InprocServer32";
             SafeRegSetString(HKEY_CURRENT_USER, inprocKey.c_str(), NULL, dllPath);
             SafeRegSetString(HKEY_CURRENT_USER, inprocKey.c_str(), L"ThreadingModel", L"Apartment");
+
+            // [Fix] DisableProcessIsolation=1: Explorer must initialize this provider via
+            // IInitializeWithFile (real file path). Per QuickViewThumbnailProvider.cpp the
+            // DLL deliberately does NOT implement IInitializeWithStream (avoids copying large
+            // files to %TEMP% on network drives); without this flag Explorer uses the
+            // process-isolation stream path and thumbnails silently never appear.
+            SafeRegSetDWord(HKEY_CURRENT_USER, clsidKey.c_str(), L"DisableProcessIsolation", 1);
 
             // ShellEx thumbnail provider. Register under BOTH ProgIDs:
             // - QuickView.Vector: primary home for all 9 vector/document formats
