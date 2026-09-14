@@ -2348,6 +2348,18 @@ static bool ShouldUpgradeBitmapSurface(const D2D1_SIZE_U& desired) {
 
 
 
+// [Perf] JXG-DBG 走 stderr 每帧打印会拖慢交互（GUI 进程 stderr 无 console 时为
+// 纯开销）。默认静默；设 QV_DEBUG_JXG=1 才恢复诊断输出。
+static bool QvJxgDebugEnabled() {
+    static const bool enabled = [] {
+        wchar_t buf[4];
+        return GetEnvironmentVariableW(L"QV_DEBUG_JXG", buf, 4) > 0 &&
+               buf[0] != L'0';
+    }();
+    return enabled;
+}
+#define QV_JXG_LOG(...) do { if (QvJxgDebugEnabled()) fprintf(stderr, __VA_ARGS__); } while (0)
+
 static void TryUpgradeBitmapSurface(HWND hwnd) {
     if (!GetPaneContext(PaneSlot::Primary).resource || GetPaneContext(PaneSlot::Primary).resource.isSvg) return;
 
@@ -2520,7 +2532,7 @@ bool RenderImageToDComp(HWND hwnd, ImageResource& res, bool isFastUpgrade) {
             D2D1_SIZE_F bs = res.bitmap->GetSize();
             surfW = (UINT)std::max(1L, (long)std::lround(bs.width));
             surfH = (UINT)std::max(1L, (long)std::lround(bs.height));
-            fprintf(stderr, "[JXG-DBG] surface(mupdf viewport)=%ux%u bitmap=%ux%u\n",
+            QV_JXG_LOG("[JXG-DBG] surface(mupdf viewport)=%ux%u bitmap=%ux%u\n",
                     surfW, surfH, (unsigned)bs.width, (unsigned)bs.height);
         } else {
         // [resvg/MuPDF Fix] Use ComputeSvgSurfaceSize so the surface matches the
@@ -5924,7 +5936,7 @@ static void TrySubmitMupdfViewport(HWND hwnd, float winW, float winH,
     int tH = (int)std::lround(vr.cropH * vr.pxPerUnit);
     if (tW < 1) tW = 1;
     if (tH < 1) tH = 1;
-    fprintf(stderr, "[JXG-DBG] submit crop=(%.0f,%.0f %.0fx%.0f) vis=(%.0f,%.0f %.0fx%.0f) k=%.5f rasterScale=%.5f target=%dx%d\n",
+    QV_JXG_LOG("[JXG-DBG] submit crop=(%.0f,%.0f %.0fx%.0f) vis=(%.0f,%.0f %.0fx%.0f) k=%.5f rasterScale=%.5f target=%dx%d\n",
             vr.cropX, vr.cropY, vr.cropW, vr.cropH, vr.visX, vr.visY,
             vr.visW, vr.visH, vr.pxPerUnit,
             (double)res.mupdfRasterW / (res.mupdfViewW > 0 ? res.mupdfViewW : 1),
@@ -6112,7 +6124,7 @@ if (g_config.CanvasColor == 5 && g_config.SwatchColorIndex >= 0 && g_config.Swat
                                                      surfaceVs.PhysicalSize.height);
                 g_compEngine->SetImageInterpolationMode(interpMode);
                 // 覆盖/分辨率不足时提交视口重渲（缩放、平移、改窗口尺寸共用此触发）
-                fprintf(stderr, "[JXG-DBG] place view=(%.0f,%.0f %.0fx%.0f) bitmap=%ux%u svg=%.1fx%.1f k=%.5f pan=(%.1f,%.1f)->(%.1f,%.1f) phys=(%.1f,%.1f)\n",
+                QV_JXG_LOG("[JXG-DBG] place view=(%.0f,%.0f %.0fx%.0f) bitmap=%ux%u svg=%.1fx%.1f k=%.5f pan=(%.1f,%.1f)->(%.1f,%.1f) phys=(%.1f,%.1f)\n",
                         resSync.mupdfViewX, resSync.mupdfViewY, resSync.mupdfViewW,
                         resSync.mupdfViewH, resSync.mupdfRasterW, resSync.mupdfRasterH,
                         (double)resSync.svgW, (double)resSync.svgH, (double)targetZoom,
@@ -7607,7 +7619,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
                             res.svgViewBoxX = res.mupdfSrc->viewBoxX;
                             res.svgViewBoxY = res.mupdfSrc->viewBoxY;
                         }
-                        fprintf(stderr, "[JXG-DBG] result status=0x%08lX %ux%u view=(%.0f,%.0f %.0fx%.0f)\n",
+                        QV_JXG_LOG("[JXG-DBG] result status=0x%08lX %ux%u view=(%.0f,%.0f %.0fx%.0f)\n",
                                 (unsigned long)result.status, result.width, result.height,
                                 result.viewX, result.viewY, result.viewW, result.viewH);
                         g_isImageDirty = true;
@@ -12859,7 +12871,7 @@ void ProcessEngineEvents(HWND hwnd) {
                             mupdfRes.mupdfViewY =
                                 (double)evt.rawFrame->svg->viewBoxY;
                             mupdfRes.mupdfViewW = (double)evt.rawFrame->svg->viewBoxW;
-                            fprintf(stderr, "[JXG-DBG] firstFrame rW=%u rH=%u viewBox=%.1fx%.1f zoom=%.4f\n",
+                            QV_JXG_LOG("[JXG-DBG] firstFrame rW=%u rH=%u viewBox=%.1fx%.1f zoom=%.4f\n",
                                     rW, rH, (double)evt.rawFrame->svg->viewBoxW,
                                     (double)evt.rawFrame->svg->viewBoxH, zoom);
                             mupdfRes.mupdfViewH = (double)evt.rawFrame->svg->viewBoxH;

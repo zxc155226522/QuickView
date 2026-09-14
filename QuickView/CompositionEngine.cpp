@@ -1131,6 +1131,20 @@ HRESULT CompositionEngine::ResizeSurfaces(UINT width, UINT height) {
 // [Refactor] Virtual Canvas Matrix Chain (VisualState)
 HRESULT CompositionEngine::UpdateTransformMatrix(VisualState vs, float /*winW*/, float /*winH*/, float zoom, float panX, float panY, float animationDurationMs) {
     if (!m_modelTransform || !m_scaleTransform || !m_translateTransform) return E_FAIL;
+    {
+        // [Perf] 每帧 stderr 打印在 GUI 进程是纯开销；QV_DEBUG_JXG=1 才输出。
+        static const bool jxgDbg = [] {
+            wchar_t buf[4];
+            return GetEnvironmentVariableW(L"QV_DEBUG_JXG", buf, 4) > 0 &&
+                   buf[0] != L'0';
+        }();
+        if (jxgDbg) {
+            const ImageLayer* pDbg = (m_activeLayerIndex == 0) ? &m_imageA : &m_imageB;
+            fprintf(stderr, "[JXG-DBG] UTM zoom=%.4f pan=(%.1f,%.1f) phys=(%.1f,%.1f) layer=%ux%u active=%d\n",
+                    zoom, panX, panY, vs.PhysicalSize.width, vs.PhysicalSize.height,
+                    pDbg->width, pDbg->height, m_activeLayerIndex);
+        }
+    }
     
     // 1. Build Model Matrix (Flip * Rotate)
     

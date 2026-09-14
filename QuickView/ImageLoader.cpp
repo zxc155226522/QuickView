@@ -4239,8 +4239,9 @@ HRESULT QvRasterizeSvgResvg(const std::vector<uint8_t> &xml, float zoom,
 static bool ParseSvgViewBox(const std::string& svg, double* outX, double* outY,
                             double* outW, double* outH);
 
-static constexpr uint32_t kMaxViewportDim = 4096;
-static constexpr size_t kMaxViewportBytes = 64ULL * 1024 * 1024;
+static constexpr uint32_t kMaxViewportDim = 8192;
+// 160MB: 可见区按全屏密度精确采样所需的预算余量（4K 屏 2.2x 裁剪约 160MB）。
+static constexpr size_t kMaxViewportBytes = 160ULL * 1024 * 1024;
 
 static HRESULT QvRenderResvgTreeViewport(resvg_render_tree *tree,
                                          double viewX, double viewY,
