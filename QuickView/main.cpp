@@ -2411,12 +2411,24 @@ static void TryUpgradeBitmapSurface(HWND hwnd) {
 
     if (IsCompareModeActive()) return;
     if (g_isLoading) return;
-    if (GetPaneContext(PaneSlot::Primary).metadata.Width > 8192 || GetPaneContext(PaneSlot::Primary).metadata.Height > 8192) return;
+    // [Mupdf Viewport] CDR/CMX 不受 Titan 尺寸门槛限制：视口模式必须跟随
+    // 裁剪位图重建表面（viewBox >8192 的工艺单是主要使用场景）。
+    if (!GetPaneContext(PaneSlot::Primary).resource.isMupdf &&
+        (GetPaneContext(PaneSlot::Primary).metadata.Width > 8192 || GetPaneContext(PaneSlot::Primary).metadata.Height > 8192)) return;
 
     RECT rc; GetClientRect(hwnd, &rc);
     if (rc.right <= 0 || rc.bottom <= 0) return;
 
-    D2D1_SIZE_U desired = ComputeDesiredBitmapSurfaceSize((UINT)rc.right, (UINT)rc.bottom, GetPaneContext(PaneSlot::Primary).resource);
+    auto& resUpgrade = GetPaneContext(PaneSlot::Primary).resource;
+    D2D1_SIZE_U desired;
+    if (resUpgrade.isMupdf && resUpgrade.bitmap && resUpgrade.mupdfViewW > 0.0) {
+        // 视口模式：期望表面 = 当前裁剪位图尺寸（与 RenderImageToDComp 一致）
+        D2D1_SIZE_F bs = resUpgrade.bitmap->GetSize();
+        desired = D2D1_SIZE_U{ (UINT)std::max(1L, (LONG)std::lround(bs.width)),
+                               (UINT)std::max(1L, (LONG)std::lround(bs.height)) };
+    } else {
+        desired = ComputeDesiredBitmapSurfaceSize((UINT)rc.right, (UINT)rc.bottom, resUpgrade);
+    }
     if (!ShouldUpgradeBitmapSurface(desired)) return;
 
     RenderImageToDComp(hwnd, GetPaneContext(PaneSlot::Primary).resource, true);
@@ -2501,6 +2513,16 @@ bool RenderImageToDComp(HWND hwnd, ImageResource& res, bool isFastUpgrade) {
         surfW = (UINT)std::max(1L, (long)std::round(sW));
         surfH = (UINT)std::max(1L, (long)std::round(sH));
     } else if (!res.isSvg && (res.isResvg || res.isMupdf)) {
+        if (res.isMupdf && res.mupdfViewW > 0.0 && res.bitmap) {
+            // [Mupdf Viewport] Surface = the crop bitmap itself (1:1 draw, no
+            // letterbox): DComp transform places the crop via PhysicalSize+pan
+            // (see SyncDCompState isMupdf viewport branch).
+            D2D1_SIZE_F bs = res.bitmap->GetSize();
+            surfW = (UINT)std::max(1L, (long)std::lround(bs.width));
+            surfH = (UINT)std::max(1L, (long)std::lround(bs.height));
+            fprintf(stderr, "[JXG-DBG] surface(mupdf viewport)=%ux%u bitmap=%ux%u\n",
+                    surfW, surfH, (unsigned)bs.width, (unsigned)bs.height);
+        } else {
         // [resvg/MuPDF Fix] Use ComputeSvgSurfaceSize so the surface matches the
         // rasterized bitmap size (SVG intrinsic * fitScale * zoom). DComp
         // displays the surface 1:1, so surface must equal bitmap size.
@@ -2508,6 +2530,7 @@ bool RenderImageToDComp(HWND hwnd, ImageResource& res, bool isFastUpgrade) {
         ComputeSvgSurfaceSize((float)winW, (float)winH, sW, sH, ds);
         surfW = (UINT)std::max(1L, (long)std::round(sW));
         surfH = (UINT)std::max(1L, (long)std::round(sH));
+        }
     } else if (res.isPdfium) {
         // [PDFium] Surface follows zoom (vector source → re-rasterize on zoom).
         // Use the same ComputeDesiredBitmapSurfaceSize logic that accounts for
@@ -2524,8 +2547,11 @@ bool RenderImageToDComp(HWND hwnd, ImageResource& res, bool isFastUpgrade) {
     bool isTitan = false;
     UINT fullWidth = 0;
     UINT fullHeight = 0;
-    // Only Bitmap mode supports Titan (SVG uses vector re-rasterization)
-    if (!res.isSvg && (GetPaneContext(PaneSlot::Primary).metadata.Width > 8192 || GetPaneContext(PaneSlot::Primary).metadata.Height > 8192)) {
+    // Only Bitmap mode supports Titan (SVG uses vector re-rasterization).
+    // [Mupdf Viewport] CDR/CMX 排除：Titan 按元数据尺寸(=viewBox，可 >8192)
+    // 接管图层缩放/分块，与视口模式的"表面=裁剪位图 + PhysicalSize/pan 放置"
+    // 冲突（实测 JXG71021 viewBox 16317 触发 Titan，画面被压成一小条）。
+    if (!res.isSvg && !res.isMupdf && (GetPaneContext(PaneSlot::Primary).metadata.Width > 8192 || GetPaneContext(PaneSlot::Primary).metadata.Height > 8192)) {
          isTitan = true;
          fullWidth = GetPaneContext(PaneSlot::Primary).metadata.Width;
          fullHeight = GetPaneContext(PaneSlot::Primary).metadata.Height;
@@ -2623,37 +2649,10 @@ bool RenderImageToDComp(HWND hwnd, ImageResource& res, bool isFastUpgrade) {
             }
         }
 
-        // [Async Resvg] Re-rasterize CDR/CMX via async resvg when zoom changes
-        // by more than 128px. Rasterization runs on a background thread to
-        // avoid blocking the UI (which caused lag and white-screen-on-zoom).
-        // While the background rasterization is in progress, the old bitmap
-        // is kept and stretched by DComp — no white screen.
-        if (res.isMupdf && res.mupdfSrc) {
-            if (std::abs((int)res.mupdfRasterW - (int)surfW) > 128 ||
-                std::abs((int)res.mupdfRasterH - (int)surfH) > 128) {
-                // Only submit if the async rasterizer is not already busy
-                if (!QuickView::AsyncRasterizer::Instance().IsBusy()) {
-                    float svgW = res.mupdfSrc->viewBoxW;
-                    float svgH = res.mupdfSrc->viewBoxH;
-                    float zoom = (svgW > 0 && svgH > 0)
-                        ? std::min((float)surfW / svgW, (float)surfH / svgH)
-                        : 1.0f;
-                    if (zoom < 0.01f) zoom = 0.01f;
-
-                    QuickView::AsyncRasterizeRequest req;
-                    req.svgXml.assign(res.mupdfSrc->xmlData.begin(),
-                                      res.mupdfSrc->xmlData.end());
-                    req.zoom = zoom;
-                    req.whiteBg = true;
-                    req.notifyWindow = hwnd;
-                    QuickView::AsyncRasterizer::Instance().Submit(std::move(req));
-                }
-                // While async rasterization is pending, continue drawing the
-                // old bitmap (stretched to fill the surface). This prevents
-                // the white-screen-on-zoom bug — the user sees a stretched
-                // (slightly blurry) image instead of a blank surface.
-            }
-        }
+        // [Mupdf Viewport] 旧的"整幅画布 >128px 重提交"已移除：视口模式下
+        // 缩放/平移/改窗口统一由 SyncDCompState -> TrySubmitMupdfViewport
+        // 按"可视区域+余量"提交裁剪重渲（解析树已缓存，重渲只花渲染时间）。
+        // 交互期间旧行为不变：旧位图由 DComp 拉伸显示，无白屏。
 
         D2D1_SIZE_F bmpSize = res.bitmap->GetSize();
         
@@ -5832,6 +5831,118 @@ static D2D1_COLOR_F ResolveCanvasColor() {
 // [Visual Rotation] Helper to calculate accumulated matrix
 // [Fix] Centralized DComp Synchronization Logic
 // Calculates correct Zoom/Pan/Centering based on Visual Dimensions (Rotated)
+// ============================================================================
+// [Mupdf Viewport] CDR/CMX 视口区域光栅化
+// 巨型画布（打版工艺单把整套尺码排在画布外，bbox 可达页面 28 倍）走"整幅画布
+// 光栅化"时受 16384px/512MB 上限，单尺码只能分到几百像素 → 放大必糊。改为
+// CorelDRAW 式视口渲染：只光栅化"可见区域 + 余量"，输出 = 屏幕分辨率，平移/
+// 缩放停稳后异步重渲（解析树在 AsyncRasterizer 内缓存，重渲只花渲染时间）。
+// 表面 = 裁剪位图尺寸；DComp 变换用 PhysicalSize=裁剪区显示尺寸 + pan 平移
+// 裁剪中心，数学上与整幅表面等价（见 SyncDCompState isMupdf 分支）。
+// ============================================================================
+
+// 可见区域两侧各扩 60%（裁剪面积 ≈ 2.56x 可视面积），小幅平移/缩放不需重渲。
+static constexpr double kMupdfViewMargin = 0.6;
+// 触发重渲的迟滞：分辨率变化 >25%，或可视矩形逃出当前裁剪 >32px。
+static constexpr double kMupdfRescaleHysteresis = 1.25;
+static constexpr double kMupdfCoverageSlackPx = 32.0;
+
+struct MupdfViewRects {
+    double visX = 0, visY = 0, visW = 0, visH = 0;      // 可视矩形（SVG 单位）
+    double cropX = 0, cropY = 0, cropW = 0, cropH = 0;  // 应光栅化的裁剪矩形
+    double pxPerUnit = 0;                               // 窗口像素 / SVG 单位
+};
+
+static bool ComputeMupdfViewport(const ImageResource& res, float winW,
+                                 float winH, float baseFit,
+                                 MupdfViewRects& out) {
+    if (!res.isMupdf || !res.mupdfSrc || res.svgW <= 0.0f || res.svgH <= 0.0f)
+        return false;
+    // [Origin Fix] canvas center = root viewBox origin + size/2 (off-page CDR
+    // expansion yields e.g. viewBox="0 -299.8 ..."; never assume (0,0)).
+    const double orgX = (double)res.svgViewBoxX;
+    const double orgY = (double)res.svgViewBoxY;
+    const ImageViewportLayout viewport = ComputeImageViewportLayout(winW, winH);
+    if (viewport.Width <= 0.0f || viewport.Height <= 0.0f) return false;
+    const float k = baseFit * GetPaneContext(PaneSlot::Primary).view.Zoom;
+    if (k <= 0.0f) return false;
+
+    // 与 SyncDCompState 的 win(p) = winCenter + svgPan + k*(p - svgCenter) 一致：
+    // 用窗口坐标反解可视矩形（svgPan = Pan + CenterOffset）。
+    const float panX = GetPaneContext(PaneSlot::Primary).view.PanX;
+    const float panY = GetPaneContext(PaneSlot::Primary).view.PanY;
+    const float panOffX = panX + viewport.CenterOffsetX;
+    const float panOffY = panY + viewport.CenterOffsetY;
+    out.visW = viewport.Width / k;
+    out.visH = viewport.Height / k;
+    out.visX = (orgX + (double)res.svgW * 0.5) +
+               ((double)viewport.Left - (double)winW * 0.5 - (double)panOffX) / k;
+    out.visY = (orgY + (double)res.svgH * 0.5) +
+               ((double)viewport.Top - (double)winH * 0.5 - (double)panOffY) / k;
+    out.cropW = out.visW * (1.0 + 2.0 * kMupdfViewMargin);
+    out.cropH = out.visH * (1.0 + 2.0 * kMupdfViewMargin);
+    out.cropX = out.visX - out.visW * kMupdfViewMargin;
+    out.cropY = out.visY - out.visH * kMupdfViewMargin;
+    out.pxPerUnit = k;
+    return true;
+}
+
+// 检查当前裁剪位图是否仍覆盖可视区域、分辨率是否够用；不足则提交视口重渲。
+// 从 SyncDCompState 每帧调用；提交用 shared_ptr 不拷贝 SVG，连发会被
+// AsyncRasterizer 的 pending 槽位自然合并。|baseFit| 必须传 SyncDCompState
+// 实际使用的那份（含幻灯片 0.85 之类的修正），保证放置与采样同一坐标基准。
+static void TrySubmitMupdfViewport(HWND hwnd, float winW, float winH,
+                                   float baseFit) {
+    auto& res = GetPaneContext(PaneSlot::Primary).resource;
+    if (!res.isMupdf || !res.mupdfSrc || !res.bitmap) return;
+
+    MupdfViewRects vr;
+    if (!ComputeMupdfViewport(res, winW, winH, baseFit, vr)) return;
+
+    bool need = false;
+    if (res.mupdfViewW <= 0.0 || res.mupdfViewH <= 0.0 ||
+        res.mupdfRasterW == 0 || res.mupdfRasterH == 0) {
+        need = true;
+    } else {
+        const double slackX = kMupdfCoverageSlackPx / vr.pxPerUnit;
+        const double slackY = kMupdfCoverageSlackPx / vr.pxPerUnit;
+        const bool covered =
+            vr.visX >= res.mupdfViewX + slackX &&
+            vr.visY >= res.mupdfViewY + slackY &&
+            vr.visX + vr.visW <= res.mupdfViewX + res.mupdfViewW - slackX &&
+            vr.visY + vr.visH <= res.mupdfViewY + res.mupdfViewH - slackY;
+        // 位图当时的采样密度（crop 像素 / SVG 单位）
+        const double rasterScale =
+            (double)res.mupdfRasterW / res.mupdfViewW;
+        const double ratio = vr.pxPerUnit / rasterScale;
+        need = !covered || ratio > kMupdfRescaleHysteresis ||
+               ratio < 1.0 / kMupdfRescaleHysteresis;
+    }
+    if (!need) return;
+
+    int tW = (int)std::lround(vr.cropW * vr.pxPerUnit);
+    int tH = (int)std::lround(vr.cropH * vr.pxPerUnit);
+    if (tW < 1) tW = 1;
+    if (tH < 1) tH = 1;
+    fprintf(stderr, "[JXG-DBG] submit crop=(%.0f,%.0f %.0fx%.0f) vis=(%.0f,%.0f %.0fx%.0f) k=%.5f rasterScale=%.5f target=%dx%d\n",
+            vr.cropX, vr.cropY, vr.cropW, vr.cropH, vr.visX, vr.visY,
+            vr.visW, vr.visH, vr.pxPerUnit,
+            (double)res.mupdfRasterW / (res.mupdfViewW > 0 ? res.mupdfViewW : 1),
+            tW, tH);
+
+    QuickView::AsyncRasterizeRequest req;
+    req.svgSrc = res.mupdfSrc;
+    req.viewX = vr.cropX;
+    req.viewY = vr.cropY;
+    req.viewW = vr.cropW;
+    req.viewH = vr.cropH;
+    req.targetW = tW;
+    req.targetH = tH;
+    req.whiteBg = true;
+    req.notifyWindow = hwnd;
+    QuickView::AsyncRasterizer::Instance().Submit(std::move(req));
+}
+
 void SyncDCompState([[maybe_unused]] HWND hwnd, float winW, float winH, bool animate) {
     if (!g_compEngine || !g_compEngine->IsInitialized()) return;
     // [DComp Barrier] Block transient layout garbage frames during sleep-restore or DPI scaling.
@@ -5956,7 +6067,59 @@ if (g_config.CanvasColor == 5 && g_config.SwatchColorIndex >= 0 && g_config.Swat
             // at fit-to-window size, and DComp displays it 1:1 (ds) with pan.
             // This avoids the displayZoom mismatch between SVG intrinsic size
             // (e.g. 2079) and bitmap pixel size (e.g. 765) that caused blur.
-            if (UseSvgViewportRendering(GetPaneContext(PaneSlot::Primary).resource) ||
+            auto& resSync = GetPaneContext(PaneSlot::Primary).resource;
+            if (resSync.isMupdf && resSync.mupdfViewW > 0.0 && resSync.svgW > 0.0f) {
+                // [Mupdf Viewport] The surface holds a CROP of the canvas.
+                // PhysicalSize = crop's on-screen extent (compScale then maps
+                // crop bitmap px -> that extent); pan is shifted so the crop
+                // center lands exactly where that SVG point belongs:
+                //   win(p) = winCenter + svgPan + k*(p - svgCenter)
+                // surface center = crop center -> placed at winCenter + pan',
+                //   pan' = svgPan + k*(cropCenter - svgCenter).
+                float svgPanX = GetPaneContext(PaneSlot::Primary).view.PanX + viewport.CenterOffsetX;
+                float svgPanY = GetPaneContext(PaneSlot::Primary).view.PanY + viewport.CenterOffsetY;
+                VisualState surfaceVs{};
+                surfaceVs.PhysicalSize = D2D1::SizeF(
+                    (float)(resSync.mupdfViewW * targetZoom),
+                    (float)(resSync.mupdfViewH * targetZoom));
+                surfaceVs.VisualSize = surfaceVs.PhysicalSize;
+                surfaceVs.TotalRotation = 0.0f;
+                surfaceVs.IsRotated90 = false;
+                surfaceVs.FlipX = 1.0f;
+                surfaceVs.FlipY = 1.0f;
+                // [Origin Fix] canvas center = viewBox origin + size/2
+                const double orgX = (double)resSync.svgViewBoxX;
+                const double orgY = (double)resSync.svgViewBoxY;
+                float panX2 = svgPanX + (float)((resSync.mupdfViewX +
+                    resSync.mupdfViewW * 0.5 -
+                    (orgX + (double)resSync.svgW * 0.5)) *
+                    (double)targetZoom);
+                float panY2 = svgPanY + (float)((resSync.mupdfViewY +
+                    resSync.mupdfViewH * 0.5 -
+                    (orgY + (double)resSync.svgH * 0.5)) *
+                    (double)targetZoom);
+                // 裁剪位图按当时的采样密度渲染； PhysicalSize 已把缩放差吸收进
+                // compScale（交互中旧位图被拉伸成低清预览，重渲落地后变清晰）。
+                g_compEngine->UpdateTransformMatrix(
+                    surfaceVs, winW, winH, 1.0f, panX2, panY2, 0.0f);
+                float stretch = (resSync.mupdfRasterW > 0)
+                    ? (float)((double)targetZoom * resSync.mupdfViewW /
+                              (double)resSync.mupdfRasterW)
+                    : 1.0f;
+                DCOMPOSITION_BITMAP_INTERPOLATION_MODE interpMode =
+                    GetOptimalDCompInterpolationMode(stretch,
+                                                     surfaceVs.PhysicalSize.width,
+                                                     surfaceVs.PhysicalSize.height);
+                g_compEngine->SetImageInterpolationMode(interpMode);
+                // 覆盖/分辨率不足时提交视口重渲（缩放、平移、改窗口尺寸共用此触发）
+                fprintf(stderr, "[JXG-DBG] place view=(%.0f,%.0f %.0fx%.0f) bitmap=%ux%u svg=%.1fx%.1f k=%.5f pan=(%.1f,%.1f)->(%.1f,%.1f) phys=(%.1f,%.1f)\n",
+                        resSync.mupdfViewX, resSync.mupdfViewY, resSync.mupdfViewW,
+                        resSync.mupdfViewH, resSync.mupdfRasterW, resSync.mupdfRasterH,
+                        (double)resSync.svgW, (double)resSync.svgH, (double)targetZoom,
+                        (double)svgPanX, (double)svgPanY, (double)panX2, (double)panY2,
+                        (double)surfaceVs.PhysicalSize.width, (double)surfaceVs.PhysicalSize.height);
+                TrySubmitMupdfViewport(hwnd, winW, winH, baseFit);
+            } else if (UseSvgViewportRendering(GetPaneContext(PaneSlot::Primary).resource) ||
                 GetPaneContext(PaneSlot::Primary).resource.isResvg ||
                 GetPaneContext(PaneSlot::Primary).resource.isMupdf) {
                 VisualState surfaceVs{};
@@ -7430,6 +7593,23 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
                         res.bitmap = bmp;
                         res.mupdfRasterW = result.width;
                         res.mupdfRasterH = result.height;
+                        // [Mupdf Viewport] 记录本次位图实际覆盖的裁剪矩形，
+                        // 供 DComp 放置与覆盖检查使用。
+                        if (result.viewW > 0.0 && result.viewH > 0.0) {
+                            res.mupdfViewX = result.viewX;
+                            res.mupdfViewY = result.viewY;
+                            res.mupdfViewW = result.viewW;
+                            res.mupdfViewH = result.viewH;
+                        }
+                        // [Origin Fix] keep canvas origin synced with the
+                        // source this crop came from.
+                        if (res.mupdfSrc) {
+                            res.svgViewBoxX = res.mupdfSrc->viewBoxX;
+                            res.svgViewBoxY = res.mupdfSrc->viewBoxY;
+                        }
+                        fprintf(stderr, "[JXG-DBG] result status=0x%08lX %ux%u view=(%.0f,%.0f %.0fx%.0f)\n",
+                                (unsigned long)result.status, result.width, result.height,
+                                result.viewX, result.viewY, result.viewW, result.viewH);
                         g_isImageDirty = true;
                         ::InvalidateRect(hwnd, nullptr, FALSE);
                     }
@@ -12669,6 +12849,20 @@ void ProcessEngineEvents(HWND hwnd) {
                             mupdfRes.mupdfSrc = std::make_shared<QuickView::RawImageFrame::SvgData>(*evt.rawFrame->svg);
                             mupdfRes.mupdfRasterW = rW;
                             mupdfRes.mupdfRasterH = rH;
+                            // [Mupdf Viewport] 首帧整幅光栅化 = 裁剪矩形取整个
+                            // viewBox；之后缩放/平移由 TrySubmitMupdfViewport
+                            // 按可视区域提交裁剪重渲（视口模式）。
+                            mupdfRes.svgViewBoxX = evt.rawFrame->svg->viewBoxX;
+                            mupdfRes.svgViewBoxY = evt.rawFrame->svg->viewBoxY;
+                            mupdfRes.mupdfViewX =
+                                (double)evt.rawFrame->svg->viewBoxX;
+                            mupdfRes.mupdfViewY =
+                                (double)evt.rawFrame->svg->viewBoxY;
+                            mupdfRes.mupdfViewW = (double)evt.rawFrame->svg->viewBoxW;
+                            fprintf(stderr, "[JXG-DBG] firstFrame rW=%u rH=%u viewBox=%.1fx%.1f zoom=%.4f\n",
+                                    rW, rH, (double)evt.rawFrame->svg->viewBoxW,
+                                    (double)evt.rawFrame->svg->viewBoxH, zoom);
+                            mupdfRes.mupdfViewH = (double)evt.rawFrame->svg->viewBoxH;
                             return true;
                         };
 
@@ -14664,7 +14858,12 @@ TryUpgradeBitmapSurface(hwnd);
             const auto titanMeta = GetPaneContext(PaneSlot::Primary).metadata; // Value copy - safe from concurrent reset
 
             // [Infinity Engine] Cascade Rendering Path
-            bool isTitan = g_imageEngine && g_imageEngine->IsTitanModeEnabled() && !GetPaneContext(PaneSlot::Primary).path.empty();
+            // [Mupdf Viewport] CDR/CMX/SVG 排除：Titan 分块按元数据(viewBox)尺寸
+            // 计算视口，与视口光栅化的裁剪放置冲突。
+            bool isTitan = g_imageEngine && g_imageEngine->IsTitanModeEnabled() && !GetPaneContext(PaneSlot::Primary).path.empty()
+                && !GetPaneContext(PaneSlot::Primary).resource.isMupdf
+                && !GetPaneContext(PaneSlot::Primary).resource.isSvg
+                && !GetPaneContext(PaneSlot::Primary).resource.isResvg;
             if (isTitan) {
                  // 1. Calculate Dimensions
                  float imgFullW = (float)titanMeta.Width;

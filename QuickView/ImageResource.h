@@ -36,6 +36,10 @@ struct ImageResource {
     bool isSvg = false;
     float svgW = 0.0f;
     float svgH = 0.0f;
+    // [Mupdf Viewport] Root viewBox origin (may be < 0 for off-page CDR
+    // canvases). Assuming 0/0 misplaces viewport crops like JXG71021.
+    float svgViewBoxX = 0.0f;
+    float svgViewBoxY = 0.0f;
 
     // [resvg] CDR/AI/SVG that render through the resvg rasterizer (embedded
     // bitmaps or D2D SVG subset fallback) keep their SVG source here so the
@@ -54,6 +58,13 @@ struct ImageResource {
     std::shared_ptr<QuickView::RawImageFrame::SvgData> mupdfSrc;  // SVG XML buffer
     UINT mupdfRasterW = 0;  // current bitmap resolution
     UINT mupdfRasterH = 0;
+    // [Mupdf Viewport] The bitmap holds a CROP of the SVG canvas (viewport
+    // rasterization): visible region grown by a margin, in SVG user units.
+    // viewW/viewH == 0 means the bitmap covers the whole canvas (legacy).
+    double mupdfViewX = 0.0;
+    double mupdfViewY = 0.0;
+    double mupdfViewW = 0.0;
+    double mupdfViewH = 0.0;
 
     // [PDFium] PDF/AI rendered via PDFium (vector rasterizer).
     // PDF is inherently vector — PDFium can re-rasterize at any resolution.
@@ -80,6 +91,8 @@ struct ImageResource {
         isSvg = false;
         svgW = 0.0f;
         svgH = 0.0f;
+        svgViewBoxX = 0.0f;
+        svgViewBoxY = 0.0f;
         isResvg = false;
         resvgSrc.reset();
         resvgRasterW = 0;
@@ -88,6 +101,10 @@ struct ImageResource {
         mupdfSrc.reset();
         mupdfRasterW = 0;
         mupdfRasterH = 0;
+        mupdfViewX = 0.0;
+        mupdfViewY = 0.0;
+        mupdfViewW = 0.0;
+        mupdfViewH = 0.0;
         isPdfium = false;
         pdfiumPath.clear();
         pdfiumPageIndex = 0;
@@ -115,6 +132,8 @@ struct ImageResource {
         cloned.isSvg = isSvg;
         cloned.svgW = svgW;
         cloned.svgH = svgH;
+        cloned.svgViewBoxX = svgViewBoxX;
+        cloned.svgViewBoxY = svgViewBoxY;
         cloned.isResvg = isResvg;
         cloned.resvgSrc = resvgSrc;
         cloned.resvgRasterW = resvgRasterW;
@@ -123,6 +142,10 @@ struct ImageResource {
         cloned.mupdfSrc = mupdfSrc;
         cloned.mupdfRasterW = mupdfRasterW;
         cloned.mupdfRasterH = mupdfRasterH;
+        cloned.mupdfViewX = mupdfViewX;
+        cloned.mupdfViewY = mupdfViewY;
+        cloned.mupdfViewW = mupdfViewW;
+        cloned.mupdfViewH = mupdfViewH;
         cloned.isPdfium = isPdfium;
         cloned.pdfiumPath = pdfiumPath;
         cloned.pdfiumPageIndex = pdfiumPageIndex;

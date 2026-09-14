@@ -4230,6 +4230,95 @@ HRESULT QvRasterizeSvgResvg(const std::vector<uint8_t> &xml, float zoom,
   return S_OK;
 }
 
+// ============================================================================
+// [Viewport raster] Render only |view| (SVG user units) at |targetW|x|targetH|.
+// Transform = scale(s) + translate(-view.x*s, -view.y*s); everything outside
+// the rect simply falls outside the pixmap. Output is bounded to 4096px per
+// side / 64MB so pan/zoom re-renders stay cheap regardless of canvas size.
+// ============================================================================
+static bool ParseSvgViewBox(const std::string& svg, double* outX, double* outY,
+                            double* outW, double* outH);
+
+static constexpr uint32_t kMaxViewportDim = 4096;
+static constexpr size_t kMaxViewportBytes = 64ULL * 1024 * 1024;
+
+static HRESULT QvRenderResvgTreeViewport(resvg_render_tree *tree,
+                                         double viewX, double viewY,
+                                         double viewW, double viewH,
+                                         int targetW, int targetH,
+                                         std::vector<uint8_t> &outBgra,
+                                         bool whiteBg, uint32_t *outW,
+                                         uint32_t *outH,
+                                         double vbX = 0.0, double vbY = 0.0) {
+  if (!tree || viewW <= 0.0 || viewH <= 0.0 || targetW <= 0 || targetH <= 0)
+    return E_INVALIDARG;
+  double s = std::min((double)targetW / viewW, (double)targetH / viewH);
+  uint32_t rW = (uint32_t)std::lround(viewW * s);
+  uint32_t rH = (uint32_t)std::lround(viewH * s);
+  if (rW == 0) rW = 1;
+  if (rH == 0) rH = 1;
+  if (rW > kMaxViewportDim || rH > kMaxViewportDim ||
+      (size_t)rW * rH * 4 > kMaxViewportBytes) {
+    double k = (double)kMaxViewportDim / (double)std::max(rW, rH);
+    double kBytes =
+        sqrt((double)kMaxViewportBytes / ((double)rW * (double)rH * 4.0));
+    k = std::min(k, kBytes);
+    s *= k;
+    rW = (uint32_t)std::max(1u, (uint32_t)std::lround(rW * k));
+    rH = (uint32_t)std::max(1u, (uint32_t)std::lround(rH * k));
+  }
+  if (outW) *outW = rW;
+  if (outH) *outH = rH;
+
+  std::vector<uint8_t> pixmap((size_t)rW * rH * 4, 0);
+  // [Origin Fix] usvg bakes the root viewBox origin into the tree coordinate
+  // space (root_ts includes -vbX/-vbY). The crop rect lives in that same
+  // space, so the pixmap origin must map to (viewX - vbX) / (viewY - vbY).
+  resvg_transform t = {(float)s, 0.0f, 0.0f, (float)s,
+                       (float)(-(viewX - vbX) * s),
+                       (float)(-(viewY - vbY) * s)};
+  resvg_render(tree, t, rW, rH, reinterpret_cast<char *>(pixmap.data()));
+
+  const size_t pixelCount = (size_t)rW * rH;
+  outBgra.resize(pixelCount * 4);
+  if (whiteBg) {
+    ImageLoaderSimd::PremulRGBAToWhiteBGRA(pixmap.data(), outBgra.data(), pixelCount);
+  } else {
+    ImageLoaderSimd::PremulRGBAToPremulBGRA(pixmap.data(), outBgra.data(), pixelCount);
+  }
+  return S_OK;
+}
+
+HRESULT QvRasterizeSvgResvgViewport(const std::vector<uint8_t> &xml,
+                                    double viewX, double viewY,
+                                    double viewW, double viewH,
+                                    int targetW, int targetH,
+                                    std::vector<uint8_t> &outBgra,
+                                    bool whiteBg, bool loadFonts,
+                                    uint32_t *outW, uint32_t *outH) {
+  if (xml.empty() || viewW <= 0.0 || viewH <= 0.0 || targetW <= 0 ||
+      targetH <= 0)
+    return E_INVALIDARG;
+  resvg_options *opt = resvg_options_create();
+  if (!opt) return E_OUTOFMEMORY;
+  if (loadFonts) resvg_options_load_system_fonts(opt);
+  resvg_render_tree *tree = nullptr;
+  int32_t err = resvg_parse_tree_from_data(
+      reinterpret_cast<const char *>(xml.data()), xml.size(), opt, &tree);
+  resvg_options_destroy(opt);
+  if (err != RESVG_OK || !tree) return E_FAIL;
+  // [Origin Fix] crop rect is in viewBox space; recover the root viewBox
+  // origin so the pixmap translate compensates the baked offset.
+  double vbX0 = 0.0, vbY0 = 0.0, vbW0 = 0.0, vbH0 = 0.0;
+  std::string svgStr(reinterpret_cast<const char *>(xml.data()), xml.size());
+  ParseSvgViewBox(svgStr, &vbX0, &vbY0, &vbW0, &vbH0);
+  HRESULT hr = QvRenderResvgTreeViewport(tree, viewX, viewY, viewW, viewH,
+                                         targetW, targetH, outBgra, whiteBg,
+                                         outW, outH, vbX0, vbY0);
+  resvg_tree_destroy(tree);
+  return hr;
+}
+
 // ===========================================================================
 // [Export] Decode any supported file to a PNG on disk (headless --export-png).
 // Lets users get a decoded image without the main viewer UI.
@@ -4345,6 +4434,66 @@ static HRESULT SaveBgraAsPng(IWICImagingFactory* wf, LPCWSTR outPath,
 // Rasterize an SVG frame to BGRA. When includeOutsidePage is set, expand the
 // viewBox to the full content bounding box (resvg_get_image_bbox) so elements
 // outside the Corel page rectangle are not clipped.
+
+// ----------------------------------------------------------------------------
+// [CDR Canvas Outside] 覆盖率探测：把候选 viewBox 矩形以极小分辨率渲染一遍，
+// 返回非透明像素占比。用于区分"画布外真的铺满内容"（打版工艺单把所有尺码
+// 横排在页面外，内容填满矩形）和"远处个别游离对象"（矩形几乎全空，此时扩展
+// 会把页面内的主体缩成小点）。阈值取 0.08：整幅排布（覆盖率 40~60%）通过，
+// 游离杂点（<1%）被拒。
+// |excludeRect|（SVG 单位 x/y/w/h，可空）：统计时跳过该矩形内的像素。调用方
+// 传入 Corel 页面矩形——否则页面自身的内容会污染覆盖率，页面铺满 + 页外零星
+// 对象的文件会被误判为"页外有内容"而打开即缩小整幅。
+// ----------------------------------------------------------------------------
+static constexpr double kCdrOutsideCoverageMin = 0.08;
+
+static double QvSvgRenderCoverage(resvg_render_tree *tree,
+                                  double rx, double ry, double rw, double rh,
+                                  int n = 96,
+                                  const double *excludeRect = nullptr) {
+  if (!tree || rw <= 0.0 || rh <= 0.0)
+    return 0.0;
+  double s = (double)n / std::max(rw, rh);
+  int w = std::max(1, (int)std::lround(rw * s));
+  int h = std::max(1, (int)std::lround(rh * s));
+  std::vector<uint8_t> pix((size_t)w * h * 4, 0);
+  resvg_transform t{};
+  t.a = s; t.b = 0; t.c = 0; t.d = s;
+  t.e = -rx * s; t.f = -ry * s;
+  resvg_render(tree, t, (uint32_t)w, (uint32_t)h,
+               reinterpret_cast<char *>(pix.data()));
+
+  // 排除矩形换算到探测像素空间（夹紧到图内，空则不排除）
+  bool hasEx = excludeRect && excludeRect[2] > 0.0 && excludeRect[3] > 0.0;
+  int exX0 = 0, exY0 = 0, exX1 = -1, exY1 = -1;
+  if (hasEx) {
+    double fx0 = (excludeRect[0] - rx) * s;
+    double fy0 = (excludeRect[1] - ry) * s;
+    double fx1 = fx0 + excludeRect[2] * s;
+    double fy1 = fy0 + excludeRect[3] * s;
+    exX0 = std::max(0, (int)std::lround(fx0));
+    exY0 = std::max(0, (int)std::lround(fy0));
+    exX1 = std::min(w, (int)std::lround(fx1));
+    exY1 = std::min(h, (int)std::lround(fy1));
+    if (exX0 >= exX1 || exY0 >= exY1)
+      hasEx = false;
+  }
+
+  size_t hit = 0, counted = 0;
+  for (int y = 0; y < h; ++y) {
+    const uint8_t *row = pix.data() + (size_t)y * w * 4;
+    const bool rowInEx = hasEx && y >= exY0 && y < exY1;
+    for (int x = 0; x < w; ++x) {
+      if (rowInEx && x >= exX0 && x < exX1)
+        continue; // 页面自身像素不计入分子也不计入分母
+      if (row[x * 4 + 3] > 8)
+        ++hit;
+      ++counted;
+    }
+  }
+  return counted ? (double)hit / (double)counted : 0.0;
+}
+
 HRESULT QvRasterizeSvgFrameToBgra(const RawImageFrame::SvgData& svgData,
                                     std::vector<uint8_t>& outBgra,
                                     uint32_t& outW, uint32_t& outH,
@@ -4368,12 +4517,13 @@ HRESULT QvRasterizeSvgFrameToBgra(const RawImageFrame::SvgData& svgData,
   double rx = pageX, ry = pageY, rw = pageW, rh = pageH;
   bool haveBBox = false;
   resvg_rect cb = {};
+  resvg_render_tree* bboxTree = nullptr;
+  resvg_options* bboxOpt = nullptr;
   if (includeOutsidePage && pageW > 0 && pageH > 0) {
-    resvg_options* opt = resvg_options_create();
-    if (opt) {
-      resvg_render_tree* tree = nullptr;
-      if (resvg_parse_tree_from_data(svgStr.c_str(), svgStr.size(), opt, &tree) == RESVG_OK && tree) {
-        if (resvg_get_image_bbox(tree, &cb)) {
+    bboxOpt = resvg_options_create();
+    if (bboxOpt) {
+      if (resvg_parse_tree_from_data(svgStr.c_str(), svgStr.size(), bboxOpt, &bboxTree) == RESVG_OK && bboxTree) {
+        if (resvg_get_image_bbox(bboxTree, &cb)) {
           double nx = std::min(pageX, (double)cb.x);
           double ny = std::min(pageY, (double)cb.y);
           double mx = std::max(pageX + pageW, (double)cb.x + (double)cb.width);
@@ -4381,24 +4531,31 @@ HRESULT QvRasterizeSvgFrameToBgra(const RawImageFrame::SvgData& svgData,
           rx = nx; ry = ny; rw = mx - nx; rh = my - ny;
           haveBBox = true;
         }
-        resvg_tree_destroy(tree);
       }
-      resvg_options_destroy(opt);
     }
   }
 
   if (haveBBox) {
     // [CDR Fix] If the content bbox is larger than the page rect, expanding
-    // the viewBox shrinks the main design to a tiny fraction of the bitmap,
-    // making it extremely blurry. Only expand when the content is at most
-    // 3x the page size (moderate off-page content like bleed marks).
-    // Beyond 3x, fall back to the page rect so the main design fills the
-    // bitmap and stays sharp. This matches how image viewers typically
-    // display only the page content, not the entire canvas.
-    if (rw > pageW * 3.0 || rh > pageH * 3.0) {
-      rx = pageX; ry = pageY; rw = pageW; rh = pageH;
+    // the viewBox shrinks whatever sits inside the page. [Fix] 旧版固定 3 倍
+    // 上限假设"主体在页面内、页外只有出血标记"，但打版工艺单恰好相反——整套
+    // 尺码横排在画布外（实测 bbox 达页面 28 倍），按页面渲染就是整页空白。
+    // 改为覆盖率探测：扩展区域内确实有内容（QvSvgRenderCoverage 达标）才
+    // 采纳扩展；远处个别游离/隐藏对象把 bbox 撑大的场景仍回退页面矩形。
+    if (rw > pageW * 1.5 || rh > pageH * 1.5) {
+      // 排除页面矩形：只统计页外区域的覆盖率，防止页面自身内容污染判定。
+      const double pageRect[4] = {pageX, pageY, pageW, pageH};
+      double cov = bboxTree
+                       ? QvSvgRenderCoverage(bboxTree, rx, ry, rw, rh, 96,
+                                             pageRect)
+                       : 0.0;
+      if (cov < kCdrOutsideCoverageMin) {
+        rx = pageX; ry = pageY; rw = pageW; rh = pageH;
+      }
     }
   }
+  if (bboxTree) resvg_tree_destroy(bboxTree);
+  if (bboxOpt) resvg_options_destroy(bboxOpt);
 
   std::string rewritten = RewriteSvgRootViewBox(svgStr, rx, ry, rw, rh);
   std::vector<uint8_t> newXml(rewritten.begin(), rewritten.end());
@@ -4534,10 +4691,32 @@ HRESULT ExportToSvg(LPCWSTR inPath, LPCWSTR outPath) {
                   reinterpret_cast<const uint8_t*>(p) + strlen(p));
   } else {
     // SVG/PLT/DXF/DWG: the loader already produces a clean native SVG.
-    CImageLoader loader;
+    // [Fix] Initialize COM + a WIC factory so the LoadToFrame fallback inside
+    // this export path cannot deref a null m_wicFactory (LoadToMemory WIC
+    // fallback -> 0xc0000005). Mirror the safeguard used by the decode
+    // worker in main.cpp and the thumbnail workers.
+    HRESULT coHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    bool comOwned = SUCCEEDED(coHr);
     RawImageFrame frame;
     CImageLoader::ImageMetadata meta;
-    HRESULT hr = loader.LoadToFrame(inPath, &frame, nullptr, 0, 0, nullptr, {}, &meta);
+    HRESULT hr = E_FAIL;
+    {
+      // loader (and its m_wicFactory ComPtr) is scoped so it is destroyed
+      // BEFORE CoUninitialize: releasing a COM object on a torn-down
+      // apartment AVs.
+      CImageLoader loader;
+      {
+        IWICImagingFactory* wf = nullptr;
+        if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr,
+                                       CLSCTX_INPROC_SERVER, IID_IWICImagingFactory,
+                                       reinterpret_cast<void**>(&wf)))) {
+          loader.Initialize(wf);
+          wf->Release();
+        }
+      }
+      hr = loader.LoadToFrame(inPath, &frame, nullptr, 0, 0, nullptr, {}, &meta);
+    }
+    if (comOwned) CoUninitialize();
     if (FAILED(hr) || !frame.IsSvg() || !frame.svg || frame.svg->xmlData.empty()) {
       fprintf(stderr, "[export-svg] no SVG data in %ls (hr=0x%08lX)\n", inPath, hr);
       return E_FAIL;
@@ -11860,167 +12039,411 @@ static void InlineSvgStyleAttrs(std::string &svg) {
 }
 
 // ----------------------------------------------------------------------------
-// [CDR/CMX] 真正将 BMP/TIFF data URI 转换为 PNG data URI。
-// D2D ID2D1SvgDocument 和 resvg 不支持 BMP data URI（不像 MuPDF 能靠文件头
-// 检测格式），所以必须真正解码 BMP → 重编码为 PNG → base64 → 替换回 SVG。
+// [CDR/CMX] Convert BMP/TIFF data URIs to PNG — single pass, with dedupe and
+// downscale. D2D ID2D1SvgDocument 和 resvg 都不支持 BMP data URI（不像 MuPDF
+// 能靠文件头检测格式），所以必须真正解码 BMP → 重编码为 PNG → base64。
 // 使用 WIC 解码/编码，CryptStringToBinary/CryptBinaryToString 做 base64。
+//
+// [Fix] 旧实现用 svg.find + svg.replace 逐张替换，对每张位图都要 memmove 整个
+// SVG 尾部（O(n²)），且过程中有 3~4 份完整拷贝。打版行业的工艺单 CDR 常内嵌
+// 上千张位图（libcdr 以未压缩 BMP 内联，1.4GB SVG / 2.7亿像素），旧实现直接
+// 把加载线程卡死或耗尽内存 → "大图打不开"。现改为单遍重建输出串：
+//   1. O(n)：非 URI 内容逐段拷贝，URI 原地转换；
+//   2. 去重：同一张位图被 libcdr 重复内联十几遍（同一印花稿贴在多个尺码
+//      位置），按 base64 内容哈希缓存 PNG 结果，实测 1.43GB → 150MB；
+//   3. 降采样：单边超过当前上限的位图等比缩到上限内（WIC Fant 高质量插值），
+//      约束 resvg 解码后的内存占用；
+//   4. 失败回退：任何一张转换失败时原样保留该 URI（与旧行为一致）。
+//
+// [预算制上限] 早期版本固定 2048 导致位图型大图（印花稿主体）放大必糊。
+// 上限按"去重后唯一图累计输出像素"动态选取：清晰优先 8192，累计超预算逐级
+// 回落 4096 / 2048 兜底。去重已把重复内联折叠掉，预算只受唯一大图影响，
+// 海量位图工艺单仍受控。
 // ----------------------------------------------------------------------------
-static void ConvertBmpDataUrisToPng(std::string &svg) {
-  // 需要转换的 data URI 前缀列表
-  static const std::vector<std::string> kPrefixes = {
+static constexpr UINT kCdrImageMaxDimHigh = 8192;
+static constexpr UINT kCdrImageMaxDimMid = 4096;
+static constexpr UINT kCdrImageMaxDimLow = 2048;
+static constexpr uint64_t kCdrPixelBudgetHigh = 300ull * 1000 * 1000;
+static constexpr uint64_t kCdrPixelBudgetMid = 600ull * 1000 * 1000;
+
+// Convert one base64 BMP/TIFF blob into a complete "data:image/png;base64,..."
+// URI. Returns false when the blob cannot be decoded/encoded (caller keeps the
+// original). |zeroAlphaFix| mirrors libcdr's 32bpp DIBs whose alpha bytes are
+// all 0 (old CorelDRAW bitmaps carry no alpha mask): force them opaque so the
+// PNG does not vanish in resvg.
+static bool ConvertImageBlobToPngUri(IWICImagingFactory *wicFactory,
+                                     std::string_view b64Svg,
+                                     std::string &outUri, UINT maxDim,
+                                     uint64_t *outPixelCount = nullptr) {
+  // ---- base64 解码 → 图片二进制 ----
+  DWORD decodedSize = 0;
+  if (!CryptStringToBinaryA(b64Svg.data(), (DWORD)b64Svg.size(),
+                            CRYPT_STRING_BASE64, nullptr, &decodedSize,
+                            nullptr, nullptr))
+    return false;
+  std::vector<uint8_t> imgData(decodedSize);
+  if (!CryptStringToBinaryA(b64Svg.data(), (DWORD)b64Svg.size(),
+                            CRYPT_STRING_BASE64, imgData.data(), &decodedSize,
+                            nullptr, nullptr))
+    return false;
+
+  // ---- WIC 解码 → 32bppBGRA ----
+  ComPtr<IWICStream> decStream;
+  if (FAILED(wicFactory->CreateStream(&decStream)))
+    return false;
+  if (FAILED(decStream->InitializeFromMemory(imgData.data(), (DWORD)imgData.size())))
+    return false;
+  ComPtr<IWICBitmapDecoder> decoder;
+  if (FAILED(wicFactory->CreateDecoderFromStream(decStream.Get(), nullptr,
+                                                 WICDecodeMetadataCacheOnDemand,
+                                                 &decoder)))
+    return false;
+  ComPtr<IWICBitmapFrameDecode> frame;
+  if (FAILED(decoder->GetFrame(0, &frame)))
+    return false;
+  UINT w = 0, h = 0;
+  if (FAILED(frame->GetSize(&w, &h)) || w == 0 || h == 0)
+    return false;
+
+  ComPtr<IWICFormatConverter> converter;
+  if (FAILED(wicFactory->CreateFormatConverter(&converter)))
+    return false;
+  if (FAILED(converter->Initialize(frame.Get(), GUID_WICPixelFormat32bppBGRA,
+                                   WICBitmapDitherTypeNone, nullptr, 0.0,
+                                   WICBitmapPaletteTypeCustom)))
+    return false;
+
+  // ---- 全分辨率 CopyPixels（top-down） ----
+  UINT stride = w * 4;
+  UINT bufSize = stride * h;
+  std::vector<uint8_t> bgra(bufSize);
+  if (FAILED(converter->CopyPixels(nullptr, stride, bufSize, bgra.data())))
+    return false;
+
+  // [Alpha Fix] WIC 把 32bpp BI_RGB 的 BMP 当作 32bppBGR（第 4 字节是填充），
+  // 转 32bppBGRA 时会把 alpha 全部填成 255 —— libcdr 写入的（通常全 0 的）
+  // alpha 字节根本到不了我们手里，旧的 allZeroAlpha 检测永远不成立，白底
+  // 位图以不透明覆盖下层矢量填充（实测 JRB 工艺单印花只剩轮廓线）。
+  // 因此直接从原始 BMP 字节解析 alpha：
+  //   - 原始 alpha 有非零值 → 逐像素合并回 BGRA（WIC 丢掉了它）；
+  //   - 原始 alpha 全 0（旧 CorelDRAW 不用 alpha 掩码）→ 语义修复：白底即
+  //     无墨区（透明）。白底黑线线稿的白色置透明、内容置不透明；若整张几乎
+  //     全白（布纹/纸纹类纹理）则保持完全不透明。
+  bool is32bppBmp = false;
+  int32_t bmpW = 0, bmpH = 0;
+  uint32_t bmpOff = 0, bmpStride = 0;
+  if (imgData.size() >= 54 && imgData[0] == 'B' && imgData[1] == 'M') {
+    uint32_t biSize = 0, comp = 0;
+    uint16_t bpp = 0;
+    memcpy(&bmpOff, imgData.data() + 10, 4);
+    memcpy(&biSize, imgData.data() + 14, 4);
+    memcpy(&bmpW, imgData.data() + 18, 4);
+    memcpy(&bmpH, imgData.data() + 22, 4);
+    memcpy(&bpp, imgData.data() + 28, 2);
+    memcpy(&comp, imgData.data() + 30, 4);
+    if (bpp == 32 && (comp == 0 || comp == 3) && biSize >= 40 &&
+        bmpW > 0 && bmpH != 0) {
+      bmpStride = ((uint32_t)bmpW * 32 + 31) / 32 * 4;
+      int32_t absH = bmpH < 0 ? -bmpH : bmpH;
+      if ((uint64_t)bmpOff + (uint64_t)bmpStride * absH <= imgData.size())
+        is32bppBmp = true;
+    }
+  }
+
+  bool rawAllZeroAlpha = true;
+  if (is32bppBmp) {
+    int32_t absH = bmpH < 0 ? -bmpH : bmpH;
+    for (int32_t row = 0; row < absH && rawAllZeroAlpha; ++row) {
+      const uint8_t *src =
+          imgData.data() + bmpOff + (size_t)row * bmpStride;
+      for (int32_t x = 0; x < bmpW; ++x) {
+        if (src[x * 4 + 3] != 0) {
+          rawAllZeroAlpha = false;
+          break;
+        }
+      }
+    }
+  }
+
+  if (is32bppBmp) {
+    int32_t absH = bmpH < 0 ? -bmpH : bmpH;
+    if (!rawAllZeroAlpha) {
+      // 原始 alpha 有效：逐像素合并（WIC 丢弃了它）。BMP 行序 bottom-up
+      // （h>0）需翻转；h<0 本身就是 top-down。
+      for (int32_t row = 0; row < absH; ++row) {
+        const uint8_t *src =
+            imgData.data() + bmpOff + (size_t)row * bmpStride;
+        int32_t dstRow = (bmpH > 0) ? (absH - 1 - row) : row;
+        uint8_t *dst = bgra.data() + (size_t)dstRow * stride;
+        for (int32_t x = 0; x < bmpW; ++x)
+          dst[x * 4 + 3] = src[x * 4 + 3];
+      }
+    } else {
+      size_t pxCount = (size_t)w * h;
+      size_t whiteish = 0;
+      for (size_t p = 0; p + 4 <= bgra.size(); p += 4) {
+        if (bgra[p] >= 245 && bgra[p + 1] >= 245 && bgra[p + 2] >= 245)
+          ++whiteish;
+      }
+      if (whiteish * 20 >= pxCount * 19) {
+        // ≥95% 白：纹理类位图，全部不透明
+        for (size_t p = 3; p < bgra.size(); p += 4)
+          bgra[p] = 255;
+      } else {
+        // 白底内容图（线稿等）：白→透明，其余→不透明
+        for (size_t p = 0; p + 4 <= bgra.size(); p += 4) {
+          bool whitePx = bgra[p] >= 245 && bgra[p + 1] >= 245 &&
+                         bgra[p + 2] >= 245;
+          bgra[p + 3] = whitePx ? 0 : 255;
+        }
+      }
+    }
+  } else {
+    // 非 BMP（TIFF 等）：libcdr 同样可能写入全 0 alpha 的 DIB。保留旧版
+    // 兜底——WIC 解出的 alpha 全 0 时强制不透明，否则 resvg 里整张消失。
+    bool allZeroAlpha = true;
+    for (size_t p = 3; p < bgra.size(); p += 4) {
+      if (bgra[p] != 0) {
+        allZeroAlpha = false;
+        break;
+      }
+    }
+    if (allZeroAlpha) {
+      for (size_t p = 3; p < bgra.size(); p += 4)
+        bgra[p] = 255;
+    }
+  }
+
+  // [Downscale] 单边超限的位图等比缩小，防止海量像素把 resvg 渲染树的内存
+  // 和 PNG 编码时间撑爆（典型：3392x1944 的印花底稿被内联 5 遍）。上限由
+  // 调用方按累计像素预算给出（8192/4096/2048），清晰优先。
+  // alpha 已在上方合并/修复完，从内存位图缩放以保留透明度信息。
+  UINT outW = w, outH = h;
+  std::vector<uint8_t> bgraSmall;
+  UINT smallStride = stride;
+  {
+    UINT maxSide = (w > h) ? w : h;
+    if (maxSide > maxDim) {
+      UINT nw = (UINT)((uint64_t)w * maxDim / maxSide);
+      UINT nh = (UINT)((uint64_t)h * maxDim / maxSide);
+      if (nw < 1) nw = 1;
+      if (nh < 1) nh = 1;
+      ComPtr<IWICBitmap> srcBitmap;
+      if (SUCCEEDED(wicFactory->CreateBitmapFromMemory(
+              w, h, GUID_WICPixelFormat32bppBGRA, stride, bufSize,
+              bgra.data(), &srcBitmap))) {
+        ComPtr<IWICBitmapScaler> scaler;
+        if (SUCCEEDED(wicFactory->CreateBitmapScaler(&scaler)) &&
+            SUCCEEDED(scaler->Initialize(srcBitmap.Get(), nw, nh,
+                                         WICBitmapInterpolationModeFant))) {
+          smallStride = nw * 4;
+          bgraSmall.resize((size_t)smallStride * nh);
+          if (SUCCEEDED(scaler->CopyPixels(nullptr, smallStride,
+                                           (UINT)bgraSmall.size(),
+                                           bgraSmall.data()))) {
+            outW = nw;
+            outH = nh;
+          } else {
+            bgraSmall.clear();
+          }
+        }
+      }
+      if (bgraSmall.empty()) {
+        outW = w;
+        outH = h;
+        smallStride = stride;
+      }
+    }
+  }
+  const uint8_t *encPixels = bgraSmall.empty() ? bgra.data() : bgraSmall.data();
+  UINT encStride = smallStride;
+
+  // ---- WIC 编码 BGRA → PNG（到内存流） ----
+  ComPtr<IWICBitmapEncoder> enc;
+  if (FAILED(wicFactory->CreateEncoder(GUID_ContainerFormatPng, nullptr, &enc)))
+    return false;
+  ComPtr<IWICStream> encStream;
+  if (FAILED(wicFactory->CreateStream(&encStream)))
+    return false;
+  ComPtr<IStream> hStream;
+  if (FAILED(CreateStreamOnHGlobal(nullptr, TRUE, &hStream)))
+    return false;
+  if (FAILED(encStream->InitializeFromIStream(hStream.Get())))
+    return false;
+  if (FAILED(enc->Initialize(encStream.Get(), WICBitmapEncoderNoCache)))
+    return false;
+  ComPtr<IWICBitmapFrameEncode> fenc;
+  if (FAILED(enc->CreateNewFrame(&fenc, nullptr)))
+    return false;
+  if (FAILED(fenc->Initialize(nullptr)))
+    return false;
+  if (FAILED(fenc->SetSize(outW, outH)))
+    return false;
+  WICPixelFormatGUID fmt = GUID_WICPixelFormat32bppBGRA;
+  if (FAILED(fenc->SetPixelFormat(&fmt)))
+    return false;
+  if (FAILED(fenc->WritePixels(outH, encStride, encStride * outH,
+                               const_cast<BYTE *>(encPixels))))
+    return false;
+  if (FAILED(fenc->Commit()))
+    return false;
+  if (FAILED(enc->Commit()))
+    return false;
+
+  STATSTG stat{};
+  if (FAILED(hStream->Stat(&stat, STATFLAG_NONAME)))
+    return false;
+  LARGE_INTEGER move{};
+  if (FAILED(hStream->Seek(move, STREAM_SEEK_SET, nullptr)))
+    return false;
+  std::vector<uint8_t> pngData((size_t)stat.cbSize.QuadPart);
+  ULONG read = 0;
+  if (FAILED(hStream->Read(pngData.data(), (ULONG)pngData.size(), &read)))
+    return false;
+
+  // ---- base64 编码 PNG ----
+  DWORD b64Size = 0;
+  if (!CryptBinaryToStringA(pngData.data(), (DWORD)pngData.size(),
+                            CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF,
+                            nullptr, &b64Size))
+    return false;
+  std::string b64Png(b64Size, '\0');
+  if (!CryptBinaryToStringA(pngData.data(), (DWORD)pngData.size(),
+                            CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF,
+                            b64Png.data(), &b64Size))
+    return false;
+  b64Png.resize(b64Size);
+
+  outUri = "data:image/png;base64,";
+  outUri += b64Png;
+  if (outPixelCount)
+    *outPixelCount = (uint64_t)outW * outH;
+  return true;
+}
+
+// FNV-1a 64 over the blob text — identifies repeated inline images without
+// paying a base64 decode for cache hits. Length is folded into the key so
+// different-length blobs cannot collide on the same bucket entry.
+static uint64_t HashBlob(std::string_view s) {
+  uint64_t h = 1469598103934665603ull;
+  for (unsigned char c : s) {
+    h ^= c;
+    h *= 1099511628211ull;
+  }
+  return h;
+}
+
+// Single-pass rebuild of the SVG with every BMP/TIFF data URI converted to
+// PNG. See the block comment above for why this replaced find+replace.
+static std::string ConvertImageDataUrisToPng(std::string_view svg) {
+  static const char *const kPrefixes[] = {
     "data:image/bmp;base64,",
     "data:image/x-ms-bmp;base64,",
     "data:image/tiff;base64,",
     "data:image/x-tiff;base64,",
   };
+  static const size_t kPrefixLens[] = {
+    strlen(kPrefixes[0]), strlen(kPrefixes[1]),
+    strlen(kPrefixes[2]), strlen(kPrefixes[3]),
+  };
+
+  std::string out;
+  out.reserve(std::min<size_t>(svg.size(), 64u << 20));
 
   // 确保 COM 已初始化（FastLane 线程可能未初始化 COM）
   HRESULT coInit = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
   (void)coInit; // S_OK=本次初始化, S_FALSE=已初始化, RPC_E_CHANGED_MODE=模式冲突（忽略）
 
-  // 懒初始化 WIC 工厂
+  // 懒初始化 WIC 工厂：只有真正出现需要转换的 URI 时才创建。
   ComPtr<IWICImagingFactory> wicFactory;
-  HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr,
-                                CLSCTX_INPROC_SERVER,
-                                IID_PPV_ARGS(&wicFactory));
-  if (FAILED(hr) || !wicFactory) return;
 
-  for (const auto &prefix : kPrefixes) {
-    size_t pos = 0;
-    while (true) {
-      size_t found = svg.find(prefix, pos);
-      if (found == std::string::npos) break;
-
-      // base64 数据从 prefix 后开始，到下一个引号结束
-      size_t dataStart = found + prefix.length();
-      size_t dataEnd = svg.find('"', dataStart);
-      if (dataEnd == std::string::npos) break;
-
-      std::string_view b64Svg(svg.data() + dataStart, dataEnd - dataStart);
-
-      // ---- base64 解码 → BMP 二进制 ----
-      DWORD decodedSize = 0;
-      if (!CryptStringToBinaryA(b64Svg.data(), (DWORD)b64Svg.size(),
-                                CRYPT_STRING_BASE64, nullptr, &decodedSize,
-                                nullptr, nullptr)) {
-        pos = dataEnd;
-        continue;
-      }
-      std::vector<uint8_t> bmpData(decodedSize);
-      if (!CryptStringToBinaryA(b64Svg.data(), (DWORD)b64Svg.size(),
-                                CRYPT_STRING_BASE64, bmpData.data(),
-                                &decodedSize, nullptr, nullptr)) {
-        pos = dataEnd;
-        continue;
-      }
-
-      // ---- WIC 解码 BMP → BGRA ----
-      ComPtr<IWICStream> decStream;
-      if (FAILED(wicFactory->CreateStream(&decStream))) { pos = dataEnd; continue; }
-      if (FAILED(decStream->InitializeFromMemory(bmpData.data(),
-                                                  (DWORD)bmpData.size()))) {
-        pos = dataEnd; continue;
-      }
-      ComPtr<IWICBitmapDecoder> decoder;
-      if (FAILED(wicFactory->CreateDecoderFromStream(decStream.Get(), nullptr,
-                                                      WICDecodeMetadataCacheOnDemand,
-                                                      &decoder))) {
-        pos = dataEnd; continue;
-      }
-      ComPtr<IWICBitmapFrameDecode> frame;
-      if (FAILED(decoder->GetFrame(0, &frame))) { pos = dataEnd; continue; }
-      UINT w = 0, h = 0;
-      if (FAILED(frame->GetSize(&w, &h)) || w == 0 || h == 0) { pos = dataEnd; continue; }
-
-      // 转换为 32bppBGRA
-      ComPtr<IWICFormatConverter> converter;
-      if (FAILED(wicFactory->CreateFormatConverter(&converter))) { pos = dataEnd; continue; }
-      if (FAILED(converter->Initialize(frame.Get(),
-                                        GUID_WICPixelFormat32bppBGRA,
-                                        WICBitmapDitherTypeNone, nullptr,
-                                        0.0, WICBitmapPaletteTypeCustom))) {
-        pos = dataEnd; continue;
-      }
-      UINT stride = w * 4;
-      UINT bufSize = stride * h;
-      std::vector<uint8_t> bgra(bufSize);
-      if (FAILED(converter->CopyPixels(nullptr, stride, bufSize, bgra.data()))) {
-        pos = dataEnd; continue;
-      }
-
-      // [Alpha Check] libcdr 生成的 32bpp DIB/BMP 中，Alpha 字节（第 4 字节）经常全为 0x00
-      // （因为 Windows GDI / 旧版 CorelDRAW 32 位位图默认未启用 Alpha 掩码，默认全 0）。
-      // 若原数据 Alpha 全为 0，WIC 转为 32bppBGRA 会保留全 0 Alpha，导致编码成 PNG 后
-      // 在 SVG 渲染器（如 resvg）中完全透明消失。
-      // 因此：若检测到整张位图的所有像素 Alpha 均为 0，则全部强制修复为 255（不透明）。
-      bool allZeroAlpha = true;
-      for (size_t p = 3; p < bgra.size(); p += 4) {
-        if (bgra[p] != 0) {
-          allZeroAlpha = false;
-          break;
-        }
-      }
-      if (allZeroAlpha) {
-        for (size_t p = 3; p < bgra.size(); p += 4) {
-          bgra[p] = 255;
-        }
-      }
-
-      // ---- WIC 编码 BGRA → PNG（到内存流） ----
-      ComPtr<IWICBitmapEncoder> enc;
-      if (FAILED(wicFactory->CreateEncoder(GUID_ContainerFormatPng, nullptr, &enc))) {
-        pos = dataEnd; continue;
-      }
-      ComPtr<IWICStream> encStream;
-      if (FAILED(wicFactory->CreateStream(&encStream))) { pos = dataEnd; continue; }
-      // 用 IStream (HGLOBAL) 作为输出
-      ComPtr<IStream> hStream;
-      if (FAILED(CreateStreamOnHGlobal(nullptr, TRUE, &hStream))) { pos = dataEnd; continue; }
-      if (FAILED(encStream->InitializeFromIStream(hStream.Get()))) { pos = dataEnd; continue; }
-      if (FAILED(enc->Initialize(encStream.Get(), WICBitmapEncoderNoCache))) { pos = dataEnd; continue; }
-      ComPtr<IWICBitmapFrameEncode> fenc;
-      if (FAILED(enc->CreateNewFrame(&fenc, nullptr))) { pos = dataEnd; continue; }
-      if (FAILED(fenc->Initialize(nullptr))) { pos = dataEnd; continue; }
-      if (FAILED(fenc->SetSize(w, h))) { pos = dataEnd; continue; }
-      WICPixelFormatGUID fmt = GUID_WICPixelFormat32bppBGRA;
-      if (FAILED(fenc->SetPixelFormat(&fmt))) { pos = dataEnd; continue; }
-      if (FAILED(fenc->WritePixels(h, stride, bufSize, bgra.data()))) { pos = dataEnd; continue; }
-      if (FAILED(fenc->Commit())) { pos = dataEnd; continue; }
-      if (FAILED(enc->Commit())) { pos = dataEnd; continue; }
-
-      // 读取 PNG 二进制
-      STATSTG stat{};
-      if (FAILED(hStream->Stat(&stat, STATFLAG_NONAME))) { pos = dataEnd; continue; }
-      LARGE_INTEGER move{};
-      if (FAILED(hStream->Seek(move, STREAM_SEEK_SET, nullptr))) { pos = dataEnd; continue; }
-      std::vector<uint8_t> pngData((size_t)stat.cbSize.QuadPart);
-      ULONG read = 0;
-      if (FAILED(hStream->Read(pngData.data(), (ULONG)pngData.size(), &read))) {
-        pos = dataEnd; continue;
-      }
-
-      // ---- base64 编码 PNG ----
-      DWORD b64Size = 0;
-      if (!CryptBinaryToStringA(pngData.data(), (DWORD)pngData.size(),
-                                CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF,
-                                nullptr, &b64Size)) {
-        pos = dataEnd; continue;
-      }
-      std::string b64Png(b64Size, '\0');
-      if (!CryptBinaryToStringA(pngData.data(), (DWORD)pngData.size(),
-                                CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF,
-                                b64Png.data(), &b64Size)) {
-        pos = dataEnd; continue;
-      }
-      // CryptBinaryToStringA 可能不包含尾部 null，调整大小
-      b64Png.resize(b64Size);
-
-      // ---- 替换 SVG 中的 data URI ----
-      std::string replacement = "data:image/png;base64," + b64Png;
-      svg.replace(found, dataEnd - found, replacement);
-      pos = found + replacement.length();
+  struct BlobKey {
+    uint64_t hash;
+    size_t len;
+    bool operator==(const BlobKey &o) const {
+      return hash == o.hash && len == o.len;
     }
+  };
+  struct BlobKeyHash {
+    size_t operator()(const BlobKey &k) const {
+      return (size_t)k.hash ^ (size_t)k.len;
+    }
+  };
+  std::unordered_map<BlobKey, std::string, BlobKeyHash> pngCache;
+  // [预算制上限] 唯一图累计输出像素：达到预算后逐级回落降采样上限，
+  // 保证清晰优先的同时，海量位图工艺单的内存仍有兜底。
+  uint64_t uniqueOutPixels = 0;
+
+  size_t pos = 0;
+  static constexpr char kUriHead[] = "data:image/";
+  static constexpr size_t kUriHeadLen = sizeof(kUriHead) - 1;
+  while (true) {
+    // 找自 pos 起最早的 data URI，再分类具体格式。
+    // [Fix] 不能对每个前缀各做一次 find——永不匹配的前缀（如 tiff）会把
+    // 剩余整个 1.4GB 扫一遍，千余张位图就是 TB 级扫描量。单次 find 统一定位。
+    size_t hit = svg.find(kUriHead, pos);
+    if (hit == std::string_view::npos)
+      break;
+
+    int hitIdx = -1;
+    for (int i = 0; i < 4; ++i) {
+      size_t suffixLen = kPrefixLens[i] - kUriHeadLen;
+      if (svg.compare(hit + kUriHeadLen, suffixLen,
+                      kPrefixes[i] + kUriHeadLen) == 0) {
+        hitIdx = i;
+        break;
+      }
+    }
+    if (hitIdx < 0) {
+      pos = hit + kUriHeadLen; // 其它格式（jpeg/png 等）原样保留
+      continue;
+    }
+
+    size_t dataStart = hit + kPrefixLens[hitIdx];
+    size_t dataEnd = svg.find('"', dataStart);
+    if (dataEnd == std::string_view::npos)
+      break; // 引号缺失：URI 贯穿到串尾，无法安全处理
+
+    out.append(svg.substr(pos, hit - pos));
+
+    std::string_view b64 = svg.substr(dataStart, dataEnd - dataStart);
+    std::string pngUri;
+    const uint64_t b64Hash = HashBlob(b64);
+    auto cached = pngCache.find({b64Hash, b64.size()});
+    if (cached != pngCache.end()) {
+      pngUri = cached->second;
+    } else {
+      if (!wicFactory) {
+        if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr,
+                                    CLSCTX_INPROC_SERVER,
+                                    IID_PPV_ARGS(&wicFactory)))) {
+          wicFactory = nullptr;
+        }
+      }
+      UINT cap = kCdrImageMaxDimHigh;
+      if (uniqueOutPixels >= kCdrPixelBudgetMid)
+        cap = kCdrImageMaxDimLow;
+      else if (uniqueOutPixels >= kCdrPixelBudgetHigh)
+        cap = kCdrImageMaxDimMid;
+      uint64_t outPixels = 0;
+      if (!wicFactory ||
+          !ConvertImageBlobToPngUri(wicFactory.Get(), b64, pngUri, cap,
+                                    &outPixels)) {
+        pngUri.clear(); // 转换失败：保留原始 URI
+      } else {
+        uniqueOutPixels += outPixels;
+        pngCache.emplace(BlobKey{b64Hash, b64.size()}, pngUri);
+      }
+    }
+
+    if (!pngUri.empty())
+      out.append(pngUri);
+    else
+      out.append(svg.substr(hit, dataEnd - hit));
+    pos = dataEnd; // 收尾的引号留给下一段逐字拷贝
   }
+  out.append(svg.substr(pos));
+  return out;
 }
 
 // ----------------------------------------------------------------------------
@@ -12034,18 +12457,18 @@ static void ConvertBmpDataUrisToPng(std::string &svg) {
 // fastMode=false: 完整后处理，用于 CLI 导出 PDF/SVG/PNG（MuPDF 渲染）。
 // ----------------------------------------------------------------------------
 std::vector<CdrPageData> ProcessCdrSvgPages(
-    const std::vector<std::string>& rawSvgPages, bool fastMode) {
+    const std::vector<std::string_view>& rawSvgPages, bool fastMode) {
   std::vector<CdrPageData> result;
   result.reserve(rawSvgPages.size());
 
   for (size_t i = 0; i < rawSvgPages.size(); ++i) {
-    std::string svgContent(rawSvgPages[i]);
-
     // [BMP→PNG] CDR/CMX 在主查看器中走 resvg 渲染（不是 MuPDF）。
     // resvg 不支持 BMP data URI（不靠文件头检测格式），必须真正解码 BMP→重编码 PNG。
-    // 关键防线：libcdr 生成的 32bpp DIB 里 alpha 字节常为 0，ConvertBmpDataUrisToPng
-    // 已内置全 0 alpha 自动修正为 255（不透明），规避了位图背景全黑或透明丢失问题。
-    ConvertBmpDataUrisToPng(svgContent);
+    // [Fix] 单遍重建式转换（含去重+降采样），输入以 string_view 引用避免整页
+    // 拷贝——旧实现 find+replace 对 1.4GB 级 SVG 是 O(n²)，加载直接卡死。
+    // 关键防线：转换器内置 libcdr 32bpp DIB 全 0 alpha 修正为 255（不透明），
+    // 规避位图背景全黑或透明丢失问题。
+    std::string svgContent = ConvertImageDataUrisToPng(rawSvgPages[i]);
 
     // [Image preserveAspectRatio] CorelDRAW 的渐变填充常被存成微小位图条带（如 170x1 像素），
     // 并在 SVG 中作为非等比拉伸的 <image> 渲染。SVG 默认 preserveAspectRatio="xMidYMid meet"
@@ -12086,7 +12509,10 @@ float svgW = 0.0f, svgH = 0.0f;
       // [CDR Canvas Outside] fastMode 也需要扩展 viewBox 以包含画布外内容。
       // 与 QvRasterizeSvgFrameToBgra 的 includeOutsidePage 逻辑对齐：用 resvg 的
       // resvg_get_image_bbox 获取真实内容边界框，扩展 viewBox 覆盖画布外元素。
-      // 超过页面 8 倍时不扩展（隐藏/辅助元素膨胀 bbox 的防护）。
+      // [Fix] 旧版"超过页面 8 倍不扩展"的上限会挡住打版工艺单这类文件
+      // （内容横排画布外，bbox 可达页面 28 倍 → 按页面渲染整页空白）。改为
+      // 覆盖率探测：扩展区域内确实有内容（QvSvgRenderCoverage 达标）才扩展，
+      // 游离杂点/隐藏参考对象膨胀 bbox 的场景仍被拒绝。
       if (g_config.ShowCdrOutsidePage) {
         double pageX = 0, pageY = 0, pageW = svgW, pageH = svgH;
         if (ParseSvgViewBox(svgContent, &pageX, &pageY, &pageW, &pageH)
@@ -12105,7 +12531,15 @@ float svgW = 0.0f, svgH = 0.0f;
                 double my = std::max(pageY + pageH,
                                      (double)cb.y + (double)cb.height);
                 double rw = mx - nx, rh = my - ny;
-                if (!(rw > pageW * 8.0 || rh > pageH * 8.0)) {
+                bool expand = true;
+                if (rw > pageW * 1.5 || rh > pageH * 1.5) {
+                  // 排除页面矩形：只统计页外区域的覆盖率。
+                  const double pageRect[4] = {pageX, pageY, pageW, pageH};
+                  expand = QvSvgRenderCoverage(tree, nx, ny, rw, rh, 96,
+                                               pageRect) >=
+                           kCdrOutsideCoverageMin;
+                }
+                if (expand) {
                   std::string rewritten = RewriteSvgRootViewBox(
                       svgContent, nx, ny, rw, rh);
                   if (!rewritten.empty()) {
@@ -12124,6 +12558,13 @@ float svgW = 0.0f, svgH = 0.0f;
 
       CdrPageData pageData;
       pageData.xmlData.assign(svgContent.begin(), svgContent.end());
+      {
+        double ox = 0.0, oy = 0.0, ow = 0.0, oh = 0.0;
+        if (ParseSvgViewBox(svgContent, &ox, &oy, &ow, &oh)) {
+          pageData.viewBoxX = (float)ox;
+          pageData.viewBoxY = (float)oy;
+        }
+      }
       pageData.viewBoxW = svgW;
       pageData.viewBoxH = svgH;
       result.push_back(std::move(pageData));
@@ -12182,14 +12623,17 @@ float svgW = 0.0f, svgH = 0.0f;
     // outside the Corel page rectangle (画布外内容). The page rect was already
     // inserted above, so the content bbox always contains it; if artwork spills
     // beyond the page, the bbox grows and the whole design becomes visible.
-    // 8x fallback guards against guide/crop elements inflating the bbox to nil.
+    // [Fix] 上限从 8x 放宽到 64x：打版工艺单把整套内容横排画布外（bbox 可达
+    // 页面 28 倍），8x 会把扩展拒掉导致 CLI 导出也是整页空白。交互查看路径
+    // （fastMode / QvRasterizeSvgFrameToBgra）已改用覆盖率探测做更细的判定，
+    // 这里是纯文本 bbox 的 CLI 导出路径，保留一个宽松的数值上限防极端值。
     if (g_config.ShowCdrOutsidePage) {
       SvgContentBBox contentBox = ComputeSvgContentBBox(svgContent);
       if (contentBox.valid && contentBox.maxX > contentBox.minX &&
           contentBox.maxY > contentBox.minY) {
         float cw = contentBox.maxX - contentBox.minX;
         float ch = contentBox.maxY - contentBox.minY;
-        if (cw <= pageW * 8.0f && ch <= pageH * 8.0f) {
+        if (cw <= pageW * 64.0f && ch <= pageH * 64.0f) {
           std::string rewritten = RewriteSvgRootViewBox(
               svgContent, contentBox.minX, contentBox.minY, cw, ch);
           if (!rewritten.empty()) {
@@ -12203,6 +12647,13 @@ float svgW = 0.0f, svgH = 0.0f;
 
     CdrPageData pageData;
     pageData.xmlData.assign(svgContent.begin(), svgContent.end());
+    {
+      double ox = 0.0, oy = 0.0, ow = 0.0, oh = 0.0;
+      if (ParseSvgViewBox(svgContent, &ox, &oy, &ow, &oh)) {
+        pageData.viewBoxX = (float)ox;
+        pageData.viewBoxY = (float)oy;
+      }
+    }
     pageData.viewBoxW = svgW;
     pageData.viewBoxH = svgH;
     result.push_back(std::move(pageData));
@@ -12275,11 +12726,29 @@ HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
   // When m_bPopulateCdrCache is true (main app, page navigation) the parsed
   // pages are cached in the shared global g_cdrPageCache. The thumbnail
   // server sets it false so it never touches that global.
-  std::vector<std::string> rawPages;
+  // [Fix] Pass the pages as string_views referencing the RVNGStringVector
+  // buffers (still alive below) — a raster-heavy CDR can produce a >1GB SVG
+  // per page and copying each one doubled the loader's peak memory.
+  std::vector<std::string_view> rawPages;
   rawPages.reserve(svgPages.size());
   for (size_t i = 0; i < svgPages.size(); ++i)
-    rawPages.emplace_back(svgPages[i].cstr());
+    rawPages.emplace_back(svgPages[i].cstr(), svgPages[i].size());
   auto processedPages = ProcessCdrSvgPages(rawPages, true);
+
+  // [DIAG] QV_DUMP_CDR_SVG=<path> 时把处理后的首页 SVG 落盘（排查渲染问题用）
+  {
+    wchar_t dumpPath[MAX_PATH];
+    if (GetEnvironmentVariableW(L"QV_DUMP_CDR_SVG", dumpPath, MAX_PATH) > 0 &&
+        !processedPages.empty()) {
+      FILE *df = _wfopen(dumpPath, L"wb");
+      if (df) {
+        fwrite(processedPages[0].xmlData.data(), 1,
+               processedPages[0].xmlData.size(), df);
+        fclose(df);
+        fprintf(stderr, "[CDR-DUMP] wrote %ls\n", dumpPath);
+      }
+    }
+  }
 
   CdrPageData firstPageDataLocal;
   if (m_bPopulateCdrCache) {
@@ -12293,6 +12762,8 @@ HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
       (m_bPopulateCdrCache ? g_cdrPageCache[0] : firstPageDataLocal);
   const float svgW = firstPage.viewBoxW;
   const float svgH = firstPage.viewBoxH;
+  const float svgVbX = firstPage.viewBoxX;
+  const float svgVbY = firstPage.viewBoxY;
 
   // [SVG_XML] 直接输出 SVG 矢量数据，跳过 MuPDF 光栅化。
   // 与普通 SVG/PLT/DXF/DWG 走同一条路径：main.cpp 中 IsSvg() 检测后
@@ -12304,6 +12775,8 @@ HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
   outFrame->pixels = nullptr;
   outFrame->svg = std::make_unique<RawImageFrame::SvgData>();
   outFrame->svg->xmlData = firstPage.xmlData;
+  outFrame->svg->viewBoxX = svgVbX;
+  outFrame->svg->viewBoxY = svgVbY;
   outFrame->svg->viewBoxW = svgW;
   outFrame->svg->viewBoxH = svgH;
   outFrame->formatDetails = isCdr ? L"CDR" : L"CMX";
@@ -12410,6 +12883,8 @@ HRESULT CImageLoader::RenderCdrCachePageToFrame(const CdrPageData& pageData,
   outFrame->pixels = nullptr;
   outFrame->svg = std::make_unique<RawImageFrame::SvgData>();
   outFrame->svg->xmlData = pageData.xmlData;
+  outFrame->svg->viewBoxX = pageData.viewBoxX;
+  outFrame->svg->viewBoxY = pageData.viewBoxY;
   outFrame->svg->viewBoxW = pageData.viewBoxW;
   outFrame->svg->viewBoxH = pageData.viewBoxH;
   outFrame->quality = DecodeQuality::Full;
@@ -16335,6 +16810,13 @@ HRESULT CImageLoader::LoadToFrame(
       // Allocate SvgData
       outFrame->svg = std::make_unique<RawImageFrame::SvgData>();
       outFrame->svg->xmlData.assign(svgContent.begin(), svgContent.end());
+      {
+        double ox = 0.0, oy = 0.0, ow = 0.0, oh = 0.0;
+        if (ParseSvgViewBox(svgContent, &ox, &oy, &ow, &oh)) {
+          outFrame->svg->viewBoxX = (float)ox;
+          outFrame->svg->viewBoxY = (float)oy;
+        }
+      }
       outFrame->svg->viewBoxW = svgW;
       outFrame->svg->viewBoxH = svgH;
 
@@ -17076,6 +17558,12 @@ AsyncRasterizer::~AsyncRasterizer() {
     }
     m_cv.notify_all();
     if (m_worker.joinable()) m_worker.join();
+    // Worker joined — safe to free the cached parse tree now.
+    if (m_cachedTree) {
+        resvg_tree_destroy(m_cachedTree);
+        m_cachedTree = nullptr;
+    }
+    m_cachedTreeToken = nullptr;
 }
 
 uint64_t AsyncRasterizer::Submit(AsyncRasterizeRequest&& req) {
@@ -17128,11 +17616,69 @@ void AsyncRasterizer::WorkerMain() noexcept {
         AsyncRasterizeResult result;
         result.requestId = req.requestId;
 
-        if (!req.svgXml.empty() && req.zoom > 0.0f) {
+        const bool viewportMode = req.viewW > 0.0 && req.viewH > 0.0 &&
+                                  req.targetW > 0 && req.targetH > 0;
+        if (viewportMode && req.svgSrc && !req.svgSrc->xmlData.empty()) {
+            // [Viewport raster] Render only the requested rect. The parsed
+            // tree is cached per source buffer: re-parsing a >100MB CDR SVG
+            // on every pan/zoom step costs seconds, rendering costs little.
+            if (m_cachedTreeToken != req.svgSrc.get() || !m_cachedTree) {
+                resvg_options *opt = resvg_options_create();
+                resvg_render_tree *tree = nullptr;
+                int32_t err = -1; // 非 RESVG_OK(0) 即失败
+                if (opt) {
+                    resvg_options_load_system_fonts(opt);
+                    err = resvg_parse_tree_from_data(
+                        reinterpret_cast<const char *>(
+                            req.svgSrc->xmlData.data()),
+                        req.svgSrc->xmlData.size(), opt, &tree);
+                    resvg_options_destroy(opt);
+                }
+                if (err == RESVG_OK && tree) {
+                    if (m_cachedTree) resvg_tree_destroy(m_cachedTree);
+                    m_cachedTree = tree;
+                    m_cachedTreeToken = req.svgSrc.get();
+                } else {
+                    // Parse failed: drop the stale cache so the next request
+                    // for a (possibly fixed) source re-parses.
+                    if (m_cachedTree && m_cachedTreeToken == req.svgSrc.get()) {
+                        resvg_tree_destroy(m_cachedTree);
+                        m_cachedTree = nullptr;
+                        m_cachedTreeToken = nullptr;
+                    }
+                }
+            }
+            if (m_cachedTree && m_cachedTreeToken == req.svgSrc.get()) {
+                std::vector<uint8_t> bgra;
+                uint32_t rW = 0, rH = 0;
+                // [Origin Fix] pass the source viewBox origin: the tree has it
+                // baked in and the crop rect must stay in the same space.
+                HRESULT hr = QvRenderResvgTreeViewport(
+                    m_cachedTree, req.viewX, req.viewY, req.viewW, req.viewH,
+                    req.targetW, req.targetH, bgra, req.whiteBg, &rW, &rH,
+                    req.svgSrc->viewBoxX, req.svgSrc->viewBoxY);
+                if (SUCCEEDED(hr) && rW > 0 && rH > 0 && !bgra.empty()) {
+                    result.status = S_OK;
+                    result.bgra = std::move(bgra);
+                    result.width = rW;
+                    result.height = rH;
+                    result.viewX = req.viewX;
+                    result.viewY = req.viewY;
+                    result.viewW = req.viewW;
+                    result.viewH = req.viewH;
+                } else {
+                    result.status = FAILED(hr) ? hr : E_FAIL;
+                }
+            } else {
+                result.status = E_FAIL;
+            }
+        } else if (!viewportMode && req.svgSrc && !req.svgSrc->xmlData.empty() &&
+                   req.zoom > 0.0f) {
+            // Legacy whole-canvas mode: parse per call (unchanged behavior).
             std::vector<uint8_t> bgra;
             uint32_t rW = 0, rH = 0;
             HRESULT hr = QvRasterizeSvgResvg(
-                req.svgXml, req.zoom, bgra, req.whiteBg, true,
+                req.svgSrc->xmlData, req.zoom, bgra, req.whiteBg, true,
                 nullptr, nullptr, &rW, &rH);
             if (SUCCEEDED(hr) && rW > 0 && rH > 0 && !bgra.empty()) {
                 result.status = S_OK;

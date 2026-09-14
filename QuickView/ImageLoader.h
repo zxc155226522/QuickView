@@ -10,6 +10,7 @@
 #include <vector>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <cwchar>
 #include <type_traits>
 
@@ -64,22 +65,51 @@ HRESULT QvRasterizeSvgFrameToBgra(const RawImageFrame::SvgData &svgData,
                                   int targetW = 0,
                                   int targetH = 0);
 
+// [Viewport raster] Render ONLY the given rect (SVG user units) of the SVG at
+// targetW x targetH output pixels. Used for huge CDR canvases: panning/zooming
+// renders just the visible region at screen resolution, so out-of-page layouts
+// many times the page size stay sharp without whole-canvas memory caps.
+HRESULT QvRasterizeSvgResvgViewport(const std::vector<uint8_t> &xml,
+                                    double viewX, double viewY,
+                                    double viewW, double viewH,
+                                    int targetW, int targetH,
+                                    std::vector<uint8_t> &outBgra,
+                                    bool whiteBg = true,
+                                    bool loadFonts = true,
+                                    uint32_t *outW = nullptr,
+                                    uint32_t *outH = nullptr);
+
 // ============================================================================
 // [Async Resvg] Async SVG rasterization controller for CDR/CMX zoom
 // ============================================================================
 // Rasterizes SVG on a background thread to avoid blocking the UI thread
-// during zoom. Results are delivered via PostMessage to the main window.
+// during zoom/pan. Results are delivered via PostMessage to the main window.
 // While rasterization is in progress, the old bitmap is kept on screen
 // (stretched by DComp) — preventing the white-screen-on-zoom bug.
 // ============================================================================
+
 
 // WM_APP message ID used by the async rasterizer to notify the main window.
 // Main window handles this in WndProc to apply the rasterized result.
 inline constexpr UINT WM_APP_ASYNC_RASTERIZE = WM_APP + 26;
 
 struct AsyncRasterizeRequest {
-    std::vector<uint8_t> svgXml;    // SVG XML data (copied)
-    float zoom = 1.0f;             // Zoom factor
+    // Shared SVG source (no per-submit copy — CDR pages can be >100MB).
+    std::shared_ptr<const RawImageFrame::SvgData> svgSrc;
+    // Legacy whole-canvas mode (viewW == 0): rasterize the entire canvas at
+    // `zoom` — output size = SVG size * zoom, clamped by the resvg caps.
+    float zoom = 1.0f;
+    // [Viewport raster] viewW/viewH > 0: rasterize ONLY this rect (SVG user
+    // units) into a targetW x targetH bitmap. This is how huge CDR canvases
+    // (out-of-page layouts, bbox many times the page) stay sharp at any zoom:
+    // only what is on screen is rendered, at screen resolution, never hitting
+    // the whole-canvas 16384px/512MB caps.
+    double viewX = 0.0;
+    double viewY = 0.0;
+    double viewW = 0.0;
+    double viewH = 0.0;
+    int targetW = 0;
+    int targetH = 0;
     bool whiteBg = true;           // Composite over white background
     uint64_t requestId = 0;        // Unique ID for deduplication
     HWND notifyWindow = nullptr;   // Window to PostMessage results to
@@ -91,6 +121,12 @@ struct AsyncRasterizeResult {
     std::vector<uint8_t> bgra;      // Rasterized BGRA pixels
     uint32_t width = 0;
     uint32_t height = 0;
+    // [Viewport raster] The crop rect (SVG units) actually rendered, so the
+    // consumer can record it on the resource for placement and coverage checks.
+    double viewX = 0.0;
+    double viewY = 0.0;
+    double viewW = 0.0;
+    double viewH = 0.0;
 };
 
 class AsyncRasterizer {
@@ -125,6 +161,11 @@ private:
     std::condition_variable m_cv;
     std::optional<AsyncRasterizeRequest> m_pendingRequest;
     std::optional<AsyncRasterizeResult> m_latestResult;
+    // [Viewport raster] Parsed resvg tree cache: re-parsing a >100MB CDR SVG
+    // per zoom/pan step costs seconds; the tree is reused across requests for
+    // the same source buffer (token = svgSrc pointer). Worker-thread only.
+    struct resvg_render_tree* m_cachedTree = nullptr;
+    const void* m_cachedTreeToken = nullptr;
     uint64_t m_nextRequestId = 0;
     bool m_stopping = false;
     std::atomic<bool> m_busy{false};
@@ -730,6 +771,8 @@ private:
 // Populated by LoadCDR when the document has more than one page.
 struct CdrPageData {
   std::vector<uint8_t> xmlData;  // Processed SVG XML
+  float viewBoxX = 0.0f;         // viewBox origin X (may be < 0 after expansion)
+  float viewBoxY = 0.0f;         // viewBox origin Y (may be < 0 after expansion)
   float viewBoxW = 0.0f;
   float viewBoxH = 0.0f;
 };
@@ -749,7 +792,7 @@ void ClearCdrPageCache();
 // Input: raw SVG page strings (one per page, from RVNGSVGDrawingGenerator).
 // Output: processed CdrPageData entries (one per page).
 std::vector<CdrPageData> ProcessCdrSvgPages(
-    const std::vector<std::string>& rawSvgPages, bool fastMode = false);
+    const std::vector<std::string_view>& rawSvgPages, bool fastMode = false);
 
 namespace QuickView {
 namespace Codec {

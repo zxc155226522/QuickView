@@ -379,7 +379,10 @@ struct RawImageFrame {
     // Use unique_ptr to ensure zero overhead for non-SVG paths
     struct SvgData {
         std::vector<uint8_t> xmlData;  // Sanitized SVG Source
+        float viewBoxX = 0;            // SVG viewBox origin X (may be < 0 after
+                                       // off-page canvas expansion!)
         float viewBoxW = 0;            // SVG Intrinsic Width
+        float viewBoxY = 0;            // SVG viewBox origin Y (may be < 0!)
         float viewBoxH = 0;            // SVG Intrinsic Height
     };
     std::unique_ptr<SvgData> svg;  // nullptr = Non-SVG
