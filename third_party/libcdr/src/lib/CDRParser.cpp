@@ -591,6 +591,9 @@ bool libcdr::CDRParser::parseRecord(librevenge::RVNGInputStream *input, const st
   {
     return false;
   }
+  // [EOS-TRACE] function-scope copies: try-block locals are invisible in catch
+  unsigned dbgFourCC = 0, dbgLength = 0;
+  unsigned long dbgPos = 0;
   try
   {
     m_collector->collectLevel(level);
@@ -606,6 +609,7 @@ bool libcdr::CDRParser::parseRecord(librevenge::RVNGInputStream *input, const st
     if (blockLengths.size() > length)
       length=blockLengths[length];
     unsigned long position = input->tell();
+    dbgFourCC = fourCC; dbgLength = length; dbgPos = position;
     unsigned listType(0);
     if (fourCC == CDR_FOURCC_RIFF || fourCC == CDR_FOURCC_LIST)
     {
@@ -673,8 +677,15 @@ bool libcdr::CDRParser::parseRecord(librevenge::RVNGInputStream *input, const st
     else
       readRecord(fourCC, length, input);
 
+    CDR_DEBUG_MSG(("Record done: level %u %s\n", level, toFourCC(fourCC)));
     input->seek(position + length, librevenge::RVNG_SEEK_SET);
     return true;
+  }
+  catch (libcdr::EndOfStreamException &)
+  {
+    CDR_DEBUG_MSG(("EOS inside record level %u %s at pos %lu (length %u)\n",
+                   level, toFourCC(dbgFourCC), dbgPos, dbgLength));
+    return false;
   }
   catch (...)
   {
@@ -1326,7 +1337,24 @@ void libcdr::CDRParser::readWaldoFill(librevenge::RVNGInputStream *input)
 void libcdr::CDRParser::readTrfd(librevenge::RVNGInputStream *input, unsigned length)
 {
   if (!_redirectX6Chunk(&input, length))
+  {
+    CDR_DEBUG_MSG(("readTrfd: redirect FAILED (sn invalid)\n"));
     throw GenericException();
+  }
+  CDR_DEBUG_MSG(("readTrfd: redirect OK\n"));
+  {
+    // [TRACE] dump first 48 bytes at redirect target to identify arg encoding
+    long savePos = input->tell();
+    unsigned long nBytes = 0;
+    const unsigned char *buf = input->read(48, nBytes);
+    if (buf && nBytes) {
+      CDR_DEBUG_MSG(("readTrfd: first %lu bytes:", (unsigned long)nBytes));
+      for (unsigned long bi = 0; bi < nBytes; ++bi)
+        CDR_DEBUG_MSG((" %02X", buf[bi]));
+      CDR_DEBUG_MSG(("\n"));
+    }
+    input->seek(savePos, librevenge::RVNG_SEEK_SET);
+  }
   long startPosition = input->tell();
   const unsigned long maxLength = getLength(input);
   if (startPosition >= long(maxLength))
@@ -1869,6 +1897,17 @@ void libcdr::CDRParser::readMcfg(librevenge::RVNGInputStream *input, unsigned le
     width = fabs(x1-x0);
     height = fabs(y1-y0);
   }
+  else if (m_version == 1700)
+  {
+    // [QuickView Fix] X7 (v1700, "CDRH") stores page width/height as two raw
+    // 32-bit integers at body offsets 12/16 (JTN63395: 2970000x2100000 = A4
+    // landscape). Keep the RAW values: empirically the geometry reaching the
+    // SVG generator pairs with the page only when both stay in raw units --
+    // dividing by 254000 (inches) desynchronizes the two spaces (page 11.69
+    // vs geometry 1006) and produces stray/blank views.
+    width  = (double)readU32(input);
+    height = (double)readU32(input);
+  }
   else
   {
     width = readCoordinate(input);
@@ -2029,27 +2068,47 @@ void libcdr::CDRParser::readWaldoBmpf(librevenge::RVNGInputStream *input, unsign
 
 void libcdr::CDRParser::readPpdt(librevenge::RVNGInputStream *input, unsigned length)
 {
+  // [QuickView Fix] X7 files (CDRH/1700) reference padding streams by an index
+  // libcdr's extracted-stream table does not contain (e.g. streamNumber=16 with
+  // only 5 data streams), and some npps bodies end mid-record. Throwing here
+  // aborts the WHOLE document parse (parse=0 -> file fails to open). The record
+  // only carries page-padding definitions, so degrade gracefully instead:
+  // skip the record and let the rest of the document render.
   if (!_redirectX6Chunk(&input, length))
-    throw GenericException();
-  unsigned long pointNum = readU16(input);
-  const unsigned short pointSize = 2 * (m_precision == PRECISION_16BIT ? 2 : 4) + 4;
-  if (pointNum > getRemainingLength(input) / pointSize)
-    pointNum = getRemainingLength(input) / pointSize;
-  input->seek(4, librevenge::RVNG_SEEK_CUR);
-  std::vector<std::pair<double, double> > points;
-  std::vector<unsigned> knotVector;
-  points.reserve(pointNum);
-  knotVector.reserve(pointNum);
-  for (unsigned long j=0; j<pointNum; j++)
   {
-    std::pair<double, double> point;
-    point.first = (double)readCoordinate(input);
-    point.second = (double)readCoordinate(input);
-    points.push_back(point);
+    CDR_DEBUG_MSG(("readPpdt: stream redirect unavailable, skipping record\n"));
+    return;
   }
-  for (unsigned long k=0; k<pointNum; k++)
-    knotVector.push_back(readU32(input));
-  m_collector->collectPpdt(points, knotVector);
+  // [QuickView Fix v2] X7 files ship truncated npps padding records: the
+  // redirect succeeds (inline marker 0xffffffff) but the claimed point data
+  // extends past the end of the (sub)stream. Padding is cosmetic -- never let
+  // it abort the whole document parse.
+  try
+  {
+    unsigned long pointNum = readU16(input);
+    const unsigned short pointSize = 2 * (m_precision == PRECISION_16BIT ? 2 : 4) + 4;
+    if (pointNum > getRemainingLength(input) / pointSize)
+      pointNum = getRemainingLength(input) / pointSize;
+    input->seek(4, librevenge::RVNG_SEEK_CUR);
+    std::vector<std::pair<double, double> > points;
+    std::vector<unsigned> knotVector;
+    points.reserve(pointNum);
+    knotVector.reserve(pointNum);
+    for (unsigned long j=0; j<pointNum; j++)
+    {
+      std::pair<double, double> point;
+      point.first = (double)readCoordinate(input);
+      point.second = (double)readCoordinate(input);
+      points.push_back(point);
+    }
+    for (unsigned long k=0; k<pointNum; k++)
+      knotVector.push_back(readU32(input));
+    m_collector->collectPpdt(points, knotVector);
+  }
+  catch (libcdr::EndOfStreamException &)
+  {
+    CDR_DEBUG_MSG(("readPpdt: truncated padding data, record skipped\n"));
+  }
 }
 
 void libcdr::CDRParser::readFtil(librevenge::RVNGInputStream *input, unsigned length)

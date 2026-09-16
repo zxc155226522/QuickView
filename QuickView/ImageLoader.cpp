@@ -4495,6 +4495,51 @@ static double QvSvgRenderCoverage(resvg_render_tree *tree,
   return counted ? (double)hit / (double)counted : 0.0;
 }
 
+// [QuickView Fix3c] 渲染探测：在 |px,py,pw,ph|（SVG 用户单位）内以极小分辨率
+// 渲染一遍，返回实际绘制出的非透明、非近白像素的紧致包围盒。用于内容塌缩
+// 场景下定位真实可见内容（resvg bbox 会框住远处游离元素，文本扫描会误配对）。
+static bool QvSvgRenderContentBox(resvg_render_tree *tree,
+                                 double px, double py, double pw, double ph,
+                                 double &outX, double &outY,
+                                 double &outW, double &outH,
+                                 int n = 400) {
+  if (!tree || pw <= 0.0 || ph <= 0.0)
+    return false;
+  double sc = (double)n / std::max(pw, ph);
+  int w = std::max(1, (int)std::lround(pw * sc));
+  int h = std::max(1, (int)std::lround(ph * sc));
+  std::vector<uint8_t> pix((size_t)w * h * 4, 0);
+  resvg_transform t{};
+  t.a = (float)sc;
+  t.d = (float)sc;
+  t.e = (float)(-px * sc);
+  t.f = (float)(-py * sc);
+  resvg_render(tree, t, (uint32_t)w, (uint32_t)h,
+               reinterpret_cast<char *>(pix.data()));
+  int minX = w, minY = h, maxX = -1, maxY = -1;
+  for (int y = 0; y < h; ++y) {
+    const uint8_t *row = pix.data() + (size_t)y * w * 4;
+    for (int x = 0; x < w; ++x) {
+      const uint8_t *px4 = row + (size_t)x * 4;
+      bool drawn = px4[3] > 8 &&
+                   !(px4[0] >= 250 && px4[1] >= 250 && px4[2] >= 250);
+      if (drawn) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX < minX || maxY < minY)
+    return false;
+  outX = px + (double)minX / sc;
+  outY = py + (double)minY / sc;
+  outW = (double)(maxX - minX + 1) / sc;
+  outH = (double)(maxY - minY + 1) / sc;
+  return true;
+}
+
 HRESULT QvRasterizeSvgFrameToBgra(const RawImageFrame::SvgData& svgData,
                                     std::vector<uint8_t>& outBgra,
                                     uint32_t& outW, uint32_t& outH,
@@ -12532,6 +12577,14 @@ float svgW = 0.0f, svgH = 0.0f;
                 double my = std::max(pageY + pageH,
                                      (double)cb.y + (double)cb.height);
                 double rw = mx - nx, rh = my - ny;
+                // [QuickView Fix3] 某些 X7(1700) 文件的变换链 libcdr 尚未
+                // 完整支持，解析出的对象几何会塌缩成页面尺寸的极小比例
+                // （实测内容 span 仅画布 0.3%，CorelDRAW 真值却铺满整页）。
+                // 此时按页面渲染就是一片空白小点。判定：内容 bbox 双向都
+                // < 页面 2% -> 放弃页面矩形，改用内容 bbox 作为视图，
+                // 让用户至少能看到完整图案（缩放/平移不受影响）。
+                bool contentCollapsed =
+                    (cb.width < pageW * 0.02 && cb.height < pageH * 0.02);
                 bool expand = true;
                 if (rw > pageW * 1.5 || rh > pageH * 1.5) {
                   // 排除页面矩形：只统计页外区域的覆盖率。
@@ -12539,6 +12592,31 @@ float svgW = 0.0f, svgH = 0.0f;
                   expand = QvSvgRenderCoverage(tree, nx, ny, rw, rh, 96,
                                                pageRect) >=
                            kCdrOutsideCoverageMin;
+                }
+                if (contentCollapsed) {
+                  // 内容塌缩：以"实际绘制出的内容"为准取视图。渲染探测比
+                  // resvg bbox / 文本扫描都可靠：resvg bbox 会框住远处游离
+                  // 元素（JTN63395 实测 cb 在 141M/99M，路径在 106M/75M），
+                  // 文本扫描会把属性数值误配成坐标（v4 实测生成 108 亿宽
+                  // 视图）。探测不到内容时退回 resvg bbox。
+                  double bx = 0.0, by = 0.0, bw2 = 0.0, bh2 = 0.0;
+                  if (QvSvgRenderContentBox(tree, pageX, pageY, pageW, pageH,
+                                           bx, by, bw2, bh2)) {
+                    double padX = (std::max)(bw2, pageW * 0.02) * 0.1;
+                    double padY = (std::max)(bh2, pageH * 0.02) * 0.1;
+                    nx = bx - padX;
+                    ny = by - padY;
+                    rw = bw2 + padX * 2;
+                    rh = bh2 + padY * 2;
+                  } else {
+                    double padX = (std::max)((double)cb.width, pageW * 0.02) * 0.1;
+                    double padY = (std::max)((double)cb.height, pageH * 0.02) * 0.1;
+                    nx = cb.x - padX;
+                    ny = cb.y - padY;
+                    rw = cb.width + padX * 2;
+                    rh = cb.height + padY * 2;
+                  }
+                  expand = true;
                 }
                 if (expand) {
                   std::string rewritten = RewriteSvgRootViewBox(
