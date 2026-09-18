@@ -12911,11 +12911,15 @@ HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
               outFrame->formatDetails =
                   isCdr ? L"CDR (embedded preview)" : L"CMX (embedded preview)";
               outFrame->quality = QuickView::DecodeQuality::Full;
+              // [Null Guard] pLoaderName 与 pMetadata 可独立为空（CLI 导出传
+              // pLoaderName=nullptr + pMetadata 非空），不能经 pLoaderName 中转。
+              const wchar_t *embeddedLoader =
+                  isCdr ? L"libcdr+embedded preview (CDR)"
+                        : L"libcdr+embedded preview (CMX)";
               if (pLoaderName)
-                *pLoaderName = isCdr ? L"libcdr+embedded preview (CDR)"
-                                     : L"libcdr+embedded preview (CMX)";
+                *pLoaderName = embeddedLoader;
               if (pMetadata) {
-                pMetadata->LoaderName = *pLoaderName;
+                pMetadata->LoaderName = embeddedLoader;
                 pMetadata->Format = isCdr ? L"CDR" : L"CMX";
                 pMetadata->FormatDetails = L"Embedded preview (CorelDRAW)";
                 pMetadata->Width = (UINT)td.width;
