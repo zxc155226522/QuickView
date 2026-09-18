@@ -5855,15 +5855,51 @@ static D2D1_COLOR_F ResolveCanvasColor() {
 
 // 可见区域两侧各扩 60%（裁剪面积 ≈ 2.56x 可视面积），小幅平移/缩放不需重渲。
 static constexpr double kMupdfViewMargin = 0.6;
-// 触发重渲的迟滞：分辨率变化 >25%，或可视矩形逃出当前裁剪 >32px。
+// 触发重渲的迟滞：分辨率变化 >25%。
 static constexpr double kMupdfRescaleHysteresis = 1.25;
-static constexpr double kMupdfCoverageSlackPx = 32.0;
+// [Content Extent] 可绘制范围 R 的边界参数：内容包围盒相对画布每侧最多向外
+// 推 1×页尺寸（防游离元素撑爆 bbox——JTN63395 实测 bbox 达 1.4 亿单位），并
+// 外扩 2% 页尺寸容纳描边/阴影溢出。bbox 由异步光栅线程解析后一次性发布。
+static constexpr double kMupdfExtentOverhang = 1.0;
+static constexpr double kMupdfExtentPad = 0.02;
 
 struct MupdfViewRects {
     double visX = 0, visY = 0, visW = 0, visH = 0;      // 可视矩形（SVG 单位）
     double cropX = 0, cropY = 0, cropW = 0, cropH = 0;  // 应光栅化的裁剪矩形
     double pxPerUnit = 0;                               // 窗口像素 / SVG 单位
 };
+
+// 可绘制范围 R：viewBox ∪ 真实内容包围盒。裁剪收敛到 R 而不是画布——画布
+// （viewBox）不总包含全部内容（出血/页外排版），resvg 渲染画布外区域仍能
+// 出内容（已用合成 SVG 实测无根裁剪），收敛到画布会丢页外内容。
+struct MupdfExtentRect {
+    double x = 0, y = 0, w = 0, h = 0;
+};
+
+static MupdfExtentRect ComputeMupdfDrawableExtent(const ImageResource& res) {
+    MupdfExtentRect r{(double)res.svgViewBoxX, (double)res.svgViewBoxY,
+                      (double)res.svgW, (double)res.svgH};
+    if (r.w <= 0.0 || r.h <= 0.0 || !res.mupdfSrc) return r;
+    if (res.mupdfSrc->contentBoxState.load(std::memory_order_acquire) != 1)
+        return r; // bbox 未就绪/失败：退回画布
+    const double padX = r.w * kMupdfExtentPad;
+    const double padY = r.h * kMupdfExtentPad;
+    double bx = res.mupdfSrc->contentBoxX - padX;
+    double by = res.mupdfSrc->contentBoxY - padY;
+    double bx2 = res.mupdfSrc->contentBoxX + res.mupdfSrc->contentBoxW + padX;
+    double by2 = res.mupdfSrc->contentBoxY + res.mupdfSrc->contentBoxH + padY;
+    // 页外超出封顶：bbox 相对画布每侧最多外推 1×页尺寸
+    bx = (std::max)(bx, r.x - r.w * kMupdfExtentOverhang);
+    by = (std::max)(by, r.y - r.h * kMupdfExtentOverhang);
+    bx2 = (std::min)(bx2, r.x + r.w * (1.0 + kMupdfExtentOverhang));
+    by2 = (std::min)(by2, r.y + r.h * (1.0 + kMupdfExtentOverhang));
+    if (bx2 <= bx || by2 <= by) return r; // bbox 被封顶削空：忽略
+    const double nx = (std::min)(r.x, bx);
+    const double ny = (std::min)(r.y, by);
+    const double ne = (std::max)(r.x + r.w, bx2);
+    const double nb = (std::max)(r.y + r.h, by2);
+    return MupdfExtentRect{nx, ny, ne - nx, nb - ny};
+}
 
 static bool ComputeMupdfViewport(const ImageResource& res, float winW,
                                  float winH, float baseFit,
@@ -5885,28 +5921,72 @@ static bool ComputeMupdfViewport(const ImageResource& res, float winW,
     const float panY = GetPaneContext(PaneSlot::Primary).view.PanY;
     const float panOffX = panX + viewport.CenterOffsetX;
     const float panOffY = panY + viewport.CenterOffsetY;
-    out.visW = viewport.Width / k;
-    out.visH = viewport.Height / k;
-    out.visX = (orgX + (double)res.svgW * 0.5) +
-               ((double)viewport.Left - (double)winW * 0.5 - (double)panOffX) / k;
-    out.visY = (orgY + (double)res.svgH * 0.5) +
-               ((double)viewport.Top - (double)winH * 0.5 - (double)panOffY) / k;
-    out.cropW = out.visW * (1.0 + 2.0 * kMupdfViewMargin);
-    out.cropH = out.visH * (1.0 + 2.0 * kMupdfViewMargin);
-    out.cropX = out.visX - out.visW * kMupdfViewMargin;
-    out.cropY = out.visY - out.visH * kMupdfViewMargin;
+    double visX = (orgX + (double)res.svgW * 0.5) +
+                  ((double)viewport.Left - (double)winW * 0.5 - (double)panOffX) / k;
+    double visY = (orgY + (double)res.svgH * 0.5) +
+                  ((double)viewport.Top - (double)winH * 0.5 - (double)panOffY) / k;
+    double visW = viewport.Width / k;
+    double visH = viewport.Height / k;
+
+    // [Content Extent] 可视区收敛到 R：R 外保证无内容，无需渲染/覆盖。
+    const MupdfExtentRect ext = ComputeMupdfDrawableExtent(res);
+    const double visX2 = (std::max)(visX, ext.x);
+    const double visY2 = (std::max)(visY, ext.y);
+    const double visXe = (std::min)(visX + visW, ext.x + ext.w);
+    const double visYe = (std::min)(visY + visH, ext.y + ext.h);
+    if (visXe <= visX2 || visYe <= visY2) return false; // 可视区完全在 R 外
+    visX = visX2; visY = visY2;
+    visW = visXe - visX2; visH = visYe - visY2;
+
+    // 裁剪区 = 可视区外扩余量，再收敛到 R。可视区与裁剪区都 ⊆ R，后续
+    // "可视区 ⊆ 位图裁剪"的严格包含判定在贴边处不会自激。
+    double cropX = visX - visW * kMupdfViewMargin;
+    double cropY = visY - visH * kMupdfViewMargin;
+    const double cropXe =
+        (std::min)(visX + visW + visW * kMupdfViewMargin, ext.x + ext.w);
+    const double cropYe =
+        (std::min)(visY + visH + visH * kMupdfViewMargin, ext.y + ext.h);
+    cropX = (std::max)(cropX, ext.x);
+    cropY = (std::max)(cropY, ext.y);
+    if (cropXe <= cropX || cropYe <= cropY) return false;
+
+    out.visX = visX; out.visY = visY; out.visW = visW; out.visH = visH;
+    out.cropX = cropX; out.cropY = cropY;
+    out.cropW = cropXe - cropX; out.cropH = cropYe - cropY;
     out.pxPerUnit = k;
     return true;
 }
 
+// [Viewport Lifecycle] 在飞请求登记：提交时记录、落地时对账。
+// requestId != appliedId 表示有请求尚未落地；src 令牌防止跨图/跨页误判。
+struct MupdfInFlight {
+    uint64_t requestId = 0;    // 最近提交的请求（落地对账后置 appliedId）
+    uint64_t appliedId = 0;    // 最近一次已对账落地的请求
+    double cropX = 0, cropY = 0, cropW = 0, cropH = 0;
+    double pxPerUnit = 0;      // 请求的采样密度（目标 crop 像素 / SVG 单位）
+    const void* src = nullptr; // 数据源令牌（SvgData 指针）
+};
+MupdfInFlight g_mupdfInFlight;
+
+static void ResetMupdfInFlight() { g_mupdfInFlight = MupdfInFlight{}; }
+
 // 检查当前裁剪位图是否仍覆盖可视区域、分辨率是否够用；不足则提交视口重渲。
-// 从 SyncDCompState 每帧调用；提交用 shared_ptr 不拷贝 SVG，连发会被
-// AsyncRasterizer 的 pending 槽位自然合并。|baseFit| 必须传 SyncDCompState
-// 实际使用的那份（含幻灯片 0.85 之类的修正），保证放置与采样同一坐标基准。
+// 从 SyncDCompState 每帧调用；提交用 shared_ptr 不拷贝 SVG。|baseFit| 必须传
+// SyncDCompState 实际使用的那份（含幻灯片 0.85 之类的修正），保证放置与采样
+// 同一坐标基准。
 static void TrySubmitMupdfViewport(HWND hwnd, float winW, float winH,
                                    float baseFit) {
-    auto& res = GetPaneContext(PaneSlot::Primary).resource;
+    auto& pane = GetPaneContext(PaneSlot::Primary);
+    auto& res = pane.resource;
     if (!res.isMupdf || !res.mupdfSrc || !res.bitmap) return;
+
+    // [Interact Gate] 交互中不提交：旧位图按放置数学拉伸显示（位置正确，仅
+    // 分辨率偏旧），停稳后由交互定时器触发的 Sync 补渲。避免连发的中间态
+    // 请求塞满工作线程、落地上传打断 UI。
+    if (pane.view.IsInteracting || g_isInSizeMove ||
+        AppContext::GetInstance().SmoothZoom.Active) {
+        return;
+    }
 
     MupdfViewRects vr;
     if (!ComputeMupdfViewport(res, winW, winH, baseFit, vr)) return;
@@ -5916,13 +5996,13 @@ static void TrySubmitMupdfViewport(HWND hwnd, float winW, float winH,
         res.mupdfRasterW == 0 || res.mupdfRasterH == 0) {
         need = true;
     } else {
-        const double slackX = kMupdfCoverageSlackPx / vr.pxPerUnit;
-        const double slackY = kMupdfCoverageSlackPx / vr.pxPerUnit;
+        // 覆盖判定：可视区（已随裁剪一起收敛到 R）必须严格包含于当前位图
+        // 裁剪。双方都在 R 内，贴边不会出现"永不满足→每帧重提交"的自激。
         const bool covered =
-            vr.visX >= res.mupdfViewX + slackX &&
-            vr.visY >= res.mupdfViewY + slackY &&
-            vr.visX + vr.visW <= res.mupdfViewX + res.mupdfViewW - slackX &&
-            vr.visY + vr.visH <= res.mupdfViewY + res.mupdfViewH - slackY;
+            vr.visX >= res.mupdfViewX &&
+            vr.visY >= res.mupdfViewY &&
+            vr.visX + vr.visW <= res.mupdfViewX + res.mupdfViewW &&
+            vr.visY + vr.visH <= res.mupdfViewY + res.mupdfViewH;
         // 位图当时的采样密度（crop 像素 / SVG 单位）
         const double rasterScale =
             (double)res.mupdfRasterW / res.mupdfViewW;
@@ -5931,6 +6011,21 @@ static void TrySubmitMupdfViewport(HWND hwnd, float winW, float winH,
                ratio < 1.0 / kMupdfRescaleHysteresis;
     }
     if (!need) return;
+
+    // [In-Flight Dedup] 已提交且尚未落地的请求若足以满足本次需求（覆盖所需
+    // 裁剪、采样密度不低于当前需要），跳过重复提交，等它落地。
+    if (g_mupdfInFlight.requestId != g_mupdfInFlight.appliedId &&
+        g_mupdfInFlight.src == res.mupdfSrc.get() &&
+        g_mupdfInFlight.pxPerUnit >= vr.pxPerUnit) {
+        const bool coversNeed =
+            vr.cropX >= g_mupdfInFlight.cropX &&
+            vr.cropY >= g_mupdfInFlight.cropY &&
+            vr.cropX + vr.cropW <=
+                g_mupdfInFlight.cropX + g_mupdfInFlight.cropW &&
+            vr.cropY + vr.cropH <=
+                g_mupdfInFlight.cropY + g_mupdfInFlight.cropH;
+        if (coversNeed) return;
+    }
 
     int tW = (int)std::lround(vr.cropW * vr.pxPerUnit);
     int tH = (int)std::lround(vr.cropH * vr.pxPerUnit);
@@ -5952,7 +6047,15 @@ static void TrySubmitMupdfViewport(HWND hwnd, float winW, float winH,
     req.targetH = tH;
     req.whiteBg = true;
     req.notifyWindow = hwnd;
-    QuickView::AsyncRasterizer::Instance().Submit(std::move(req));
+    g_mupdfInFlight.requestId =
+        QuickView::AsyncRasterizer::Instance().Submit(std::move(req));
+    g_mupdfInFlight.appliedId = 0;
+    g_mupdfInFlight.cropX = vr.cropX;
+    g_mupdfInFlight.cropY = vr.cropY;
+    g_mupdfInFlight.cropW = vr.cropW;
+    g_mupdfInFlight.cropH = vr.cropH;
+    g_mupdfInFlight.pxPerUnit = vr.pxPerUnit;
+    g_mupdfInFlight.src = res.mupdfSrc.get();
 }
 
 void SyncDCompState([[maybe_unused]] HWND hwnd, float winW, float winH, bool animate) {
@@ -7590,42 +7693,99 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
     case QuickView::WM_APP_ASYNC_RASTERIZE: {
         QuickView::AsyncRasterizeResult result;
         while (QuickView::AsyncRasterizer::Instance().TakeResult(result)) {
-            if (result.status == S_OK && result.width > 0 && result.height > 0 &&
-                !result.bgra.empty() && g_renderEngine) {
-                QuickView::RawImageFrame frame;
-                frame.pixels = result.bgra.data();
-                frame.width = (int)result.width;
-                frame.height = (int)result.height;
-                frame.stride = (int)result.width * 4;
-                frame.format = QuickView::PixelFormat::BGRA8888;
-                ComPtr<ID2D1Bitmap> bmp;
-                if (SUCCEEDED(g_renderEngine->UploadRawFrameToGPU(frame, &bmp)) && bmp) {
-                    auto& res = GetPaneContext(PaneSlot::Primary).resource;
-                    if (res.isMupdf) {
-                        res.bitmap = bmp;
-                        res.mupdfRasterW = result.width;
-                        res.mupdfRasterH = result.height;
-                        // [Mupdf Viewport] 记录本次位图实际覆盖的裁剪矩形，
-                        // 供 DComp 放置与覆盖检查使用。
-                        if (result.viewW > 0.0 && result.viewH > 0.0) {
-                            res.mupdfViewX = result.viewX;
-                            res.mupdfViewY = result.viewY;
-                            res.mupdfViewW = result.viewW;
-                            res.mupdfViewH = result.viewH;
-                        }
-                        // [Origin Fix] keep canvas origin synced with the
-                        // source this crop came from.
-                        if (res.mupdfSrc) {
-                            res.svgViewBoxX = res.mupdfSrc->viewBoxX;
-                            res.svgViewBoxY = res.mupdfSrc->viewBoxY;
-                        }
-                        QV_JXG_LOG("[JXG-DBG] result status=0x%08lX %ux%u view=(%.0f,%.0f %.0fx%.0f)\n",
-                                (unsigned long)result.status, result.width, result.height,
-                                result.viewX, result.viewY, result.viewW, result.viewH);
-                        g_isImageDirty = true;
-                        ::InvalidateRect(hwnd, nullptr, FALSE);
+            auto& res = GetPaneContext(PaneSlot::Primary).resource;
+            // [Stale Guard] 跨源结果（换图/换页前提交的在飞渲染）直接丢弃：
+            // 旧画布的裁剪位图 + 旧 viewBox 原点混入新资源会导致放置数学错乱。
+            if (!res.isMupdf || !res.mupdfSrc || result.svgSrc != res.mupdfSrc)
+                continue;
+            // [Lifecycle] 对账：登记的在飞请求已落地（无论是否应用）。
+            if (g_mupdfInFlight.requestId != 0 &&
+                result.requestId == g_mupdfInFlight.requestId) {
+                g_mupdfInFlight.appliedId = result.requestId;
+            }
+            if (!(result.status == S_OK && result.width > 0 && result.height > 0 &&
+                  !result.bgra.empty() && g_renderEngine))
+                continue;
+            if (result.viewW <= 0.0 || result.viewH <= 0.0)
+                continue;
+
+            // [Apply Check] 以当前视图反解可视区（与 SyncDCompState 同一
+            // baseFit 基准），只有结果裁剪仍覆盖当前可视区才贴图；否则丢弃，
+            // 画面保持现状，覆盖检查稍后会补发匹配当前视图的请求。
+            RECT rcAsync{};
+            GetClientRect(hwnd, &rcAsync);
+            const float aw = (float)rcAsync.right;
+            const float ah = (float)rcAsync.bottom;
+            if (aw > 16.0f && ah > 16.0f && !(hwnd && ::IsIconic(hwnd))) {
+                const ImageViewportLayout avp =
+                    ComputeImageViewportLayout(aw, ah);
+                const VisualState avs = GetVisualState();
+                float aBaseFit =
+                    ComputeBaseFitScaleForVisual(avs, avp.Width, avp.Height);
+                if (g_slideshowState.IsActive &&
+                    g_config.SlideshowImmersiveMode == 1)
+                    aBaseFit *= 0.85f;
+                MupdfViewRects avr;
+                if (ComputeMupdfViewport(res, aw, ah, aBaseFit, avr)) {
+                    const bool resultCovers =
+                        avr.visX >= result.viewX &&
+                        avr.visY >= result.viewY &&
+                        avr.visX + avr.visW <= result.viewX + result.viewW &&
+                        avr.visY + avr.visH <= result.viewY + result.viewH;
+                    if (!resultCovers) {
+                        QV_JXG_LOG("[JXG-DBG] drop stale result req=%llu view=(%.0f,%.0f %.0fx%.0f) vis=(%.0f,%.0f %.0fx%.0f)\n",
+                                (unsigned long long)result.requestId,
+                                result.viewX, result.viewY, result.viewW,
+                                result.viewH, avr.visX, avr.visY, avr.visW,
+                                avr.visH);
+                        continue;
+                    }
+                    // 质量单调：当前位图已覆盖可视区、结果密度明显更低时不回退。
+                    if (res.mupdfRasterW > 0 && res.mupdfViewW > 0.0) {
+                        const bool currentCovers =
+                            avr.visX >= res.mupdfViewX &&
+                            avr.visY >= res.mupdfViewY &&
+                            avr.visX + avr.visW <=
+                                res.mupdfViewX + res.mupdfViewW &&
+                            avr.visY + avr.visH <=
+                                res.mupdfViewY + res.mupdfViewH;
+                        const double curDensity =
+                            (double)res.mupdfRasterW / res.mupdfViewW;
+                        const double newDensity =
+                            (double)result.width / result.viewW;
+                        if (currentCovers && newDensity < curDensity * 0.8)
+                            continue;
                     }
                 }
+                // 反解失败（极端窗口态）：保持旧行为直接贴，覆盖检查兜底。
+            }
+
+            QuickView::RawImageFrame frame;
+            frame.pixels = result.bgra.data();
+            frame.width = (int)result.width;
+            frame.height = (int)result.height;
+            frame.stride = (int)result.width * 4;
+            frame.format = QuickView::PixelFormat::BGRA8888;
+            ComPtr<ID2D1Bitmap> bmp;
+            if (SUCCEEDED(g_renderEngine->UploadRawFrameToGPU(frame, &bmp)) && bmp) {
+                res.bitmap = bmp;
+                res.mupdfRasterW = result.width;
+                res.mupdfRasterH = result.height;
+                // [Mupdf Viewport] 记录本次位图实际覆盖的裁剪矩形，
+                // 供 DComp 放置与覆盖检查使用。
+                res.mupdfViewX = result.viewX;
+                res.mupdfViewY = result.viewY;
+                res.mupdfViewW = result.viewW;
+                res.mupdfViewH = result.viewH;
+                // [Origin Fix] keep canvas origin synced with the
+                // source this crop came from.
+                res.svgViewBoxX = res.mupdfSrc->viewBoxX;
+                res.svgViewBoxY = res.mupdfSrc->viewBoxY;
+                QV_JXG_LOG("[JXG-DBG] result status=0x%08lX %ux%u view=(%.0f,%.0f %.0fx%.0f)\n",
+                        (unsigned long)result.status, result.width, result.height,
+                        result.viewX, result.viewY, result.viewW, result.viewH);
+                g_isImageDirty = true;
+                ::InvalidateRect(hwnd, nullptr, FALSE);
             }
             // Drain: loop to consume any additional results (rare, but possible
             // if multiple zooms completed before the main thread processed them).
@@ -12875,6 +13035,8 @@ void ProcessEngineEvents(HWND hwnd) {
                                     rW, rH, (double)evt.rawFrame->svg->viewBoxW,
                                     (double)evt.rawFrame->svg->viewBoxH, zoom);
                             mupdfRes.mupdfViewH = (double)evt.rawFrame->svg->viewBoxH;
+                            // [Lifecycle] 新图新源：作废旧在飞请求登记。
+                            ResetMupdfInFlight();
                             return true;
                         };
 
@@ -15686,8 +15848,22 @@ void HandleCdrPageStep(HWND hwnd, uint32_t targetPage) {
     pane.resource.mupdfSrc->xmlData.assign(pageData.xmlData.begin(), pageData.xmlData.end());
     pane.resource.mupdfSrc->viewBoxW = svgW;
     pane.resource.mupdfSrc->viewBoxH = svgH;
+    // [Origin Fix] 页面可能经过画布外扩展，viewBox 原点非 0，须与首帧一致传递。
+    pane.resource.mupdfSrc->viewBoxX = pageData.viewBoxX;
+    pane.resource.mupdfSrc->viewBoxY = pageData.viewBoxY;
+    // [Mupdf Viewport] 与首帧一致：视口裁剪初始化为整个 viewBox。缺失会让
+    // SyncDCompState 落入整幅表面拉伸分支，翻页后放大失去视口重渲（模糊/
+    // 空白），负原点画布还会错位。
+    pane.resource.svgViewBoxX = pageData.viewBoxX;
+    pane.resource.svgViewBoxY = pageData.viewBoxY;
+    pane.resource.mupdfViewX = (double)pageData.viewBoxX;
+    pane.resource.mupdfViewY = (double)pageData.viewBoxY;
+    pane.resource.mupdfViewW = (double)svgW;
+    pane.resource.mupdfViewH = (double)svgH;
     pane.resource.mupdfRasterW = rW;
     pane.resource.mupdfRasterH = rH;
+    // [Lifecycle] 新页新源：作废旧在飞请求登记。
+    ResetMupdfInFlight();
 
     // Update paged state
     g_pagedDoc.currentPage = targetPage;

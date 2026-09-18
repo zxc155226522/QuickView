@@ -17783,6 +17783,8 @@ void AsyncRasterizer::WorkerMain() noexcept {
         // Perform rasterization
         AsyncRasterizeResult result;
         result.requestId = req.requestId;
+        // [Stale Guard] 结果携带数据源，UI 落地时与当前资源比对。
+        result.svgSrc = req.svgSrc;
 
         const bool viewportMode = req.viewW > 0.0 && req.viewH > 0.0 &&
                                   req.targetW > 0 && req.targetH > 0;
@@ -17817,6 +17819,26 @@ void AsyncRasterizer::WorkerMain() noexcept {
                 }
             }
             if (m_cachedTree && m_cachedTreeToken == req.svgSrc.get()) {
+                // [Content Box] 首次解析成功后计算一次真实内容包围盒（含画布外
+                // 元素），一次性发布到 SvgData，供 UI 侧把视口裁剪收敛到"实际
+                // 有内容的范围"。仅此工作线程写入，无并发写者。
+                if (req.svgSrc &&
+                    req.svgSrc->contentBoxState.load(std::memory_order_acquire) ==
+                        0) {
+                    resvg_rect cb = {};
+                    if (resvg_get_image_bbox(m_cachedTree, &cb) &&
+                        cb.width > 0.0 && cb.height > 0.0) {
+                        req.svgSrc->contentBoxX = (double)cb.x;
+                        req.svgSrc->contentBoxY = (double)cb.y;
+                        req.svgSrc->contentBoxW = (double)cb.width;
+                        req.svgSrc->contentBoxH = (double)cb.height;
+                        req.svgSrc->contentBoxState.store(
+                            1, std::memory_order_release);
+                    } else {
+                        req.svgSrc->contentBoxState.store(
+                            2, std::memory_order_release);
+                    }
+                }
                 std::vector<uint8_t> bgra;
                 uint32_t rW = 0, rH = 0;
                 // [Origin Fix] pass the source viewBox origin: the tree has it

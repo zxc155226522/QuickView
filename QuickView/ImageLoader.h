@@ -127,6 +127,9 @@ struct AsyncRasterizeResult {
     double viewY = 0.0;
     double viewW = 0.0;
     double viewH = 0.0;
+    // [Stale Guard] 产生本结果的数据源。落地时与当前资源比对，防止换图/换页后
+    // 旧源的裁剪位图污染新资源（跨源结果一律丢弃）。
+    std::shared_ptr<const RawImageFrame::SvgData> svgSrc;
 };
 
 class AsyncRasterizer {

@@ -8,6 +8,7 @@
 // ============================================================================
 
 #include "DisplayColorInfo.h"
+#include <atomic>
 #include <cstdint>
 #include <malloc.h>
 #include <memory>
@@ -378,12 +379,33 @@ struct RawImageFrame {
     // [D2D Native] SVG Specific Data (Used only when format == SVG_XML)
     // Use unique_ptr to ensure zero overhead for non-SVG paths
     struct SvgData {
+        SvgData() = default;
+        // std::atomic 成员使隐式拷贝失效；手动拷贝数据字段（contentBox 一次性
+        // 写入后不变，按发布标志快照拷贝即可）。
+        SvgData(const SvgData& o)
+            : xmlData(o.xmlData), viewBoxX(o.viewBoxX), viewBoxW(o.viewBoxW),
+              viewBoxY(o.viewBoxY), viewBoxH(o.viewBoxH),
+              contentBoxState(o.contentBoxState.load(std::memory_order_acquire)),
+              contentBoxX(o.contentBoxX), contentBoxY(o.contentBoxY),
+              contentBoxW(o.contentBoxW), contentBoxH(o.contentBoxH) {}
+        SvgData& operator=(const SvgData&) = delete;
+
         std::vector<uint8_t> xmlData;  // Sanitized SVG Source
         float viewBoxX = 0;            // SVG viewBox origin X (may be < 0 after
                                        // off-page canvas expansion!)
         float viewBoxW = 0;            // SVG Intrinsic Width
         float viewBoxY = 0;            // SVG viewBox origin Y (may be < 0!)
         float viewBoxH = 0;            // SVG Intrinsic Height
+
+        // [Viewport Crop] 真实内容包围盒（SVG 单位，含画布外元素），由异步光栅
+        // 线程在首次解析树成功后计算一次。0=未计算 1=可用 2=计算失败。
+        // 写入顺序：先写 4 个坐标，再 release 存状态；读取方 acquire 到 1 后
+        // 才允许读坐标（一次性发布，发布后不再修改）。
+        mutable std::atomic<int> contentBoxState{0};
+        mutable double contentBoxX = 0;
+        mutable double contentBoxY = 0;
+        mutable double contentBoxW = 0;
+        mutable double contentBoxH = 0;
     };
     std::unique_ptr<SvgData> svg;  // nullptr = Non-SVG
     
