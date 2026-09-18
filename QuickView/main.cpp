@@ -5855,9 +5855,8 @@ static D2D1_COLOR_F ResolveCanvasColor() {
 
 // 可见区域两侧各扩 60%（裁剪面积 ≈ 2.56x 可视面积），小幅平移/缩放不需重渲。
 static constexpr double kMupdfViewMargin = 0.6;
-// 触发重渲的迟滞：分辨率变化 >25%，或可视矩形逃出当前裁剪 >32px。
+// 触发重渲的迟滞：分辨率变化 >25%，或可视矩形逃出当前裁剪（见覆盖判定）。
 static constexpr double kMupdfRescaleHysteresis = 1.25;
-static constexpr double kMupdfCoverageSlackPx = 32.0;
 
 struct MupdfViewRects {
     double visX = 0, visY = 0, visW = 0, visH = 0;      // 可视矩形（SVG 单位）
@@ -5961,26 +5960,28 @@ static void TrySubmitMupdfViewport(HWND hwnd, float winW, float winH,
         res.mupdfRasterW == 0 || res.mupdfRasterH == 0) {
         need = true;
     } else {
-        const double slackX = kMupdfCoverageSlackPx / vr.pxPerUnit;
-        const double slackY = kMupdfCoverageSlackPx / vr.pxPerUnit;
-        // [Perf] 裁剪矩形已收敛到画布（见 ComputeMupdfViewport），因此"贴着
-        // 画布边界"的一侧不需要余量——那一侧之外本来就没有内容，裁剪矩形也
-        // 无法再向外扩。若不这样放宽，该侧的 slack 判定永远不通过，就会每帧
-        // 重提交（宽扁 CDR 上下两侧必然贴边）。
+        // [Perf] 覆盖判定 = "画布内的可视矩形是否完全落在当前位图矩形内"。
+        // 裁剪本身已带 60% 余量（小幅平移/缩放不必重渲），不需要再叠一层固定
+        // 像素 slack；而裁剪收敛到画布后，贴画布边界的一侧无法再向外扩，固定
+        // slack 会让该侧判定永远不通过（画布边缘刚好滑出视口不到 32px 时必现）
+        // -> 每帧重提交、工作线程空转，正是本次要修的病。
+        // 收敛后 vis ⊆ crop 恒成立（crop 由 vis 外扩再 clamp 得到），所以重渲
+        // 落地后本判定必然为真，不会自激。
         const double canvasL = (double)res.svgViewBoxX;
         const double canvasT = (double)res.svgViewBoxY;
         const double canvasR = canvasL + (double)res.svgW;
         const double canvasB = canvasT + (double)res.svgH;
-        constexpr double kCanvasEdgeEps = 0.5;
+        const double visL = (std::max)(vr.visX, canvasL);
+        const double visT = (std::max)(vr.visY, canvasT);
+        const double visR = (std::min)(vr.visX + vr.visW, canvasR);
+        const double visB = (std::min)(vr.visY + vr.visH, canvasB);
+        constexpr double kCoverEps = 0.5; // SVG 单位：容忍浮点与取整误差
         const bool covered =
-            ((vr.visX <= canvasL + kCanvasEdgeEps) ||
-             (vr.visX >= res.mupdfViewX + slackX)) &&
-            ((vr.visY <= canvasT + kCanvasEdgeEps) ||
-             (vr.visY >= res.mupdfViewY + slackY)) &&
-            ((vr.visX + vr.visW >= canvasR - kCanvasEdgeEps) ||
-             (vr.visX + vr.visW <= res.mupdfViewX + res.mupdfViewW - slackX)) &&
-            ((vr.visY + vr.visH >= canvasB - kCanvasEdgeEps) ||
-             (vr.visY + vr.visH <= res.mupdfViewY + res.mupdfViewH - slackY));
+            visR <= visL || visB <= visT || // 可视区在画布外：无内容可渲
+            (visL >= res.mupdfViewX - kCoverEps &&
+             visT >= res.mupdfViewY - kCoverEps &&
+             visR <= res.mupdfViewX + res.mupdfViewW + kCoverEps &&
+             visB <= res.mupdfViewY + res.mupdfViewH + kCoverEps);
         // 位图当时的采样密度（crop 像素 / SVG 单位）
         const double rasterScale =
             (double)res.mupdfRasterW / res.mupdfViewW;
