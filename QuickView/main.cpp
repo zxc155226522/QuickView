@@ -5885,19 +5885,55 @@ static bool ComputeMupdfViewport(const ImageResource& res, float winW,
     const float panY = GetPaneContext(PaneSlot::Primary).view.PanY;
     const float panOffX = panX + viewport.CenterOffsetX;
     const float panOffY = panY + viewport.CenterOffsetY;
-    out.visW = viewport.Width / k;
-    out.visH = viewport.Height / k;
-    out.visX = (orgX + (double)res.svgW * 0.5) +
+    const double rawVisW = (double)viewport.Width / k;
+    const double rawVisH = (double)viewport.Height / k;
+    const double rawVisX = (orgX + (double)res.svgW * 0.5) +
                ((double)viewport.Left - (double)winW * 0.5 - (double)panOffX) / k;
-    out.visY = (orgY + (double)res.svgH * 0.5) +
+    const double rawVisY = (orgY + (double)res.svgH * 0.5) +
                ((double)viewport.Top - (double)winH * 0.5 - (double)panOffY) / k;
-    out.cropW = out.visW * (1.0 + 2.0 * kMupdfViewMargin);
-    out.cropH = out.visH * (1.0 + 2.0 * kMupdfViewMargin);
-    out.cropX = out.visX - out.visW * kMupdfViewMargin;
-    out.cropY = out.visY - out.visH * kMupdfViewMargin;
+
+    // [Perf] 可视/裁剪矩形收敛到画布范围。CDR 后处理已把根 viewBox 扩展到内容
+    // bbox（ProcessCdrSvgPages 的画布外扩展），画布外没有任何可绘制内容，故收敛
+    // 不会丢内容。
+    // 不收敛的后果（JXG71021 实测，viewBox 16790.8x2314.9 的宽扁画布）：按宽度
+    // 适应窗口后画布只占 131px 高，反解出的可视高度却是 968/0.05676 = 17055
+    // 单位（画布高的 7.4 倍），再乘 2.2 倍余量 -> 裁剪矩形 36940x37521，是画布
+    // 面积的 16 倍；渲染出的位图 2097x2130（17.9MB）里真实内容只占 953x131
+    // （0.5MB），96% 是空白。每帧在 UI 线程上传这么大的纹理直接拖垮帧率。
+    const double canvasL = orgX;
+    const double canvasT = orgY;
+    const double canvasR = orgX + (double)res.svgW;
+    const double canvasB = orgY + (double)res.svgH;
+
+    out.visX = (std::max)(rawVisX, canvasL);
+    out.visY = (std::max)(rawVisY, canvasT);
+    out.visW = (std::min)(rawVisX + rawVisW, canvasR) - out.visX;
+    out.visH = (std::min)(rawVisY + rawVisH, canvasB) - out.visY;
+    if (out.visW <= 0.0 || out.visH <= 0.0) return false; // 可视区完全在画布外
+
+    out.cropX = (std::max)(out.visX - out.visW * kMupdfViewMargin, canvasL);
+    out.cropY = (std::max)(out.visY - out.visH * kMupdfViewMargin, canvasT);
+    out.cropW = (std::min)(out.visX + out.visW + out.visW * kMupdfViewMargin, canvasR) - out.cropX;
+    out.cropH = (std::min)(out.visY + out.visH + out.visH * kMupdfViewMargin, canvasB) - out.cropY;
     out.pxPerUnit = k;
     return true;
 }
+
+// [Perf] 视口重渲去重状态。旧实现只判断 need，不看"是否已有一条完全相同的
+// 请求在飞"：结果落地前 need 一直为真，而 SyncDCompState 每帧都调用本函数，
+// 于是同一条 (裁剪矩形, 目标尺寸) 被连续提交（JXG71021 实测 100+ 次），工作
+// 线程渲完立刻又被喂同样任务 -> 永不空闲，UI 线程跟着被拖慢。
+// 记录最近一次提交的签名与 id、以及最近一次落地的 id：签名相同且尚未落地
+// 就直接返回，等结果回来再判断。
+struct MupdfViewportSubmitState {
+    const void* srcToken = nullptr;
+    double viewX = 0.0, viewY = 0.0, viewW = 0.0, viewH = 0.0;
+    int targetW = 0, targetH = 0;
+    uint64_t requestId = 0;   // 最近一次提交的请求 id
+    uint64_t appliedId = 0;   // 最近一次已落地的结果 id
+    bool valid = false;
+};
+static MupdfViewportSubmitState g_mupdfSubmit;
 
 // 检查当前裁剪位图是否仍覆盖可视区域、分辨率是否够用；不足则提交视口重渲。
 // 从 SyncDCompState 每帧调用；提交用 shared_ptr 不拷贝 SVG，连发会被
@@ -5907,6 +5943,15 @@ static void TrySubmitMupdfViewport(HWND hwnd, float winW, float winH,
                                    float baseFit) {
     auto& res = GetPaneContext(PaneSlot::Primary).resource;
     if (!res.isMupdf || !res.mupdfSrc || !res.bitmap) return;
+
+    // [Perf] 交互中（拖动/滚轮缩放）与平滑缩放动画进行中不提交重渲：旧裁剪位图
+    // 由 DComp 拉伸过渡，落停后 IDT_INTERACTION(150ms) / 动画结束会再走一次
+    // SyncDCompState，届时才真正重渲一次。与 resvg 路径 TryUpgradeBitmapSurface
+    // 的 IsInteracting 门控一致，避免交互期间工作线程持续满负荷。
+    if (GetPaneContext(PaneSlot::Primary).view.IsInteracting ||
+        AppContext::GetInstance().SmoothZoom.Active) {
+        return;
+    }
 
     MupdfViewRects vr;
     if (!ComputeMupdfViewport(res, winW, winH, baseFit, vr)) return;
@@ -5918,11 +5963,24 @@ static void TrySubmitMupdfViewport(HWND hwnd, float winW, float winH,
     } else {
         const double slackX = kMupdfCoverageSlackPx / vr.pxPerUnit;
         const double slackY = kMupdfCoverageSlackPx / vr.pxPerUnit;
+        // [Perf] 裁剪矩形已收敛到画布（见 ComputeMupdfViewport），因此"贴着
+        // 画布边界"的一侧不需要余量——那一侧之外本来就没有内容，裁剪矩形也
+        // 无法再向外扩。若不这样放宽，该侧的 slack 判定永远不通过，就会每帧
+        // 重提交（宽扁 CDR 上下两侧必然贴边）。
+        const double canvasL = (double)res.svgViewBoxX;
+        const double canvasT = (double)res.svgViewBoxY;
+        const double canvasR = canvasL + (double)res.svgW;
+        const double canvasB = canvasT + (double)res.svgH;
+        constexpr double kCanvasEdgeEps = 0.5;
         const bool covered =
-            vr.visX >= res.mupdfViewX + slackX &&
-            vr.visY >= res.mupdfViewY + slackY &&
-            vr.visX + vr.visW <= res.mupdfViewX + res.mupdfViewW - slackX &&
-            vr.visY + vr.visH <= res.mupdfViewY + res.mupdfViewH - slackY;
+            ((vr.visX <= canvasL + kCanvasEdgeEps) ||
+             (vr.visX >= res.mupdfViewX + slackX)) &&
+            ((vr.visY <= canvasT + kCanvasEdgeEps) ||
+             (vr.visY >= res.mupdfViewY + slackY)) &&
+            ((vr.visX + vr.visW >= canvasR - kCanvasEdgeEps) ||
+             (vr.visX + vr.visW <= res.mupdfViewX + res.mupdfViewW - slackX)) &&
+            ((vr.visY + vr.visH >= canvasB - kCanvasEdgeEps) ||
+             (vr.visY + vr.visH <= res.mupdfViewY + res.mupdfViewH - slackY));
         // 位图当时的采样密度（crop 像素 / SVG 单位）
         const double rasterScale =
             (double)res.mupdfRasterW / res.mupdfViewW;
@@ -5942,6 +6000,19 @@ static void TrySubmitMupdfViewport(HWND hwnd, float winW, float winH,
             (double)res.mupdfRasterW / (res.mupdfViewW > 0 ? res.mupdfViewW : 1),
             tW, tH);
 
+    // [Perf] 同一条请求尚未落地时不再重复提交（见 g_mupdfSubmit 注释）。
+    const bool sameAsPending =
+        g_mupdfSubmit.valid &&
+        g_mupdfSubmit.srcToken == res.mupdfSrc.get() &&
+        g_mupdfSubmit.targetW == tW && g_mupdfSubmit.targetH == tH &&
+        std::fabs(g_mupdfSubmit.viewX - vr.cropX) < 0.5 &&
+        std::fabs(g_mupdfSubmit.viewY - vr.cropY) < 0.5 &&
+        std::fabs(g_mupdfSubmit.viewW - vr.cropW) < 0.5 &&
+        std::fabs(g_mupdfSubmit.viewH - vr.cropH) < 0.5;
+    if (sameAsPending && g_mupdfSubmit.appliedId != g_mupdfSubmit.requestId) {
+        return; // 已在飞，等 WM_APP_ASYNC_RASTERIZE 落地后再判断
+    }
+
     QuickView::AsyncRasterizeRequest req;
     req.svgSrc = res.mupdfSrc;
     req.viewX = vr.cropX;
@@ -5952,7 +6023,18 @@ static void TrySubmitMupdfViewport(HWND hwnd, float winW, float winH,
     req.targetH = tH;
     req.whiteBg = true;
     req.notifyWindow = hwnd;
-    QuickView::AsyncRasterizer::Instance().Submit(std::move(req));
+    const uint64_t submittedId =
+        QuickView::AsyncRasterizer::Instance().Submit(std::move(req));
+
+    g_mupdfSubmit.srcToken = res.mupdfSrc.get();
+    g_mupdfSubmit.viewX = vr.cropX;
+    g_mupdfSubmit.viewY = vr.cropY;
+    g_mupdfSubmit.viewW = vr.cropW;
+    g_mupdfSubmit.viewH = vr.cropH;
+    g_mupdfSubmit.targetW = tW;
+    g_mupdfSubmit.targetH = tH;
+    g_mupdfSubmit.requestId = submittedId;
+    g_mupdfSubmit.valid = true;
 }
 
 void SyncDCompState([[maybe_unused]] HWND hwnd, float winW, float winH, bool animate) {
@@ -7590,6 +7672,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
     case QuickView::WM_APP_ASYNC_RASTERIZE: {
         QuickView::AsyncRasterizeResult result;
         while (QuickView::AsyncRasterizer::Instance().TakeResult(result)) {
+            // [Perf] 丢弃陈旧结果：快速缩放时，旧缩放级别的裁剪图可能晚于新请求
+            // 完成，直接贴上去会让画面先回跳一下再变清晰。只接受当前在飞的那条
+            // 请求（g_mupdfSubmit 记录）的结果。
+            if (g_mupdfSubmit.valid && result.requestId != 0 &&
+                result.requestId != g_mupdfSubmit.requestId) {
+                continue;
+            }
             if (result.status == S_OK && result.width > 0 && result.height > 0 &&
                 !result.bgra.empty() && g_renderEngine) {
                 QuickView::RawImageFrame frame;
@@ -7605,6 +7694,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
                         res.bitmap = bmp;
                         res.mupdfRasterW = result.width;
                         res.mupdfRasterH = result.height;
+                        // [Perf] 标记该请求已落地，让 TrySubmitMupdfViewport
+                        // 的去重判定知道可以接受下一条（不同参数的）请求。
+                        g_mupdfSubmit.appliedId = result.requestId;
                         // [Mupdf Viewport] 记录本次位图实际覆盖的裁剪矩形，
                         // 供 DComp 放置与覆盖检查使用。
                         if (result.viewW > 0.0 && result.viewH > 0.0) {
@@ -12854,6 +12946,9 @@ void ProcessEngineEvents(HWND hwnd) {
                                 return false;
                             auto& mupdfRes = GetPaneContext(PaneSlot::Primary).resource;
                             mupdfRes.Reset();
+                            // [Perf] 换图/换页：作废上一张图的异步重渲状态，避免
+                            // 它的在飞结果落到新图上，并让去重判定从零开始。
+                            g_mupdfSubmit = MupdfViewportSubmitState{};
                             mupdfRes.bitmap = bmp;
                             mupdfRes.isMupdf = true;
                             mupdfRes.svgW = evt.rawFrame->svg->viewBoxW;
@@ -15678,6 +15773,8 @@ void HandleCdrPageStep(HWND hwnd, uint32_t targetPage) {
 
     // Update pane resource
     pane.resource.Reset();
+    // [Perf] 换图/换页：作废上一张图的异步重渲状态（见首帧路径同处注释）。
+    g_mupdfSubmit = MupdfViewportSubmitState{};
     pane.resource.bitmap = bmp;
     pane.resource.isMupdf = true;
     pane.resource.svgW = svgW;
