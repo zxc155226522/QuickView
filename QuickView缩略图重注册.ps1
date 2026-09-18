@@ -41,6 +41,11 @@ New-Item -Path $hkcuCls -Force | Out-Null
 New-Item -Path ($hkcuCls + "\InprocServer32") -Force | Out-Null
 Set-ItemProperty -Path ($hkcuCls + "\InprocServer32") -Name "(default)" -Value $dllPath
 Set-ItemProperty -Path ($hkcuCls + "\InprocServer32") -Name "ThreadingModel" -Value "Apartment"
+# [Must] The DLL deliberately does NOT implement IInitializeWithStream (avoids
+# copying large files to %TEMP%); without this flag Explorer initializes it via
+# the process-isolation stream path and thumbnails silently never appear.
+# Mirrors SettingsOverlay::RegisterAssociations.
+Set-ItemProperty -Path $hkcuCls -Name "DisableProcessIsolation" -Type DWord -Value 1
 Write-Host ("CLSID InprocServer32 -> " + $dllPath)
 
 # --- ProgIDs (QuickView.Image / QuickView.Vector) carry ShellEx too ---

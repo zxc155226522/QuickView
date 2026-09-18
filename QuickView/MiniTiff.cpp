@@ -1192,7 +1192,7 @@ static HRESULT LoadUncompressedPreview(const uint8_t* data, size_t size,
                     const uint8_t* sp = gridRow + static_cast<size_t>(sx) * pixelStride;
 
                     if (photometric == 2) {                   // RGB / RGBA
-                        sumB += sp[0]; sumG += sp[1]; sumR += sp[2];
+                        sumB += sp[2]; sumG += sp[1]; sumR += sp[0];
                         sumA += (samples >= 4) ? sp[3] : 255;
                     } else if (photometric == 5) {            // CMYK / CMYKA
                         // CMYK 不能简单平均后再转 RGB（非线性），退回单点采样。

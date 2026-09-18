@@ -1,4 +1,4 @@
-# ===========================================================================
+﻿# ===========================================================================
 # QuickView 仅编译脚本（+ 编译后自动重注册部署）
 # 复用编译并启动脚本的 junction 逻辑，规避中文路径 NASM 问题
 # 编译前释放被运行进程锁定的产物：
@@ -41,6 +41,23 @@ function Unlock-Products {
     }
 }
 
+function Restore-RegisteredProducts {
+    # [红线] 编译未成功时，必须把解锁时移走的注册文件还原回原名。
+    # 绝不能让系统注册指向的 DLL/EXE 处于缺失状态，否则看图/缩略图全废。
+    $dll = Join-Path $outDir "QuickViewThumbnailProvider.dll"
+    $exe = Join-Path $outDir "QuickView.exe"
+    $restored = $false
+    if ((Test-Path ($dll + ".bak")) -and -not (Test-Path $dll)) {
+        try { Move-Item ($dll + ".bak") $dll -Force; Write-Host "已还原注册 DLL (.bak -> 原名)" -ForegroundColor Green; $restored = $true } catch { Write-Host ("警告: DLL 还原失败: " + $_.Exception.Message) -ForegroundColor Red }
+    }
+    if ((Test-Path ($exe + ".bak")) -and -not (Test-Path $exe)) {
+        try { Move-Item ($exe + ".bak") $exe -Force; Write-Host "已还原 EXE (.bak -> 原名)" -ForegroundColor Green; $restored = $true } catch { }
+    }
+    if ($restored) { Write-Host "系统注册状态已恢复，看图功能不受影响" -ForegroundColor Green }
+}
+
+$script:deployed = $false
+
 try {
     if (Test-Path $JunctionPath) { cmd /c rmdir $JunctionPath 2>$null }
     if (Test-Path $JunctionPath) { Remove-Item -Recurse -Force $JunctionPath -ErrorAction SilentlyContinue }
@@ -75,7 +92,14 @@ try {
     # 部署：重注册新 DLL 并重启 explorer 加载新版
     Write-Host "`n[部署] 重注册缩略图提供器..." -ForegroundColor Cyan
     & "$ProjectPath\QuickView缩略图重注册.ps1"
+    $script:deployed = $true
+} catch {
+    Write-Host ("脚本异常: " + $_.Exception.Message) -ForegroundColor Red
+    exit 1
 } finally {
+    # [红线] 只要没有走到"编译成功 + 已重注册部署"，一律还原注册文件，
+    # 保证系统注册的看图软件始终可用。
+    if (-not $script:deployed) { Restore-RegisteredProducts }
     cmd /c rmdir $JunctionPath 2>$null
     Write-Host "临时路径已清理" -ForegroundColor Gray
 }

@@ -1343,15 +1343,34 @@ void libcdr::CDRParser::readTrfd(librevenge::RVNGInputStream *input, unsigned le
   }
   CDR_DEBUG_MSG(("readTrfd: redirect OK\n"));
   {
-    // [TRACE] dump first 48 bytes at redirect target to identify arg encoding
+    // [TRACE v2] dump the whole chunk (96B) + decode the 6-double matrix
     long savePos = input->tell();
     unsigned long nBytes = 0;
-    const unsigned char *buf = input->read(48, nBytes);
+    const unsigned char *buf = input->read(160, nBytes);
     if (buf && nBytes) {
-      CDR_DEBUG_MSG(("readTrfd: first %lu bytes:", (unsigned long)nBytes));
+      CDR_DEBUG_MSG(("readTrfd: chunk bytes(%lu):", (unsigned long)nBytes));
       for (unsigned long bi = 0; bi < nBytes; ++bi)
         CDR_DEBUG_MSG((" %02X", buf[bi]));
       CDR_DEBUG_MSG(("\n"));
+    }
+    // decode: skip 16 (header+padding per v1700 layout seen), then 8 (v1300),
+    // u16 type, then 6-byte skip, then 6 doubles
+    if (nBytes >= 56) {
+      const unsigned char *q = buf + 16 + 8 + 2 + 6;  // 32
+      unsigned short tt = (unsigned short)(q[0] | (q[1] << 8));
+      CDR_DEBUG_MSG(("readTrfd: tmpType=%04X doubles:", tt));
+      if (tt == 0x08 && nBytes >= 32 + 6 + 48) {
+        const unsigned char *d = buf + 16 + 8 + 2 + 6;  // after tmpType
+        d += 6;  // m_version>=600 skip
+        for (int k = 0; k < 6; ++k) {
+          double dv = 0.0;
+          memcpy(&dv, d + k * 8, 8);
+          CDR_DEBUG_MSG((" %.6g", dv));
+        }
+        CDR_DEBUG_MSG(("\n"));
+      } else {
+        CDR_DEBUG_MSG((" (not trafo or short)\n"));
+      }
     }
     input->seek(savePos, librevenge::RVNG_SEEK_SET);
   }

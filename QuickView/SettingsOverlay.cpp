@@ -873,6 +873,16 @@ bool SettingsOverlay::IsRegistrationNeeded() {
         return true;
     }
 
+    // [自愈] 缩略图 CLSID 键丢失也必须重注册。RegisterAssociations 在 DLL 被
+    // 解锁改名（编译 .bak 窗口）时只跳过缩略图块、其余照写并标记已注册，
+    // 之后启动永远跳过 → 缩略图永久消失。键在才认为注册完整。
+    if (RegOpenKeyExW(HKEY_CURRENT_USER,
+                      L"Software\\Classes\\CLSID\\{4F8C2A6E-3B5D-4E7F-9A1C-2D3E4F5A6B7C}\\InprocServer32",
+                      0, KEY_READ, &hKeyTest) != ERROR_SUCCESS) {
+        return true;
+    }
+    RegCloseKey(hKeyTest);
+
     return regPath.empty() || (_wcsicmp(regPath.c_str(), currentExe) != 0);
 }
 
