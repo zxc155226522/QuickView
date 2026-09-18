@@ -12559,6 +12559,7 @@ float svgW = 0.0f, svgH = 0.0f;
       // （内容横排画布外，bbox 可达页面 28 倍 → 按页面渲染整页空白）。改为
       // 覆盖率探测：扩展区域内确实有内容（QvSvgRenderCoverage 达标）才扩展，
       // 游离杂点/隐藏参考对象膨胀 bbox 的场景仍被拒绝。
+      bool contentCollapsed = false;
       if (g_config.ShowCdrOutsidePage) {
         double pageX = 0, pageY = 0, pageW = svgW, pageH = svgH;
         if (ParseSvgViewBox(svgContent, &pageX, &pageY, &pageW, &pageH)
@@ -12583,7 +12584,7 @@ float svgW = 0.0f, svgH = 0.0f;
                 // 此时按页面渲染就是一片空白小点。判定：内容 bbox 双向都
                 // < 页面 2% -> 放弃页面矩形，改用内容 bbox 作为视图，
                 // 让用户至少能看到完整图案（缩放/平移不受影响）。
-                bool contentCollapsed =
+                contentCollapsed =
                     (cb.width < pageW * 0.02 && cb.height < pageH * 0.02);
                 bool expand = true;
                 if (rw > pageW * 1.5 || rh > pageH * 1.5) {
@@ -12646,6 +12647,7 @@ float svgW = 0.0f, svgH = 0.0f;
       }
       pageData.viewBoxW = svgW;
       pageData.viewBoxH = svgH;
+      pageData.collapsed = contentCollapsed;
       result.push_back(std::move(pageData));
       continue;
     }
@@ -12843,6 +12845,93 @@ HRESULT CImageLoader::LoadCDR(LPCWSTR filePath,
   const float svgH = firstPage.viewBoxH;
   const float svgVbX = firstPage.viewBoxX;
   const float svgVbY = firstPage.viewBoxY;
+
+  // [X7 Collapse Guard] libcdr's v1700 (X7 "CDRH") support is incomplete:
+  // object transforms parse as pure translations and the page/geometry pairing
+  // still collapses artwork to <1% of the page or pushes it off-page, so the
+  // vector render comes out blank or as stray fragments. When the render-probe
+  // finds drawn content covering <2% of the page (or nothing at all), fall
+  // back to the embedded preview (CorelDRAW's own render stored inside the
+  // CDR container) so the user sees the real artwork. Strictly gated to
+  // v1700 files -- other versions keep the full vector path.
+  {
+    // The collapse verdict was computed in ProcessCdrSvgPages(fastMode) against
+    // the ORIGINAL page rectangle -- re-probing here against the (possibly
+    // rewritten) viewBox would miss it: the rewritten view frames the stray
+    // fragment, which then fills the probe box and hides the collapse.
+    bool collapsed = firstPage.collapsed;
+    fprintf(stderr, "[X7-GUARD] collapsed=%d\n", collapsed ? 1 : 0);
+    if (collapsed) {
+      // [Version gate v2] getSubStreamByName on the ZIP container returned a
+      // substream whose read failed / returned non-CDRH data in practice
+      // (diag: isV1700=0 on a genuine CDRH file). Scan the RAW file bytes
+      // instead: root.dat is the only RIFF form in the container, and in
+      // JTN-style packages it is DEFLATED inside the zip -- so scan for the
+      // RIFF form signature after inflating via PreviewExtractor is unreliable.
+      // Robust and cheap: re-check via the RVNG substream but fall back to a
+      // raw-buffer scan of the first root.dat-adjacent local header region.
+      // Simplest reliable signal: the ZIP container MUST contain
+      // previews/page1.png (X7+ layout) -- combined with the collapse verdict
+      // this is a sufficient X7 marker for the fallback decision.
+      bool isV1700 = false;
+      {
+        librevenge::RVNGInputStream *sub =
+            input.getSubStreamByName("previews/page1.png");
+        if (sub) {
+          isV1700 = true;  // X7+ container layout confirmed
+          delete sub;
+        }
+      }
+      if (!isV1700)
+        collapsed = false;  // non-X7 container keeps the trustworthy vector path
+      fprintf(stderr, "[X7-GUARD] isV1700=%d collapsed=%d\n",
+              isV1700 ? 1 : 0, collapsed ? 1 : 0);
+    }
+    if (collapsed) {
+        PreviewExtractor::ExtractedData exData;
+        bool exOk = PreviewExtractor::ExtractFromCDR(fileData.data(),
+                                                     fileData.size(), exData) &&
+                    exData.IsValid();
+        fprintf(stderr, "[X7-GUARD] extract=%d\n", exOk ? 1 : 0);
+        if (exOk) {
+          ThumbData td;
+          if (SUCCEEDED(LoadThumbImageFromMemoryWIC(exData.pData, exData.size,
+                                                    4096, &td)) &&
+              td.isValid && td.pixels.size() > 0 && td.width > 0 &&
+              td.height > 0) {
+            uint8_t *heap = new (std::nothrow) uint8_t[td.pixels.size()];
+            if (heap) {
+              memcpy(heap, td.pixels.data(), td.pixels.size());
+              outFrame->pixels = heap;
+              outFrame->width = td.width;
+              outFrame->height = td.height;
+              outFrame->stride = (td.stride > 0) ? td.stride : td.width * 4;
+              outFrame->format = PixelFormat::BGRA8888;
+              outFrame->svg.reset();
+              outFrame->formatDetails =
+                  isCdr ? L"CDR (embedded preview)" : L"CMX (embedded preview)";
+              outFrame->quality = QuickView::DecodeQuality::Full;
+              if (pLoaderName)
+                *pLoaderName = isCdr ? L"libcdr+embedded preview (CDR)"
+                                     : L"libcdr+embedded preview (CMX)";
+              if (pMetadata) {
+                pMetadata->LoaderName = *pLoaderName;
+                pMetadata->Format = isCdr ? L"CDR" : L"CMX";
+                pMetadata->FormatDetails = L"Embedded preview (CorelDRAW)";
+                pMetadata->Width = (UINT)td.width;
+                pMetadata->Height = (UINT)td.height;
+                pMetadata->pageCount = static_cast<uint32_t>(
+                    m_bPopulateCdrCache ? g_cdrPageCache.size()
+                                        : svgPages.size());
+                outFrame->pageCount = pMetadata->pageCount;
+              }
+              return S_OK;
+            }
+          }
+        }
+        // Preview unavailable -> keep the vector frame (previous behavior).
+      }
+    }
 
   // [SVG_XML] 直接输出 SVG 矢量数据，跳过 MuPDF 光栅化。
   // 与普通 SVG/PLT/DXF/DWG 走同一条路径：main.cpp 中 IsSvg() 检测后

@@ -775,6 +775,8 @@ struct CdrPageData {
   float viewBoxY = 0.0f;         // viewBox origin Y (may be < 0 after expansion)
   float viewBoxW = 0.0f;
   float viewBoxH = 0.0f;
+  bool collapsed = false;  // [X7] libcdr v1700 transform gap: rendered content
+                           // covers <2% of the page -> embedded-preview fallback
 };
 
 // Access the global CDR page cache (populated by LoadCDR, consumed by main.cpp)
