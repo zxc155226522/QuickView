@@ -5882,12 +5882,18 @@ static MupdfExtentRect ComputeMupdfDrawableExtent(const ImageResource& res) {
     if (r.w <= 0.0 || r.h <= 0.0 || !res.mupdfSrc) return r;
     if (res.mupdfSrc->contentBoxState.load(std::memory_order_acquire) != 1)
         return r; // bbox 未就绪/失败：退回画布
+    // [Origin Fix] resvg_get_image_bbox 返回的是"树坐标"——usvg 把根 viewBox
+    // 原点烘焙进了树坐标空间（内容坐标 = 用户坐标 - viewBox原点，已用合成
+    // SVG 实测）。换算回用户坐标必须加回原点，否则原点非 0 的文件（画布外
+    // 扩展过的正是此类）R 整体错位，画布外内容被裁掉。
     const double padX = r.w * kMupdfExtentPad;
     const double padY = r.h * kMupdfExtentPad;
-    double bx = res.mupdfSrc->contentBoxX - padX;
-    double by = res.mupdfSrc->contentBoxY - padY;
-    double bx2 = res.mupdfSrc->contentBoxX + res.mupdfSrc->contentBoxW + padX;
-    double by2 = res.mupdfSrc->contentBoxY + res.mupdfSrc->contentBoxH + padY;
+    double bx = (double)res.svgViewBoxX + res.mupdfSrc->contentBoxX - padX;
+    double by = (double)res.svgViewBoxY + res.mupdfSrc->contentBoxY - padY;
+    double bx2 = (double)res.svgViewBoxX + res.mupdfSrc->contentBoxX +
+                 res.mupdfSrc->contentBoxW + padX;
+    double by2 = (double)res.svgViewBoxY + res.mupdfSrc->contentBoxY +
+                 res.mupdfSrc->contentBoxH + padY;
     // 页外超出封顶：bbox 相对画布每侧最多外推 1×页尺寸
     bx = (std::max)(bx, r.x - r.w * kMupdfExtentOverhang);
     by = (std::max)(by, r.y - r.h * kMupdfExtentOverhang);
