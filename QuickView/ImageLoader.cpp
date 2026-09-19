@@ -4445,13 +4445,19 @@ static HRESULT SaveBgraAsPng(IWICImagingFactory* wf, LPCWSTR outPath,
 // |excludeRect|（SVG 单位 x/y/w/h，可空）：统计时跳过该矩形内的像素。调用方
 // 传入 Corel 页面矩形——否则页面自身的内容会污染覆盖率，页面铺满 + 页外零星
 // 对象的文件会被误判为"页外有内容"而打开即缩小整幅。
+// [QuickView Fix4] 多分辨率升级探测：拼版类文件的页外内容是细线网格 + 小花标
+// （GCGSAMC-反光印实测 7121x3164 单位内 3 块拼版网格），在 96px 探测下线条
+// 亚像素、标记仅零点几像素，实测覆盖率 5.9%，刚好被 0.08 阈值拒掉导致整幅
+// 不显示；256px 下实测 13.7%。因此 96px 探测不过阈值时依次用 256px/512px
+// 重测取最大——细线内容在任何分辨率下占比都趋近真实几何密度，而游离杂点
+// 在任何分辨率下都趋近 0%，阈值语义不因升级而放宽。
 // ----------------------------------------------------------------------------
 static constexpr double kCdrOutsideCoverageMin = 0.08;
 
-static double QvSvgRenderCoverage(resvg_render_tree *tree,
-                                  double rx, double ry, double rw, double rh,
-                                  int n = 96,
-                                  const double *excludeRect = nullptr) {
+static double QvSvgRenderCoverageAt(resvg_render_tree *tree,
+                                    double rx, double ry, double rw, double rh,
+                                    int n,
+                                    const double *excludeRect) {
   if (!tree || rw <= 0.0 || rh <= 0.0)
     return 0.0;
   double s = (double)n / std::max(rw, rh);
@@ -4493,6 +4499,27 @@ static double QvSvgRenderCoverage(resvg_render_tree *tree,
     }
   }
   return counted ? (double)hit / (double)counted : 0.0;
+}
+
+static double QvSvgRenderCoverage(resvg_render_tree *tree,
+                                  double rx, double ry, double rw, double rh,
+                                  int n = 96,
+                                  const double *excludeRect = nullptr) {
+  double cov = QvSvgRenderCoverageAt(tree, rx, ry, rw, rh, n, excludeRect);
+  if (cov >= kCdrOutsideCoverageMin)
+    return cov;
+  // 未过阈值：升级分辨率重测（细线/小标记内容在低分辨率下欠采样）
+  static const int kProbeScales[] = {256, 512};
+  for (int scale : kProbeScales) {
+    if (scale == n)
+      continue;
+    double c = QvSvgRenderCoverageAt(tree, rx, ry, rw, rh, scale, excludeRect);
+    if (c > cov)
+      cov = c;
+    if (cov >= kCdrOutsideCoverageMin)
+      break;
+  }
+  return cov;
 }
 
 // [QuickView Fix3c] 渲染探测：在 |px,py,pw,ph|（SVG 用户单位）内以极小分辨率
