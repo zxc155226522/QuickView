@@ -121,6 +121,7 @@
 #define CDR_FOURCC_styl 0x6c797473
 #define CDR_FOURCC_sumi 0x696d7573
 #define CDR_FOURCC_summ 0x6d6d7573
+#define CDR_FOURCC_sytr 0x72747973
 
 #define CDR_FOURCC_trfd 0x64667274
 #define CDR_FOURCC_trfl 0x6c667274

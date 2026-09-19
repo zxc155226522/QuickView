@@ -653,25 +653,35 @@ bool libcdr::CDRParser::parseRecord(librevenge::RVNGInputStream *input, const st
       else if (listType == CDR_FOURCC_vect || listType == CDR_FOURCC_clpt)
         m_collector->collectVect(level);
 
+      // [QuickView Fix] 'sytr' 是文档级符号/样式定义托盘（X4+，位于 doc 列表内、
+      // 首个 page 之前）。其中的 grp/lgob/obj 只是定义，CorelDRAW 从不将其作为
+      // 页面内容绘制。但 collectGroup/collectObject 在"尚无页面打开"时会误调
+      // _startPage，把定义对象画进一个幻影首页 —— 实测 X4 工艺单文件打开后
+      // 第一页是 3 个符号定义碎片，真正的页面被挤成第 2 页。直接跳过子树：
+      // 定义不被绘制（libcdr 本就不支持符号引用展开），两遍解析均不受影响。
+      bool skipList = (listType == CDR_FOURCC_sytr);
       bool compressed = (listType == CDR_FOURCC_cmpr ? true : false);
       CDRInternalStream tmpStream(input, cmprsize, compressed);
-      if (!compressed)
+      if (!skipList)
       {
-        if (!parseRecords(&tmpStream, blockLengths, level+1))
-          return false;
-      }
-      else
-      {
-        const long here = input->tell();
-        if (here < 0 || static_cast<unsigned long>(here) > length + position)
-          return false;
-        std::vector<unsigned> tmpBlockLengths;
-        unsigned long blocksLength = length + position - here;
-        CDRInternalStream tmpBlocksStream(input, blocksLength, compressed);
-        while (!tmpBlocksStream.isEnd())
-          tmpBlockLengths.push_back(readU32(&tmpBlocksStream));
-        if (!parseRecords(&tmpStream, tmpBlockLengths, level+1))
-          return false;
+        if (!compressed)
+        {
+          if (!parseRecords(&tmpStream, blockLengths, level+1))
+            return false;
+        }
+        else
+        {
+          const long here = input->tell();
+          if (here < 0 || static_cast<unsigned long>(here) > length + position)
+            return false;
+          std::vector<unsigned> tmpBlockLengths;
+          unsigned long blocksLength = length + position - here;
+          CDRInternalStream tmpBlocksStream(input, blocksLength, compressed);
+          while (!tmpBlocksStream.isEnd())
+            tmpBlockLengths.push_back(readU32(&tmpBlocksStream));
+          if (!parseRecords(&tmpStream, tmpBlockLengths, level+1))
+            return false;
+        }
       }
     }
     else
